@@ -510,23 +510,21 @@ async def process_rf3_real(job_id: str, request: RF3Request):
         from rf3.inference_engines.rf3 import RF3InferenceEngine
         from rf3.utils.inference import InferenceInput
 
-        # Initialize RF3 engine
+        # For sequence-only input, use CLI approach (Python API needs atom_array)
+        if not request.pdb_content:
+            print("[RF3] Sequence-only input, using CLI approach")
+            await process_rf3_cli(job_id, request)
+            return
+
+        # Initialize RF3 engine for structure input
         inference_engine = RF3InferenceEngine(ckpt_path='rf3', verbose=False)
 
-        # Create input - either from sequence or from PDB structure
-        if request.pdb_content:
-            # Structure-based input
-            atom_array = pdb_to_atom_array(request.pdb_content)
-            input_data = InferenceInput.from_atom_array(
-                atom_array,
-                example_id=request.name or "prediction"
-            )
-        else:
-            # Sequence-based input - create a minimal fasta-like input
-            input_data = InferenceInput.from_sequence(
-                request.sequence,
-                example_id=request.name or "prediction"
-            )
+        # Structure-based input
+        atom_array = pdb_to_atom_array(request.pdb_content)
+        input_data = InferenceInput.from_atom_array(
+            atom_array,
+            example_id=request.name or "prediction"
+        )
 
         # Run inference
         rf3_outputs = inference_engine.run(inputs=input_data)

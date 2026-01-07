@@ -622,16 +622,24 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             os.makedirs(out_dir, exist_ok=True)
 
             # Create .project-root file that rootutils requires
-            # Create in both tmpdir and /workspace to cover all cases
-            with open(os.path.join(tmpdir, ".project-root"), "w") as f:
-                f.write("")
-            workspace_root = "/workspace/.project-root"
-            if not os.path.exists(workspace_root):
+            # rootutils searches from rf3 package location UP the directory tree
+            # We need to create it in locations along that path
+            project_root_locations = [
+                os.path.join(tmpdir, ".project-root"),
+                "/workspace/.project-root",
+                "/workspace/foundry_env/.project-root",
+                "/workspace/foundry_env/lib/.project-root",
+                "/workspace/foundry_env/lib/python3.12/.project-root",
+                "/workspace/foundry_env/lib/python3.12/site-packages/.project-root",
+            ]
+            for loc in project_root_locations:
                 try:
-                    with open(workspace_root, "w") as f:
-                        f.write("")
-                except Exception:
-                    pass  # May not have write permission
+                    if not os.path.exists(loc):
+                        with open(loc, "w") as f:
+                            f.write("")
+                        print(f"[RF3] Created {loc}")
+                except Exception as e:
+                    print(f"[RF3] Could not create {loc}: {e}")
 
             rf3_cli = get_cli_path("rf3")
             cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={fasta_path}"

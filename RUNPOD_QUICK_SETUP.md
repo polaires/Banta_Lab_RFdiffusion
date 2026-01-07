@@ -304,8 +304,9 @@ If using a network volume, restart takes ~30 seconds.
 |----------|--------|-------------|
 | `/health` | GET | Health check with GPU, mode, and model status |
 | `/api/rfd3/design` | POST | RFdiffusion3 structure design |
-| `/api/rf3/predict` | POST | RosettaFold3 structure prediction |
+| `/api/rf3/predict` | POST | RosettaFold3 structure prediction (returns CIF format) |
 | `/api/mpnn/design` | POST | ProteinMPNN sequence design |
+| `/api/validate/rmsd` | POST | Calculate RMSD between two structures |
 | `/api/jobs/{job_id}` | GET | Get job status and results |
 | `/api/jobs` | GET | List all jobs |
 | `/api/jobs/{job_id}` | DELETE | Delete a job |

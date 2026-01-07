@@ -3,6 +3,7 @@
  */
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { JobStatus, HealthResponse } from './api';
 
 interface Job {
@@ -64,10 +65,25 @@ interface AppState {
   setLastCompletedJobType: (type: 'rfd3' | 'rf3' | 'mpnn' | null) => void;
 }
 
+// Helper to get initial backend URL (localStorage > env > default)
+const getInitialBackendUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('foundry-backend-url');
+    if (stored) return stored;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+};
+
 export const useStore = create<AppState>((set) => ({
-  // Backend connection
-  backendUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  setBackendUrl: (url) => set({ backendUrl: url }),
+  // Backend connection - persisted to localStorage
+  backendUrl: getInitialBackendUrl(),
+  setBackendUrl: (url) => {
+    // Persist to localStorage
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('foundry-backend-url', url);
+    }
+    set({ backendUrl: url });
+  },
 
   // Health status
   health: null,

@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
-import { Wifi, WifiOff, Cpu, Check, X, AlertCircle, Sparkles } from 'lucide-react';
+import { Wifi, WifiOff, Cpu, Check, X, AlertCircle, Sparkles, HelpCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 
 export function ConnectionStatus() {
   const { backendUrl, setBackendUrl, health, setHealth } = useStore();
   const [inputUrl, setInputUrl] = useState(backendUrl);
   const [checking, setChecking] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
 
   const checkConnection = async () => {
     setChecking(true);
@@ -30,6 +31,11 @@ export function ConnectionStatus() {
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Sync inputUrl when backendUrl changes (e.g., from localStorage)
+  useEffect(() => {
+    setInputUrl(backendUrl);
+  }, [backendUrl]);
 
   const isConnected = health?.status === 'healthy';
 
@@ -126,10 +132,68 @@ export function ConnectionStatus() {
       )}
 
       {!health && !checking && (
-        <p className="text-sm text-red-400">
-          Unable to connect to backend. Make sure your RunPod pod is running.
-        </p>
+        <div className="space-y-2">
+          <p className="text-sm text-red-400">
+            Unable to connect to backend. Make sure your RunPod pod is running.
+          </p>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
+          >
+            <HelpCircle className="w-4 h-4" />
+            Need help setting up?
+          </button>
+        </div>
       )}
+
+      {/* Setup Help Section */}
+      <div className="border-t border-gray-700 pt-3 mt-3">
+        <button
+          onClick={() => setShowHelp(!showHelp)}
+          className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-300 w-full"
+        >
+          <HelpCircle className="w-4 h-4" />
+          <span>Setup Instructions</span>
+          {showHelp ? <ChevronUp className="w-4 h-4 ml-auto" /> : <ChevronDown className="w-4 h-4 ml-auto" />}
+        </button>
+
+        {showHelp && (
+          <div className="mt-3 space-y-3 text-sm">
+            <div className="bg-gray-700/50 rounded p-3 space-y-2">
+              <h3 className="font-medium text-gray-200">Quick Setup (RunPod)</h3>
+              <ol className="list-decimal list-inside space-y-1 text-gray-400">
+                <li>Deploy a GPU pod (A40 recommended) on <a href="https://console.runpod.io/deploy" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">RunPod <ExternalLink className="w-3 h-3 inline" /></a></li>
+                <li>Add <code className="bg-gray-800 px-1 rounded">8000</code> to HTTP Ports</li>
+                <li>Open Jupyter Lab and run the setup cell from <a href="https://github.com/polaires/Banta_Lab_RFdiffusion/blob/main/RUNPOD_QUICK_SETUP.md" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">RUNPOD_QUICK_SETUP.md <ExternalLink className="w-3 h-3 inline" /></a></li>
+                <li>Copy your API URL: <code className="bg-gray-800 px-1 rounded text-xs">https://POD_ID-8000.proxy.runpod.net</code></li>
+                <li>Paste above and click Connect</li>
+              </ol>
+            </div>
+
+            <div className="bg-gray-700/50 rounded p-3 space-y-2">
+              <h3 className="font-medium text-gray-200">URL Format</h3>
+              <p className="text-gray-400">Your backend URL should look like:</p>
+              <code className="block bg-gray-800 px-2 py-1 rounded text-xs text-green-400">
+                https://abc123xyz-8000.proxy.runpod.net
+              </code>
+              <p className="text-xs text-gray-500">Find this in your RunPod pod&apos;s Connect menu</p>
+            </div>
+
+            <div className="bg-gray-700/50 rounded p-3 space-y-2">
+              <h3 className="font-medium text-gray-200">Troubleshooting</h3>
+              <ul className="space-y-1 text-gray-400">
+                <li><span className="text-yellow-400">Connection refused:</span> Re-run the setup cell in Jupyter</li>
+                <li><span className="text-yellow-400">CORS error:</span> Check that port 8000 is in HTTP Ports</li>
+                <li><span className="text-yellow-400">Mock mode:</span> Checkpoints may still be downloading</li>
+              </ul>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Your URL is automatically saved and will persist across browser sessions.
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

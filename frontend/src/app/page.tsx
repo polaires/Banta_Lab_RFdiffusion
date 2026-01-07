@@ -7,6 +7,7 @@ import { RFD3Panel } from '@/components/RFD3Panel';
 import { RF3Panel } from '@/components/RF3Panel';
 import { MPNNPanel } from '@/components/MPNNPanel';
 import { JobsPanel } from '@/components/JobsPanel';
+import { WorkflowStepper } from '@/components/WorkflowStepper';
 import { Dna, Atom, FlaskConical, History } from 'lucide-react';
 import { NotificationToast } from '@/components/NotificationToast';
 
@@ -54,7 +55,10 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Workflow Progress */}
+        <WorkflowStepper />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Sidebar - Connection & Settings */}
           <div className="lg:col-span-1 space-y-6">

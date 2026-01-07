@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-// Import Molstar CSS
-import 'molstar/lib/mol-plugin-ui/skin/dark.scss';
+// Import Molstar CSS - use light theme
+import 'molstar/lib/mol-plugin-ui/skin/light.scss';
 
 interface ProteinViewerProps {
   pdbContent: string | null;
@@ -156,31 +156,31 @@ export function ProteinViewer({ pdbContent, className = '' }: ProteinViewerProps
   }, [pdbContent, isReady]);
 
   return (
-    <div className={`relative bg-gray-900 rounded-lg overflow-hidden ${className}`}>
+    <div className={`relative bg-gray-100 rounded-lg overflow-hidden ${className}`}>
       <div ref={containerRef} className="w-full h-full" style={{ minHeight: '300px' }} />
 
       {/* No structure placeholder */}
       {!pdbContent && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90 pointer-events-none">
-          <p className="text-gray-400">No structure to display</p>
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 pointer-events-none">
+          <p className="text-gray-500">No structure to display</p>
         </div>
       )}
 
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80 pointer-events-none">
-          <div className="flex items-center gap-2 text-gray-300">
-            <div className="w-5 h-5 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+        <div className="absolute inset-0 flex items-center justify-center bg-white/80 pointer-events-none">
+          <div className="flex items-center gap-2 text-gray-600">
+            <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
             Loading structure...
           </div>
         </div>
       )}
 
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-900/90">
+        <div className="absolute inset-0 flex items-center justify-center bg-white/95">
           <div className="text-center p-4">
-            <p className="text-red-400 mb-2">{error}</p>
+            <p className="text-red-600 mb-2">{error}</p>
             <p className="text-xs text-gray-500">Fallback: Showing raw PDB</p>
-            <pre className="mt-2 text-xs text-green-400 max-h-48 overflow-auto text-left">
+            <pre className="mt-2 text-xs text-gray-700 bg-gray-100 p-2 rounded max-h-48 overflow-auto text-left">
               {pdbContent?.slice(0, 2000)}...
             </pre>
           </div>
@@ -189,7 +189,7 @@ export function ProteinViewer({ pdbContent, className = '' }: ProteinViewerProps
 
       {/* Viewer controls hint */}
       {pdbContent && !error && (
-        <div className="absolute bottom-2 left-2 text-xs text-gray-500 pointer-events-none">
+        <div className="absolute bottom-2 left-2 text-xs text-gray-600 bg-white/70 px-2 py-1 rounded pointer-events-none">
           Drag to rotate • Scroll to zoom • Shift+drag to pan
         </div>
       )}

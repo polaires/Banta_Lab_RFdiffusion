@@ -162,21 +162,24 @@ export function RFD3Panel() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold mb-2">RFdiffusion3 - Structure Design</h2>
-        <p className="text-gray-400 text-sm">
-          Generate de novo protein structures using diffusion-based generative AI
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-medium px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">Step 1</span>
+          <h2 className="text-xl font-bold">RFdiffusion3 - Structure Design</h2>
+        </div>
+        <p className="text-gray-600 text-sm">
+          Generate de novo protein backbone structures. After design, proceed to MPNN for sequence design.
         </p>
       </div>
 
       {/* Quick Examples */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300">Quick Examples</label>
+        <label className="text-sm font-medium text-gray-700">Quick Examples</label>
         <div className="flex flex-wrap gap-2">
           {Object.entries(EXAMPLE_CONFIGS).map(([name, config]) => (
             <button
               key={name}
               onClick={() => setContig(config.contig)}
-              className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition"
+              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
               title={config.description}
             >
               {name}
@@ -188,10 +191,10 @@ export function RFD3Panel() {
       {/* Contig Specification */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+          <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
             Contig Specification
             <span title="Define regions to design">
-              <Info className="w-4 h-4 text-gray-500" />
+              <Info className="w-4 h-4 text-gray-400" />
             </span>
           </label>
           <button
@@ -199,7 +202,7 @@ export function RFD3Panel() {
             className={`text-xs px-2 py-1 rounded flex items-center gap-1 transition ${
               showBuilder
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
             }`}
           >
             <Wand2 className="w-3 h-3" />
@@ -211,7 +214,7 @@ export function RFD3Panel() {
           value={contig}
           onChange={(e) => setContig(e.target.value)}
           placeholder="e.g., A1-50/0 50-100"
-          className="w-full px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+          className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none text-gray-900"
         />
         <p className="text-xs text-gray-500">
           Examples: &quot;100&quot; for 100 residues, &quot;A1-50/0 50-100&quot; for binder with 50-100 new residues
@@ -228,12 +231,12 @@ export function RFD3Panel() {
 
       {/* Input PDB for Conditional Design */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300">
+        <label className="text-sm font-medium text-gray-700">
           Input Structure (Optional - for binder/scaffold design)
         </label>
-        <label className="flex py-4 border-2 border-dashed border-gray-600 rounded-lg hover:border-gray-500 cursor-pointer transition items-center justify-center gap-2">
-          <Upload className="w-5 h-5 text-gray-500" />
-          <span className="text-sm text-gray-400">
+        <label className="flex py-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 cursor-pointer transition items-center justify-center gap-2 bg-gray-50">
+          <Upload className="w-5 h-5 text-gray-400" />
+          <span className="text-sm text-gray-500">
             {inputPdbName || 'Upload target PDB'}
           </span>
           <input
@@ -244,14 +247,14 @@ export function RFD3Panel() {
           />
         </label>
         {inputPdb && (
-          <div className="flex items-center justify-between text-xs text-gray-500">
+          <div className="flex items-center justify-between text-xs text-gray-600">
             <span>✓ {inputPdbName} loaded</span>
             <button
               onClick={() => {
                 setInputPdb(null);
                 setInputPdbName(null);
               }}
-              className="text-red-400 hover:text-red-300"
+              className="text-red-600 hover:text-red-700"
             >
               Remove
             </button>
@@ -262,14 +265,14 @@ export function RFD3Panel() {
       {/* Number of Designs & Seed */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-300">Number of Designs</label>
+          <label className="text-sm font-medium text-gray-700">Number of Designs</label>
           <input
             type="number"
             value={numDesigns}
             onChange={(e) => setNumDesigns(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
             min={1}
             max={10}
-            className="w-full px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none text-gray-900"
           />
         </div>
 
@@ -280,9 +283,9 @@ export function RFD3Panel() {
               id="useSeed"
               checked={useSeed}
               onChange={(e) => setUseSeed(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-gray-300 bg-white text-blue-600 focus:ring-blue-500"
             />
-            <label htmlFor="useSeed" className="text-sm font-medium text-gray-300">
+            <label htmlFor="useSeed" className="text-sm font-medium text-gray-700">
               Use Seed (reproducibility)
             </label>
           </div>
@@ -293,12 +296,12 @@ export function RFD3Panel() {
               onChange={(e) => setSeed(parseInt(e.target.value) || null)}
               placeholder="Random seed"
               disabled={!useSeed}
-              className="flex-1 px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none disabled:opacity-50"
+              className="flex-1 px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none disabled:opacity-50 text-gray-900"
             />
             <button
               onClick={generateRandomSeed}
               disabled={!useSeed}
-              className="p-2 bg-gray-600 hover:bg-gray-500 rounded disabled:opacity-50"
+              className="p-2 bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 text-gray-700"
               title="Generate random seed"
             >
               <Shuffle className="w-4 h-4" />
@@ -309,7 +312,7 @@ export function RFD3Panel() {
 
       {/* Error Display */}
       {error && (
-        <div className="p-3 bg-red-900/50 border border-red-700 rounded text-sm text-red-200">
+        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
           {error}
         </div>
       )}
@@ -334,7 +337,7 @@ export function RFD3Panel() {
       </button>
 
       {!health && (
-        <p className="text-sm text-yellow-400 text-center">
+        <p className="text-sm text-amber-600 text-center">
           Connect to backend to enable design
         </p>
       )}
@@ -343,7 +346,7 @@ export function RFD3Panel() {
       {lastDesignPdb && (
         <button
           onClick={downloadPdb}
-          className="w-full py-2 bg-gray-700 hover:bg-gray-600 rounded font-medium flex items-center justify-center gap-2 transition text-sm"
+          className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-medium flex items-center justify-center gap-2 transition text-sm"
         >
           <Download className="w-4 h-4" />
           Download Design (PDB)

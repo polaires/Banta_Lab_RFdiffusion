@@ -89,6 +89,12 @@ interface AppState {
   // RMSD validation result
   latestRmsdResult: RMSDResult | null;
   setLatestRmsdResult: (result: RMSDResult | null) => void;
+
+  // UI state
+  viewerCollapsed: boolean;
+  setViewerCollapsed: (collapsed: boolean) => void;
+  connectionModalOpen: boolean;
+  setConnectionModalOpen: (open: boolean) => void;
 }
 
 // Helper to get initial backend URL (localStorage > env > default)
@@ -169,4 +175,10 @@ export const useStore = create<AppState>((set) => ({
   // RMSD validation
   latestRmsdResult: null,
   setLatestRmsdResult: (result) => set({ latestRmsdResult: result }),
+
+  // UI state
+  viewerCollapsed: false,
+  setViewerCollapsed: (collapsed) => set({ viewerCollapsed: collapsed }),
+  connectionModalOpen: false,
+  setConnectionModalOpen: (open) => set({ connectionModalOpen: open }),
 }));

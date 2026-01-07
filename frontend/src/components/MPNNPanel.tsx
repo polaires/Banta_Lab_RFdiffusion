@@ -148,9 +148,12 @@ export function MPNNPanel() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold mb-2">ProteinMPNN - Sequence Design</h2>
-        <p className="text-gray-400 text-sm">
-          Design amino acid sequences for a given protein backbone structure using LigandMPNN or ProteinMPNN.
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-medium px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">Step 2</span>
+          <h2 className="text-xl font-bold">ProteinMPNN - Sequence Design</h2>
+        </div>
+        <p className="text-gray-600 text-sm">
+          Design amino acid sequences for your RFD3 backbone. After design, validate with RF3 structure prediction.
         </p>
       </div>
 
@@ -167,12 +170,12 @@ export function MPNNPanel() {
 
       {/* PDB Upload */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300">Input Structure (PDB)</label>
+        <label className="text-sm font-medium text-gray-700">Input Structure (PDB)</label>
 
         <div className="flex gap-2">
-          <label className="flex-1 py-8 border-2 border-dashed border-gray-600 rounded-lg hover:border-gray-500 cursor-pointer transition flex flex-col items-center justify-center gap-2">
-            <Upload className="w-8 h-8 text-gray-500" />
-            <span className="text-sm text-gray-400">
+          <label className="flex-1 py-8 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 cursor-pointer transition flex flex-col items-center justify-center gap-2 bg-gray-50">
+            <Upload className="w-8 h-8 text-gray-400" />
+            <span className="text-sm text-gray-500">
               {pdbContent ? 'File loaded' : 'Click to upload PDB'}
             </span>
             <input
@@ -187,41 +190,41 @@ export function MPNNPanel() {
 
       {/* Or paste PDB */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300">Or Paste PDB Content</label>
+        <label className="text-sm font-medium text-gray-700">Or Paste PDB Content</label>
         <textarea
           value={pdbContent}
           onChange={(e) => setPdbContent(e.target.value)}
           placeholder="ATOM      1  N   ALA A   1      ..."
           rows={6}
-          className="w-full px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none font-mono text-xs"
+          className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none font-mono text-xs text-gray-900"
         />
       </div>
 
       {/* Model Type Selection */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300">Model Type</label>
+        <label className="text-sm font-medium text-gray-700">Model Type</label>
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => setModelType('ligand_mpnn')}
             className={`p-3 rounded-lg border-2 transition text-left ${
               modelType === 'ligand_mpnn'
-                ? 'border-purple-500 bg-purple-900/30'
-                : 'border-gray-600 hover:border-gray-500'
+                ? 'border-purple-500 bg-purple-50'
+                : 'border-gray-200 hover:border-gray-300 bg-white'
             }`}
           >
-            <div className="font-medium">LigandMPNN</div>
-            <div className="text-xs text-gray-400">Ligand-aware design (recommended)</div>
+            <div className="font-medium text-gray-900">LigandMPNN</div>
+            <div className="text-xs text-gray-500">Ligand-aware design (recommended)</div>
           </button>
           <button
             onClick={() => setModelType('protein_mpnn')}
             className={`p-3 rounded-lg border-2 transition text-left ${
               modelType === 'protein_mpnn'
-                ? 'border-purple-500 bg-purple-900/30'
-                : 'border-gray-600 hover:border-gray-500'
+                ? 'border-purple-500 bg-purple-50'
+                : 'border-gray-200 hover:border-gray-300 bg-white'
             }`}
           >
-            <div className="font-medium">ProteinMPNN</div>
-            <div className="text-xs text-gray-400">Original protein-only model</div>
+            <div className="font-medium text-gray-900">ProteinMPNN</div>
+            <div className="text-xs text-gray-500">Original protein-only model</div>
           </button>
         </div>
         <div className="flex items-start gap-2 text-xs text-gray-500">
@@ -233,18 +236,18 @@ export function MPNNPanel() {
       {/* Parameters */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-300">Number of Sequences</label>
+          <label className="text-sm font-medium text-gray-700">Number of Sequences</label>
           <input
             type="number"
             value={numSequences}
             onChange={(e) => setNumSequences(Math.max(1, Math.min(100, parseInt(e.target.value) || 8)))}
             min={1}
             max={100}
-            className="w-full px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none text-gray-900"
           />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-300">Sampling Temperature</label>
+          <label className="text-sm font-medium text-gray-700">Sampling Temperature</label>
           <input
             type="number"
             value={temperature}
@@ -252,7 +255,7 @@ export function MPNNPanel() {
             min={0.01}
             max={2}
             step={0.01}
-            className="w-full px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none"
+            className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none text-gray-900"
           />
           <p className="text-xs text-gray-500">Lower = more conservative, higher = more diverse</p>
         </div>
@@ -265,16 +268,16 @@ export function MPNNPanel() {
           id="removeWaters"
           checked={removeWaters}
           onChange={(e) => setRemoveWaters(e.target.checked)}
-          className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-purple-600 focus:ring-purple-500"
+          className="w-4 h-4 rounded border-gray-300 bg-white text-purple-600 focus:ring-purple-500"
         />
-        <label htmlFor="removeWaters" className="text-sm text-gray-300">
+        <label htmlFor="removeWaters" className="text-sm text-gray-700">
           Remove water molecules from context
         </label>
       </div>
 
       {/* Error Display */}
       {error && (
-        <div className="p-3 bg-red-900/50 border border-red-700 rounded text-sm text-red-200">
+        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
           {error}
         </div>
       )}
@@ -302,7 +305,7 @@ export function MPNNPanel() {
       {result && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-300">
+            <label className="text-sm font-medium text-gray-700">
               Designed Sequences (FASTA)
               {resultModelType && (
                 <span className="ml-2 text-xs text-gray-500">via {resultModelType}</span>
@@ -310,7 +313,7 @@ export function MPNNPanel() {
             </label>
             <button
               onClick={downloadFasta}
-              className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded flex items-center gap-1 transition"
+              className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded flex items-center gap-1 transition"
             >
               <Download className="w-3 h-3" />
               Download

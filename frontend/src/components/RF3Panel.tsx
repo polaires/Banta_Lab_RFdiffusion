@@ -172,25 +172,28 @@ export function RF3Panel() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold mb-2">RosettaFold3 - Structure Prediction</h2>
-        <p className="text-gray-400 text-sm">
-          Predict 3D protein structure from amino acid sequence. Returns confidence metrics (pLDDT, PAE, pTM).
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs font-medium px-2 py-0.5 bg-green-100 text-green-700 rounded-full">Step 3</span>
+          <h2 className="text-xl font-bold">RosettaFold3 - Structure Validation</h2>
+        </div>
+        <p className="text-gray-600 text-sm">
+          Validate designability by predicting the structure from MPNN sequences. Compare to RFD3 design via RMSD.
         </p>
       </div>
 
       {/* Use from RFD3 button */}
       {latestRfd3Design && (
-        <div className="p-3 bg-blue-900/30 border border-blue-700 rounded">
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-blue-300">RFD3 Design Available</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-sm font-medium text-blue-700">RFD3 Design Available</p>
+              <p className="text-xs text-gray-500">
                 Use sequence from your latest RFD3 design for validation
               </p>
             </div>
             <button
               onClick={useRfd3Sequence}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm flex items-center gap-1 transition"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm flex items-center gap-1 transition"
             >
               <ArrowRight className="w-4 h-4" />
               Use Sequence
@@ -201,13 +204,13 @@ export function RF3Panel() {
 
       {/* Quick Examples */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300">Example Sequences</label>
+        <label className="text-sm font-medium text-gray-700">Example Sequences</label>
         <div className="flex flex-wrap gap-2">
           {Object.entries(EXAMPLE_SEQUENCES).map(([name, seq]) => (
             <button
               key={name}
               onClick={() => setSequence(seq)}
-              className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition"
+              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
             >
               {name}
             </button>
@@ -217,7 +220,7 @@ export function RF3Panel() {
 
       {/* Sequence Input */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300">
+        <label className="text-sm font-medium text-gray-700">
           Protein Sequence (FASTA or plain)
         </label>
         <textarea
@@ -225,7 +228,7 @@ export function RF3Panel() {
           onChange={(e) => setSequence(e.target.value)}
           placeholder="MSKGEELFTGVVPILVELDGDVNGHKFSVSG..."
           rows={6}
-          className="w-full px-4 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none font-mono text-sm"
+          className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none font-mono text-sm text-gray-900"
         />
         <p className="text-xs text-gray-500">
           {sequence.replace(/[^A-Za-z]/g, '').length} residues
@@ -234,7 +237,7 @@ export function RF3Panel() {
 
       {/* Error Display */}
       {error && (
-        <div className="p-3 bg-red-900/50 border border-red-700 rounded text-sm text-red-200">
+        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
           {error}
         </div>
       )}

@@ -637,6 +637,40 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             env = os.environ.copy()
             env["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
 
+            # Find the RF3 checkpoint - RF3 CLI looks for it relative to project root
+            # Check common checkpoint locations and create symlink if needed
+            rf3_ckpt_name = "rf3_foundry_01_24_latest.ckpt"
+            rf3_ckpt_target = f"/workspace/{rf3_ckpt_name}"
+
+            possible_ckpt_locations = [
+                f"/workspace/checkpoints/rf3/{rf3_ckpt_name}",
+                f"/workspace/checkpoints/{rf3_ckpt_name}",
+                f"/workspace/foundry_checkpoints/rf3/{rf3_ckpt_name}",
+            ]
+
+            if not os.path.exists(rf3_ckpt_target):
+                for ckpt_path in possible_ckpt_locations:
+                    if os.path.exists(ckpt_path):
+                        try:
+                            os.symlink(ckpt_path, rf3_ckpt_target)
+                            print(f"[RF3] Created symlink: {rf3_ckpt_target} -> {ckpt_path}")
+                        except Exception as e:
+                            print(f"[RF3] Could not create symlink: {e}")
+                        break
+                else:
+                    # List what's in checkpoints directory for debugging
+                    ckpt_dir = "/workspace/checkpoints"
+                    if os.path.exists(ckpt_dir):
+                        contents = os.listdir(ckpt_dir)
+                        print(f"[RF3] Checkpoint dir contents: {contents}")
+                        # Check subdirectories
+                        for subdir in contents:
+                            subpath = os.path.join(ckpt_dir, subdir)
+                            if os.path.isdir(subpath):
+                                subcontents = os.listdir(subpath)
+                                print(f"[RF3] {subdir}/ contents: {subcontents}")
+                    print(f"[RF3] WARNING: RF3 checkpoint not found in any known location")
+
             rf3_cli = get_cli_path("rf3")
             cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={fasta_path}"
             print(f"[RF3] Running: {cmd}")

@@ -687,7 +687,7 @@ def ensure_rf3_checkpoint():
 
 
 async def process_rf3_cli(job_id: str, request: RF3Request):
-    """CLI implementation for RF3 using YAML config for sequence input"""
+    """CLI implementation for RF3 using JSON config for sequence input"""
     try:
         # Ensure checkpoint is available before running
         if not ensure_rf3_checkpoint():
@@ -700,22 +700,26 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             return
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # RF3 CLI doesn't accept FASTA directly - needs YAML/JSON config
-            # Create a YAML config file for sequence input (per RF3 documentation)
-            config_path = os.path.join(tmpdir, "input.yaml")
+            # RF3 CLI uses JSON config with 'components' array
+            # Format discovered from atomworks InferenceInput.from_json_dict()
+            config_path = os.path.join(tmpdir, "input.json")
             example_id = request.name or "prediction"
 
-            # RF3 YAML format for sequence prediction
-            # Based on RF3 input specification
-            yaml_content = f"""# RF3 sequence prediction config
-{example_id}:
-  sequences:
-    A: "{request.sequence}"
-"""
+            # RF3 JSON format for sequence prediction
+            # Uses 'components' array with sequence and chain_id
+            json_content = {
+                "name": example_id,
+                "components": [
+                    {
+                        "sequence": request.sequence,
+                        "chain_id": "A"
+                    }
+                ]
+            }
             with open(config_path, "w") as f:
-                f.write(yaml_content)
+                json.dump(json_content, f, indent=2)
 
-            print(f"[RF3] Created YAML config:\n{yaml_content}")
+            print(f"[RF3] Created JSON config: {json.dumps(json_content, indent=2)}")
 
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)

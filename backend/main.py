@@ -281,60 +281,73 @@ async def process_rfd3_mock(job_id: str, request: RFD3Request):
 
 
 async def process_rfd3_real(job_id: str, request: RFD3Request):
-    """Real Foundry RFD3 implementation"""
+    """Real Foundry RFD3 implementation using Python API"""
     try:
+        # Import Foundry modules (only available when Foundry is installed)
+        from foundry.models.rfd3 import RFD3InferenceConfig, RFD3InferenceEngine
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create input configuration for RFD3
-            # RFD3 uses 'length' for de novo design, 'contig' for conditional design
-            # Simple integers/ranges use 'length', complex contig specs use 'contig'
-            contig_str = request.contig or ""
-
-            # Detect if it's a simple length spec (e.g., "100" or "80-120")
-            # vs a complex contig (e.g., "A40-60,70,A120-170")
-            is_simple_length = contig_str.replace("-", "").isdigit()
-
-            if is_simple_length:
-                # De novo design - use 'length' field
-                input_config = {"length": contig_str, **(request.config or {})}
-            else:
-                # Conditional design - use 'contig' field (singular, not 'contigs')
-                input_config = {"contig": contig_str, **(request.config or {})}
-
-            input_path = os.path.join(tmpdir, "input.json")
-            with open(input_path, "w") as f:
-                json.dump(input_config, f)
-
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)
 
-            # Run RFD3 with 1-hour timeout
-            rfd3_cli = get_cli_path("rfd3")
-            cmd = f"{rfd3_cli} design out_dir={out_dir} inputs={input_path}"
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=3600
+            # Parse contig specification
+            contig_str = request.contig or "100"
+
+            # Detect if it's a simple length spec (e.g., "100" or "80-120")
+            is_simple_length = contig_str.replace("-", "").isdigit()
+
+            # Build specification dict for RFD3
+            if is_simple_length:
+                # De novo design - use length
+                if "-" in contig_str:
+                    spec = {"length": contig_str}  # Range like "80-120"
+                else:
+                    spec = {"length": int(contig_str)}  # Fixed length like 100
+            else:
+                # Conditional design with contig string
+                spec = {"contig": contig_str}
+
+            # Add any extra config
+            spec["extra"] = request.config or {}
+
+            # Create RFD3 config
+            config = RFD3InferenceConfig(
+                out_dir=out_dir,
+                inputs=None,  # Use specification dict instead of file
+                specification=spec,
+                diffusion_batch_size=request.num_designs,
+                n_batches=1,
             )
 
-            if result.returncode == 0:
-                outputs = []
-                for filename in os.listdir(out_dir):
-                    if filename.endswith(".pdb"):
-                        with open(os.path.join(out_dir, filename)) as f:
-                            outputs.append({"filename": filename, "content": f.read()})
+            # Run inference
+            engine = RFD3InferenceEngine(config)
+            results = engine.run()
 
-                jobs[job_id]["status"] = "completed"
-                jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
-                jobs[job_id]["result"] = {
-                    "designs": outputs,
-                    "stdout": result.stdout,
-                    "mode": "real",
-                }
-            else:
-                jobs[job_id]["status"] = "failed"
-                jobs[job_id]["error"] = result.stderr or "Unknown error"
+            # Collect output PDB files
+            outputs = []
+            for filename in os.listdir(out_dir):
+                if filename.endswith(".pdb") or filename.endswith(".cif"):
+                    filepath = os.path.join(out_dir, filename)
+                    with open(filepath) as f:
+                        outputs.append({"filename": filename, "content": f.read()})
 
-    except subprocess.TimeoutExpired:
+            # If no files in out_dir, check if results contain structures directly
+            if not outputs and results:
+                for i, result in enumerate(results):
+                    if hasattr(result, 'to_pdb'):
+                        pdb_content = result.to_pdb()
+                        outputs.append({"filename": f"design_{i+1}.pdb", "content": pdb_content})
+
+            jobs[job_id]["status"] = "completed"
+            jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+            jobs[job_id]["result"] = {
+                "designs": outputs,
+                "mode": "real",
+            }
+
+    except ImportError as e:
         jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = "Job timed out (max 1 hour)"
+        jobs[job_id]["error"] = f"Foundry not installed: {e}"
     except Exception as e:
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)

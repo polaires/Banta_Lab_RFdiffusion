@@ -610,9 +610,92 @@ async def process_rf3_real(job_id: str, request: RF3Request):
         jobs[job_id]["error"] = f"{str(e)}\n{traceback.format_exc()}"
 
 
+def ensure_rf3_checkpoint():
+    """Ensure RF3 checkpoint is available, attempting download if needed"""
+    rf3_ckpt_name = "rf3_foundry_01_24_latest.ckpt"
+    rf3_ckpt_target = f"/workspace/{rf3_ckpt_name}"
+
+    # Check if checkpoint already exists
+    if os.path.exists(rf3_ckpt_target):
+        print(f"[RF3] Checkpoint exists at {rf3_ckpt_target}")
+        return True
+
+    # Check common locations and create symlink
+    possible_locations = [
+        f"/workspace/checkpoints/rf3/{rf3_ckpt_name}",
+        f"/workspace/checkpoints/{rf3_ckpt_name}",
+        f"/workspace/foundry_checkpoints/rf3/{rf3_ckpt_name}",
+        f"/root/.cache/foundry/rf3/{rf3_ckpt_name}",
+        f"/root/.foundry/checkpoints/rf3/{rf3_ckpt_name}",
+    ]
+
+    for ckpt_path in possible_locations:
+        if os.path.exists(ckpt_path):
+            try:
+                os.symlink(ckpt_path, rf3_ckpt_target)
+                print(f"[RF3] Created symlink: {rf3_ckpt_target} -> {ckpt_path}")
+                return True
+            except FileExistsError:
+                return True
+            except Exception as e:
+                print(f"[RF3] Could not create symlink: {e}")
+
+    # Try to trigger checkpoint download via Python API initialization
+    # This works because RFD3InferenceEngine auto-downloads, RF3 might too
+    print("[RF3] Checkpoint not found, attempting to trigger download via Python API...")
+    try:
+        from rf3.inference_engines.rf3 import RF3InferenceEngine
+        # Just initializing the engine should trigger checkpoint download
+        # Use a try block since this might fail or take time
+        engine = RF3InferenceEngine(ckpt_path='rf3', verbose=True)
+        print("[RF3] Successfully initialized RF3 engine (checkpoint should be downloaded)")
+        return True
+    except Exception as e:
+        print(f"[RF3] Python API initialization failed: {e}")
+
+    # Try using Foundry CLI to install checkpoint
+    print("[RF3] Attempting to install via Foundry CLI...")
+    try:
+        foundry_cli = get_cli_path("foundry")
+        result = subprocess.run(
+            f"{foundry_cli} install rf3",
+            shell=True, capture_output=True, text=True, timeout=600,
+            cwd="/workspace"
+        )
+        if result.returncode == 0:
+            print(f"[RF3] Foundry install succeeded: {result.stdout}")
+            return True
+        else:
+            print(f"[RF3] Foundry install failed: {result.stderr}")
+    except Exception as e:
+        print(f"[RF3] Foundry CLI install failed: {e}")
+
+    # Debug: list available directories
+    print("[RF3] Checkpoint not found. Debugging directory contents...")
+    for check_dir in ["/workspace/checkpoints", "/workspace", "/root/.cache/foundry"]:
+        if os.path.exists(check_dir):
+            try:
+                contents = os.listdir(check_dir)
+                print(f"[RF3] {check_dir}: {contents[:20]}")  # Limit output
+            except Exception:
+                pass
+
+    return False
+
+
 async def process_rf3_cli(job_id: str, request: RF3Request):
     """Fallback CLI implementation for RF3"""
     try:
+        # Ensure checkpoint is available before running
+        if not ensure_rf3_checkpoint():
+            jobs[job_id]["status"] = "failed"
+            jobs[job_id]["error"] = (
+                "RF3 checkpoint not found and could not be downloaded. "
+                "Please run 'foundry install rf3' or 'foundry install base-models' "
+                "on your RunPod pod to install the required checkpoint."
+            )
+            return
+
         with tempfile.TemporaryDirectory() as tmpdir:
             fasta_path = os.path.join(tmpdir, "input.fasta")
             with open(fasta_path, "w") as f:
@@ -622,8 +705,6 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             os.makedirs(out_dir, exist_ok=True)
 
             # Create .project-root file in /workspace for rootutils
-            # IMPORTANT: Must be in /workspace, NOT in tmpdir, otherwise RF3 looks for
-            # checkpoints in the wrong location
             workspace_root = "/workspace/.project-root"
             if not os.path.exists(workspace_root):
                 try:
@@ -636,40 +717,6 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             # Set up environment with checkpoint directory
             env = os.environ.copy()
             env["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
-
-            # Find the RF3 checkpoint - RF3 CLI looks for it relative to project root
-            # Check common checkpoint locations and create symlink if needed
-            rf3_ckpt_name = "rf3_foundry_01_24_latest.ckpt"
-            rf3_ckpt_target = f"/workspace/{rf3_ckpt_name}"
-
-            possible_ckpt_locations = [
-                f"/workspace/checkpoints/rf3/{rf3_ckpt_name}",
-                f"/workspace/checkpoints/{rf3_ckpt_name}",
-                f"/workspace/foundry_checkpoints/rf3/{rf3_ckpt_name}",
-            ]
-
-            if not os.path.exists(rf3_ckpt_target):
-                for ckpt_path in possible_ckpt_locations:
-                    if os.path.exists(ckpt_path):
-                        try:
-                            os.symlink(ckpt_path, rf3_ckpt_target)
-                            print(f"[RF3] Created symlink: {rf3_ckpt_target} -> {ckpt_path}")
-                        except Exception as e:
-                            print(f"[RF3] Could not create symlink: {e}")
-                        break
-                else:
-                    # List what's in checkpoints directory for debugging
-                    ckpt_dir = "/workspace/checkpoints"
-                    if os.path.exists(ckpt_dir):
-                        contents = os.listdir(ckpt_dir)
-                        print(f"[RF3] Checkpoint dir contents: {contents}")
-                        # Check subdirectories
-                        for subdir in contents:
-                            subpath = os.path.join(ckpt_dir, subdir)
-                            if os.path.isdir(subpath):
-                                subcontents = os.listdir(subpath)
-                                print(f"[RF3] {subdir}/ contents: {subcontents}")
-                    print(f"[RF3] WARNING: RF3 checkpoint not found in any known location")
 
             rf3_cli = get_cli_path("rf3")
             cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={fasta_path}"

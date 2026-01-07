@@ -54,10 +54,12 @@ class RF3Request(BaseModel):
 
 
 class ProteinMPNNRequest(BaseModel):
-    """ProteinMPNN sequence design request"""
+    """ProteinMPNN/LigandMPNN sequence design request"""
     pdb_content: str
     num_sequences: int = 8
     temperature: float = 0.1
+    model_type: str = "ligand_mpnn"  # "ligand_mpnn" or "protein_mpnn"
+    remove_waters: bool = True
     config: Optional[Dict[str, Any]] = None
 
 
@@ -222,7 +224,7 @@ def run_rf3_job(job_id: str, request: RF3Request):
 
 
 def run_mpnn_job(job_id: str, request: ProteinMPNNRequest):
-    """Run ProteinMPNN in background"""
+    """Run ProteinMPNN/LigandMPNN in background"""
     jobs[job_id]["status"] = "running"
 
     try:
@@ -235,14 +237,32 @@ def run_mpnn_job(job_id: str, request: ProteinMPNNRequest):
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)
 
-            # Run ProteinMPNN
-            cmd = (
-                f"proteinmpnn "
-                f"--pdb {pdb_path} "
-                f"--out_dir {out_dir} "
-                f"--num_seq_per_target {request.num_sequences} "
-                f"--sampling_temp {request.temperature}"
-            )
+            # Get model type from request
+            model_type = request.model_type or 'ligand_mpnn'
+            remove_waters = request.remove_waters
+
+            # Run MPNN using Foundry CLI with correct arguments
+            # CLI: mpnn --structure_path --out_directory --model_type --batch_size --temperature
+            cmd_parts = [
+                "mpnn",
+                f"--structure_path {pdb_path}",
+                f"--out_directory {out_dir}",
+                "--name design",
+                f"--model_type {model_type}",
+                f"--batch_size {request.num_sequences}",
+                f"--temperature {request.temperature}",
+                "--is_legacy_weights True",
+                "--write_fasta True",
+                "--write_structures False",
+            ]
+
+            # Add remove_waters
+            if remove_waters:
+                cmd_parts.append("--remove_waters True")
+
+            cmd = " ".join(cmd_parts)
+            print(f"[MPNN] Running: {cmd}")
+
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, timeout=1800
             )
@@ -259,19 +279,33 @@ def run_mpnn_job(job_id: str, request: ProteinMPNNRequest):
                                 "content": seq_file.read()
                             })
 
-                jobs[job_id]["status"] = "completed"
-                jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
-                jobs[job_id]["result"] = {
-                    "sequences": sequences,
-                    "stdout": result.stdout
-                }
+                # Also check subdirectories
+                if not sequences:
+                    for root, dirs, files in os.walk(out_dir):
+                        for filename in files:
+                            if filename.endswith((".fa", ".fasta")):
+                                with open(os.path.join(root, filename)) as f:
+                                    sequences.append({"filename": filename, "content": f.read()})
+
+                if sequences:
+                    jobs[job_id]["status"] = "completed"
+                    jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+                    jobs[job_id]["result"] = {
+                        "sequences": sequences,
+                        "model_type": model_type,
+                        "stdout": result.stdout
+                    }
+                else:
+                    jobs[job_id]["status"] = "failed"
+                    jobs[job_id]["error"] = f"No sequences generated. stdout: {result.stdout}"
             else:
                 jobs[job_id]["status"] = "failed"
-                jobs[job_id]["error"] = result.stderr or "Unknown error"
+                jobs[job_id]["error"] = result.stderr or result.stdout or "Unknown error"
 
     except Exception as e:
+        import traceback
         jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["error"] = f"{str(e)}\n{traceback.format_exc()}"
 
 
 # ============ API Endpoints ============

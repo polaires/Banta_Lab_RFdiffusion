@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Trash2, GripVertical, Wand2, HelpCircle } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Wand2, HelpCircle, Zap } from 'lucide-react';
 
 type SegmentType = 'denovo' | 'fixed' | 'linker';
 
@@ -26,6 +26,46 @@ const SEGMENT_PRESETS = {
   linker: { label: 'Flexible Linker', description: 'Variable-length connection between segments', color: 'bg-purple-600' },
 };
 
+// Binder design presets
+const BINDER_PRESETS = [
+  {
+    name: 'Simple Binder',
+    description: 'Design a binder to target chain A',
+    segments: [
+      { id: '1', type: 'fixed' as SegmentType, chain: 'A', startResidue: 1, endResidue: 100 },
+      { id: '2', type: 'linker' as SegmentType, gapMin: 0, gapMax: 0 },
+      { id: '3', type: 'denovo' as SegmentType, minLength: 60, maxLength: 100 },
+    ],
+  },
+  {
+    name: 'Hotspot Binder',
+    description: 'Design binder targeting specific residues (hotspots)',
+    segments: [
+      { id: '1', type: 'fixed' as SegmentType, chain: 'A', startResidue: 25, endResidue: 75 },
+      { id: '2', type: 'linker' as SegmentType, gapMin: 0, gapMax: 0 },
+      { id: '3', type: 'denovo' as SegmentType, minLength: 80, maxLength: 120 },
+    ],
+  },
+  {
+    name: 'Scaffold Inpainting',
+    description: 'Design scaffold connecting two fixed motifs',
+    segments: [
+      { id: '1', type: 'fixed' as SegmentType, chain: 'A', startResidue: 1, endResidue: 20 },
+      { id: '2', type: 'linker' as SegmentType, gapMin: 0, gapMax: 0 },
+      { id: '3', type: 'denovo' as SegmentType, minLength: 30, maxLength: 50 },
+      { id: '4', type: 'linker' as SegmentType, gapMin: 0, gapMax: 0 },
+      { id: '5', type: 'fixed' as SegmentType, chain: 'A', startResidue: 80, endResidue: 100 },
+    ],
+  },
+  {
+    name: 'Symmetric Scaffold',
+    description: 'Design symmetric homo-oligomer scaffold',
+    segments: [
+      { id: '1', type: 'denovo' as SegmentType, minLength: 80, maxLength: 80 },
+    ],
+  },
+];
+
 interface ContigBuilderProps {
   onContigChange: (contig: string) => void;
   initialContig?: string;
@@ -36,8 +76,19 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
     { id: '1', type: 'denovo', minLength: 100, maxLength: 100 }
   ]);
   const [showHelp, setShowHelp] = useState(false);
+  const [showPresets, setShowPresets] = useState(false);
 
   const generateId = () => Math.random().toString(36).substring(2, 9);
+
+  const applyPreset = (preset: typeof BINDER_PRESETS[0]) => {
+    // Generate new IDs for segments
+    const newSegments = preset.segments.map(seg => ({
+      ...seg,
+      id: generateId(),
+    }));
+    setSegments(newSegments);
+    setShowPresets(false);
+  };
 
   const addSegment = (type: SegmentType) => {
     const newSegment: Segment = {
@@ -110,8 +161,37 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
           <p><strong>De Novo Region:</strong> Generates new amino acids. Specify length or range.</p>
           <p><strong>Fixed Region:</strong> Keeps residues from input PDB. Specify chain and residue numbers.</p>
           <p><strong>Flexible Linker:</strong> Gap between segments. Use 0 for direct connection.</p>
+          <p className="pt-2 border-t border-gray-700 mt-2">
+            <strong>Binder Design:</strong> Upload target PDB, add Fixed region (target), Linker (/0), De Novo region (binder).
+          </p>
         </div>
       )}
+
+      {/* Design Presets */}
+      <div className="space-y-2">
+        <button
+          onClick={() => setShowPresets(!showPresets)}
+          className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+        >
+          <Zap className="w-4 h-4" />
+          {showPresets ? 'Hide Design Presets' : 'Show Design Presets'}
+        </button>
+
+        {showPresets && (
+          <div className="grid grid-cols-2 gap-2">
+            {BINDER_PRESETS.map((preset) => (
+              <button
+                key={preset.name}
+                onClick={() => applyPreset(preset)}
+                className="p-2 text-left bg-gray-700/50 hover:bg-gray-700 rounded border border-gray-600 transition"
+              >
+                <div className="font-medium text-sm text-gray-200">{preset.name}</div>
+                <div className="text-xs text-gray-400">{preset.description}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Segment List */}
       <div className="space-y-2">

@@ -1,10 +1,11 @@
 /**
- * Zustand store for application state
+ * Zustand store for application state (v2.0)
+ * Supports cross-panel data flow and confidence metrics
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { JobStatus, HealthResponse } from './api';
+import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult } from './api';
 
 interface Job {
   id: string;
@@ -27,6 +28,17 @@ export interface Notification {
     tab: 'rfd3' | 'rf3' | 'mpnn' | 'jobs';
   };
   createdAt: number;
+}
+
+// Stored structure for cross-panel data flow
+export interface StoredDesign {
+  jobId: string;
+  pdbContent: string;
+  cifContent?: string;
+  source: 'rfd3' | 'rf3' | 'mpnn';
+  sequence?: string;  // Extracted from PDB or MPNN output
+  confidences?: ConfidenceMetrics;
+  timestamp: number;
 }
 
 interface AppState {
@@ -63,6 +75,20 @@ interface AppState {
   setLatestDesignPdb: (pdb: string | null) => void;
   lastCompletedJobType: 'rfd3' | 'rf3' | 'mpnn' | null;
   setLastCompletedJobType: (type: 'rfd3' | 'rf3' | 'mpnn' | null) => void;
+
+  // Enhanced cross-panel data flow (v2.0)
+  latestRfd3Design: StoredDesign | null;
+  setLatestRfd3Design: (design: StoredDesign | null) => void;
+  latestRf3Prediction: StoredDesign | null;
+  setLatestRf3Prediction: (design: StoredDesign | null) => void;
+
+  // Confidence metrics from RF3
+  latestConfidences: ConfidenceMetrics | null;
+  setLatestConfidences: (confidences: ConfidenceMetrics | null) => void;
+
+  // RMSD validation result
+  latestRmsdResult: RMSDResult | null;
+  setLatestRmsdResult: (result: RMSDResult | null) => void;
 }
 
 // Helper to get initial backend URL (localStorage > env > default)
@@ -129,4 +155,18 @@ export const useStore = create<AppState>((set) => ({
   setLatestDesignPdb: (pdb) => set({ latestDesignPdb: pdb }),
   lastCompletedJobType: null,
   setLastCompletedJobType: (type) => set({ lastCompletedJobType: type }),
+
+  // Enhanced cross-panel data flow (v2.0)
+  latestRfd3Design: null,
+  setLatestRfd3Design: (design) => set({ latestRfd3Design: design }),
+  latestRf3Prediction: null,
+  setLatestRf3Prediction: (design) => set({ latestRf3Prediction: design }),
+
+  // Confidence metrics
+  latestConfidences: null,
+  setLatestConfidences: (confidences) => set({ latestConfidences: confidences }),
+
+  // RMSD validation
+  latestRmsdResult: null,
+  setLatestRmsdResult: (result) => set({ latestRmsdResult: result }),
 }));

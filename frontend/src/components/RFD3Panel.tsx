@@ -21,7 +21,15 @@ const EXAMPLE_CONFIGS = {
 };
 
 export function RFD3Panel() {
-  const { health, addJob, updateJob, setSelectedPdb } = useStore();
+  const {
+    health,
+    addJob,
+    updateJob,
+    setSelectedPdb,
+    addNotification,
+    setLatestDesignPdb,
+    setLastCompletedJobType
+  } = useStore();
   const [contig, setContig] = useState('100');
   const [numDesigns, setNumDesigns] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -60,10 +68,35 @@ export function RFD3Panel() {
       });
 
       if (result.status === 'completed' && result.result?.designs?.[0]) {
-        setSelectedPdb(result.result.designs[0].content);
+        const pdbContent = result.result.designs[0].content;
+        setSelectedPdb(pdbContent);
+        setLatestDesignPdb(pdbContent);
+        setLastCompletedJobType('rfd3');
+
+        // Notify user with next step suggestion
+        addNotification({
+          type: 'success',
+          title: 'Structure designed!',
+          message: 'Your protein backbone is ready. Design sequences with MPNN next.',
+          action: {
+            label: 'Design Sequences',
+            tab: 'mpnn',
+          },
+        });
+      } else if (result.status === 'failed') {
+        addNotification({
+          type: 'error',
+          title: 'Design failed',
+          message: result.error || 'Unknown error occurred',
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit job');
+      addNotification({
+        type: 'error',
+        title: 'Submission failed',
+        message: err instanceof Error ? err.message : 'Failed to submit job',
+      });
     } finally {
       setSubmitting(false);
     }
@@ -99,7 +132,9 @@ export function RFD3Panel() {
       <div className="space-y-2">
         <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
           Contig Specification
-          <Info className="w-4 h-4 text-gray-500" title="Define regions to design" />
+          <span title="Define regions to design">
+            <Info className="w-4 h-4 text-gray-500" />
+          </span>
         </label>
         <input
           type="text"

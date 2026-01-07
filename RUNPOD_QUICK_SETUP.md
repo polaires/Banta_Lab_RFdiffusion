@@ -70,41 +70,41 @@ NEXT_PUBLIC_API_URL=https://{POD_ID}-8000.proxy.runpod.net
 
 ---
 
-## Files on Network Volume
+## Backend Features
 
-The network volume `/workspace` contains:
+The unified backend (`main.py`) includes:
 
-### main.py (FastAPI Backend Stub)
-```python
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import subprocess
+### Dual Mode Operation
+- **Auto Mode** (default): Detects if Foundry CLI is available
+- **Mock Mode**: Returns synthetic data for testing
+- **Real Mode**: Uses actual Foundry models
 
-app = FastAPI(title="Foundry API")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-class HealthResponse(BaseModel):
-    status: str
-    gpu_available: bool
-    models_loaded: list
-
-def check_gpu():
-    try:
-        r = subprocess.run(["nvidia-smi"], capture_output=True, timeout=5)
-        return r.returncode == 0
-    except:
-        return False
-
-@app.get("/", response_model=HealthResponse)
-@app.get("/health", response_model=HealthResponse)
-async def health():
-    return HealthResponse(status="healthy", gpu_available=check_gpu(), models_loaded=["rfd3","rf3","proteinmpnn"])
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+Set via environment variable:
+```bash
+export MOCK_MODE=auto   # Auto-detect (default)
+export MOCK_MODE=true   # Force mock mode
+export MOCK_MODE=false  # Force real mode
 ```
+
+### Enhanced Health Check
+```json
+{
+  "status": "healthy",
+  "mode": "mock",
+  "gpu_available": true,
+  "gpu_name": "NVIDIA A40",
+  "gpu_memory_gb": 48.0,
+  "models": {
+    "rfd3": {"available": false, "checkpoint_exists": false, "checkpoint_size_gb": 0},
+    "rf3": {"available": false, "checkpoint_exists": false, "checkpoint_size_gb": 0},
+    "proteinmpnn": {"available": false, "checkpoint_exists": false, "checkpoint_size_gb": 0}
+  }
+}
+```
+
+### API Compatibility
+- Accepts both `contig` and `contigs` field names for RFD3 requests
+- Backward compatible with existing frontend
 
 ---
 
@@ -159,14 +159,16 @@ open("main.py", "w").write(code)
 
 ---
 
-## API Endpoints (Current Stub)
+## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/health` | GET | Health check, GPU status, loaded models |
-| `/` | GET | Same as /health |
+| `/health` | GET | Health check with GPU, mode, and model status |
+| `/api/rfd3/design` | POST | RFdiffusion3 structure design |
+| `/api/rf3/predict` | POST | RosettaFold3 structure prediction |
+| `/api/mpnn/design` | POST | ProteinMPNN sequence design |
+| `/api/jobs/{job_id}` | GET | Get job status and results |
+| `/api/jobs` | GET | List all jobs |
+| `/api/jobs/{job_id}` | DELETE | Delete a job |
 
-**TODO:** Implement actual Foundry endpoints:
-- `POST /api/rfd3/design` - RFdiffusion3 structure design
-- `POST /api/rf3/predict` - RosettaFold3 structure prediction
-- `POST /api/mpnn/design` - ProteinMPNN sequence design
+All endpoints work in both mock and real mode. Jobs are processed asynchronously with polling support.

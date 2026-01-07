@@ -3,10 +3,17 @@
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
-import { Play, Loader2, Upload } from 'lucide-react';
+import { Play, Loader2, Upload, Sparkles } from 'lucide-react';
 
 export function MPNNPanel() {
-  const { health, addJob, updateJob } = useStore();
+  const {
+    health,
+    addJob,
+    updateJob,
+    addNotification,
+    latestDesignPdb,
+    setLastCompletedJobType
+  } = useStore();
   const [pdbContent, setPdbContent] = useState('');
   const [numSequences, setNumSequences] = useState(8);
   const [temperature, setTemperature] = useState(0.1);
@@ -65,11 +72,45 @@ export function MPNNPanel() {
 
       if (jobResult.status === 'completed' && jobResult.result?.sequences?.[0]) {
         setResult(jobResult.result.sequences[0].content);
+        setLastCompletedJobType('mpnn');
+
+        // Notify user with next step suggestion
+        addNotification({
+          type: 'success',
+          title: 'Sequences designed!',
+          message: 'Your sequences are ready. Predict structure with RF3 to validate.',
+          action: {
+            label: 'Predict Structure',
+            tab: 'rf3',
+          },
+        });
+      } else if (jobResult.status === 'failed') {
+        addNotification({
+          type: 'error',
+          title: 'Sequence design failed',
+          message: jobResult.error || 'Unknown error occurred',
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit job');
+      addNotification({
+        type: 'error',
+        title: 'Submission failed',
+        message: err instanceof Error ? err.message : 'Failed to submit job',
+      });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleUseLatestDesign = () => {
+    if (latestDesignPdb) {
+      setPdbContent(latestDesignPdb);
+      addNotification({
+        type: 'info',
+        title: 'Structure loaded',
+        message: 'Latest design has been loaded. Adjust parameters and submit.',
+      });
     }
   };
 
@@ -85,6 +126,18 @@ export function MPNNPanel() {
       {/* PDB Upload */}
       <div className="space-y-2">
         <label className="text-sm font-medium text-gray-300">Input Structure (PDB)</label>
+
+        {/* Use Latest Design button - shown when a design is available */}
+        {latestDesignPdb && (
+          <button
+            onClick={handleUseLatestDesign}
+            className="w-full py-3 mb-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg font-medium flex items-center justify-center gap-2 transition"
+          >
+            <Sparkles className="w-5 h-5" />
+            Use Latest Design from RFD3/RF3
+          </button>
+        )}
+
         <div className="flex gap-2">
           <label className="flex-1 py-8 border-2 border-dashed border-gray-600 rounded-lg hover:border-gray-500 cursor-pointer transition flex flex-col items-center justify-center gap-2">
             <Upload className="w-8 h-8 text-gray-500" />

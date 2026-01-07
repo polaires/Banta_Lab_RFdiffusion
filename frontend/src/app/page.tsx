@@ -1,13 +1,30 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useStore } from '@/lib/store';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
-import { ProteinViewer } from '@/components/ProteinViewer';
 import { RFD3Panel } from '@/components/RFD3Panel';
 import { RF3Panel } from '@/components/RF3Panel';
 import { MPNNPanel } from '@/components/MPNNPanel';
 import { JobsPanel } from '@/components/JobsPanel';
 import { Dna, Atom, FlaskConical, History } from 'lucide-react';
+import { NotificationToast } from '@/components/NotificationToast';
+
+// Dynamic import for Molstar viewer (SSR incompatible)
+const ProteinViewer = dynamic(
+  () => import('@/components/ProteinViewer').then(mod => mod.ProteinViewer),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-96 flex items-center justify-center bg-gray-800 rounded-lg">
+        <div className="flex items-center gap-2 text-gray-400">
+          <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+          Loading 3D viewer...
+        </div>
+      </div>
+    ),
+  }
+);
 
 const tabs = [
   { id: 'rfd3' as const, label: 'RFD3 Design', icon: Dna, color: 'text-blue-400' },
@@ -98,6 +115,9 @@ export default function Home() {
           </p>
         </div>
       </footer>
+
+      {/* Notifications */}
+      <NotificationToast />
     </div>
   );
 }

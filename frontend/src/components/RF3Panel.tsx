@@ -12,7 +12,15 @@ const EXAMPLE_SEQUENCES = {
 };
 
 export function RF3Panel() {
-  const { health, addJob, updateJob, setSelectedPdb } = useStore();
+  const {
+    health,
+    addJob,
+    updateJob,
+    setSelectedPdb,
+    addNotification,
+    setLatestDesignPdb,
+    setLastCompletedJobType
+  } = useStore();
   const [sequence, setSequence] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,10 +61,35 @@ export function RF3Panel() {
       });
 
       if (result.status === 'completed' && result.result?.predictions?.[0]) {
-        setSelectedPdb(result.result.predictions[0].content);
+        const pdbContent = result.result.predictions[0].content;
+        setSelectedPdb(pdbContent);
+        setLatestDesignPdb(pdbContent);
+        setLastCompletedJobType('rf3');
+
+        // Notify user with next step suggestion
+        addNotification({
+          type: 'success',
+          title: 'Structure predicted!',
+          message: 'Fold validated. Design sequences with MPNN or redesign with RFD3.',
+          action: {
+            label: 'Design Sequences',
+            tab: 'mpnn',
+          },
+        });
+      } else if (result.status === 'failed') {
+        addNotification({
+          type: 'error',
+          title: 'Prediction failed',
+          message: result.error || 'Unknown error occurred',
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit job');
+      addNotification({
+        type: 'error',
+        title: 'Submission failed',
+        message: err instanceof Error ? err.message : 'Failed to submit job',
+      });
     } finally {
       setSubmitting(false);
     }

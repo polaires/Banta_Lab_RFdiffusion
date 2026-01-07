@@ -286,72 +286,93 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
         # Import Foundry modules (based on official Colab example)
         from rfd3.engine import RFD3InferenceConfig, RFD3InferenceEngine
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            out_dir = os.path.join(tmpdir, "output")
-            os.makedirs(out_dir, exist_ok=True)
+        # Parse contig specification
+        contig_str = request.contig or "100"
 
-            # Parse contig specification
-            contig_str = request.contig or "100"
+        # Detect if it's a simple length spec (e.g., "100" or "80-120")
+        is_simple_length = contig_str.replace("-", "").isdigit()
 
-            # Detect if it's a simple length spec (e.g., "100" or "80-120")
-            is_simple_length = contig_str.replace("-", "").isdigit()
-
-            # Build specification dict for RFD3
-            if is_simple_length:
-                # De novo design - use length
-                if "-" in contig_str:
-                    spec = {"length": contig_str}  # Range like "80-120"
-                else:
-                    spec = {"length": int(contig_str)}  # Fixed length like 100
+        # Build specification dict for RFD3
+        if is_simple_length:
+            # De novo design - use length
+            if "-" in contig_str:
+                spec = {"length": contig_str}  # Range like "80-120"
             else:
-                # Conditional design with contig string
-                spec = {"contig": contig_str}
+                spec = {"length": int(contig_str)}  # Fixed length like 100
+        else:
+            # Conditional design with contig string
+            spec = {"contig": contig_str}
 
-            # Create RFD3 config (based on official example)
-            config = RFD3InferenceConfig(
-                specification=spec,
-                diffusion_batch_size=request.num_designs,
-            )
+        # Create RFD3 config (based on official example)
+        config = RFD3InferenceConfig(
+            specification=spec,
+            diffusion_batch_size=request.num_designs,
+        )
 
-            # Initialize engine with unpacked config and run
-            model = RFD3InferenceEngine(**config)
-            outputs_dict = model.run(
-                inputs=None,      # None for unconditional generation
-                out_dir=out_dir,  # Save to temp dir
-                n_batches=1,
-            )
+        # Initialize engine with unpacked config and run
+        # Use out_dir=None to return structures in memory (per Colab example)
+        model = RFD3InferenceEngine(**config)
+        outputs_dict = model.run(
+            inputs=None,      # None for unconditional generation
+            out_dir=None,     # None to return in memory
+            n_batches=1,
+        )
 
-            # Collect output PDB files
-            outputs = []
-            for filename in os.listdir(out_dir):
-                if filename.endswith(".pdb") or filename.endswith(".cif"):
-                    filepath = os.path.join(out_dir, filename)
-                    with open(filepath) as f:
-                        outputs.append({"filename": filename, "content": f.read()})
+        # Process outputs_dict to extract structure data
+        outputs = []
+        if outputs_dict:
+            for key, result in outputs_dict.items():
+                pdb_content = None
 
-            # If no files in out_dir, check if outputs_dict contains structures
-            if not outputs and outputs_dict:
-                for key, result in outputs_dict.items():
-                    if hasattr(result, 'to_pdb'):
-                        pdb_content = result.to_pdb()
-                        outputs.append({"filename": f"{key}.pdb", "content": pdb_content})
-                    elif hasattr(result, 'structure'):
-                        # Try to get structure and convert to PDB
-                        outputs.append({"filename": f"{key}.pdb", "content": str(result)})
+                # Try different methods to get PDB content
+                if hasattr(result, 'to_pdb'):
+                    pdb_content = result.to_pdb()
+                elif hasattr(result, 'to_pdbfile'):
+                    # Some structures use to_pdbfile method
+                    import io
+                    buf = io.StringIO()
+                    result.to_pdbfile(buf)
+                    pdb_content = buf.getvalue()
+                elif hasattr(result, 'get_pdb'):
+                    pdb_content = result.get_pdb()
+                elif hasattr(result, 'structure'):
+                    # If result has a structure attribute, try to convert it
+                    struct = result.structure
+                    if hasattr(struct, 'to_pdb'):
+                        pdb_content = struct.to_pdb()
+                    else:
+                        pdb_content = str(struct)
+                else:
+                    # Last resort: try to use biotite/atomworks to convert
+                    try:
+                        from biotite.structure.io.pdb import PDBFile
+                        import io
+                        pdb_file = PDBFile()
+                        pdb_file.set_structure(result)
+                        buf = io.StringIO()
+                        pdb_file.write(buf)
+                        pdb_content = buf.getvalue()
+                    except Exception:
+                        # If all else fails, stringify
+                        pdb_content = str(result)
 
-            jobs[job_id]["status"] = "completed"
-            jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
-            jobs[job_id]["result"] = {
-                "designs": outputs,
-                "mode": "real",
-            }
+                if pdb_content:
+                    outputs.append({"filename": f"{key}.pdb", "content": pdb_content})
+
+        jobs[job_id]["status"] = "completed"
+        jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
+        jobs[job_id]["result"] = {
+            "designs": outputs,
+            "mode": "real",
+        }
 
     except ImportError as e:
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = f"Foundry not installed: {e}"
     except Exception as e:
+        import traceback
         jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["error"] = f"{str(e)}\n{traceback.format_exc()}"
 
 
 async def process_rf3_job(job_id: str, request: RF3Request):

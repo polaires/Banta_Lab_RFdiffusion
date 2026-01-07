@@ -319,45 +319,54 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
         )
 
         # Process outputs_dict to extract structure data
+        # RFD3 returns dict of {key: list[RFD3Output]} where RFD3Output has atom_array
         outputs = []
         if outputs_dict:
-            for key, result in outputs_dict.items():
-                pdb_content = None
+            from biotite.structure.io.pdb import PDBFile
+            import io
 
-                # Try different methods to get PDB content
-                if hasattr(result, 'to_pdb'):
-                    pdb_content = result.to_pdb()
-                elif hasattr(result, 'to_pdbfile'):
-                    # Some structures use to_pdbfile method
-                    import io
-                    buf = io.StringIO()
-                    result.to_pdbfile(buf)
-                    pdb_content = buf.getvalue()
-                elif hasattr(result, 'get_pdb'):
-                    pdb_content = result.get_pdb()
-                elif hasattr(result, 'structure'):
-                    # If result has a structure attribute, try to convert it
-                    struct = result.structure
-                    if hasattr(struct, 'to_pdb'):
-                        pdb_content = struct.to_pdb()
-                    else:
-                        pdb_content = str(struct)
-                else:
-                    # Last resort: try to use biotite/atomworks to convert
-                    try:
-                        from biotite.structure.io.pdb import PDBFile
-                        import io
-                        pdb_file = PDBFile()
-                        pdb_file.set_structure(result)
-                        buf = io.StringIO()
-                        pdb_file.write(buf)
-                        pdb_content = buf.getvalue()
-                    except Exception:
-                        # If all else fails, stringify
-                        pdb_content = str(result)
+            for key, result_list in outputs_dict.items():
+                # result_list is a list of RFD3Output objects
+                items = result_list if isinstance(result_list, list) else [result_list]
 
-                if pdb_content:
-                    outputs.append({"filename": f"{key}.pdb", "content": pdb_content})
+                for idx, item in enumerate(items):
+                    pdb_content = None
+                    filename = f"{key}_{idx}.pdb" if len(items) > 1 else f"{key}.pdb"
+
+                    # RFD3Output has atom_array attribute (biotite AtomArray)
+                    if hasattr(item, 'atom_array'):
+                        try:
+                            atom_array = item.atom_array
+                            pdb_file = PDBFile()
+                            pdb_file.set_structure(atom_array)
+                            buf = io.StringIO()
+                            pdb_file.write(buf)
+                            pdb_content = buf.getvalue()
+                        except Exception as e:
+                            # Log but continue
+                            print(f"Error converting atom_array to PDB: {e}")
+
+                    # Fallback: try to_pdb method
+                    if not pdb_content and hasattr(item, 'to_pdb'):
+                        try:
+                            pdb_content = item.to_pdb()
+                        except Exception:
+                            pass
+
+                    # Fallback: try structure attribute
+                    if not pdb_content and hasattr(item, 'structure'):
+                        try:
+                            struct = item.structure
+                            pdb_file = PDBFile()
+                            pdb_file.set_structure(struct)
+                            buf = io.StringIO()
+                            pdb_file.write(buf)
+                            pdb_content = buf.getvalue()
+                        except Exception:
+                            pass
+
+                    if pdb_content:
+                        outputs.append({"filename": filename, "content": pdb_content})
 
         jobs[job_id]["status"] = "completed"
         jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()

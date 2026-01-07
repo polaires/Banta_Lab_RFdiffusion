@@ -32,9 +32,21 @@ from contextlib import asynccontextmanager
 MOCK_MODE = os.environ.get("MOCK_MODE", "auto").lower()
 CHECKPOINT_DIR = os.environ.get("FOUNDRY_CHECKPOINT_DIRS", "/workspace/checkpoints")
 
+# Detect venv bin directory from current Python interpreter
+import sys
+VENV_BIN_DIR = os.path.dirname(sys.executable)
+CLI_PREFIX = VENV_BIN_DIR if os.path.exists(os.path.join(VENV_BIN_DIR, "rfd3")) else ""
+
 # Global state
 FOUNDRY_AVAILABLE = False
 GPU_INFO: Dict[str, Any] = {}
+
+
+def get_cli_path(cmd: str) -> str:
+    """Get full path to CLI command (in venv or system PATH)"""
+    if CLI_PREFIX:
+        return os.path.join(CLI_PREFIX, cmd)
+    return cmd
 
 
 def check_foundry_available() -> bool:
@@ -42,8 +54,10 @@ def check_foundry_available() -> bool:
     # rc-foundry uses 'mpnn' not 'proteinmpnn'
     for cmd in ["rfd3", "rf3", "mpnn"]:
         try:
-            result = subprocess.run([cmd, "--help"], capture_output=True, timeout=10)
+            cli_path = get_cli_path(cmd)
+            result = subprocess.run([cli_path, "--help"], capture_output=True, timeout=10)
             if result.returncode == 0:
+                print(f"[STARTUP] Found CLI tool: {cli_path}")
                 return True
         except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
@@ -267,7 +281,8 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
             os.makedirs(out_dir, exist_ok=True)
 
             # Run RFD3 with 1-hour timeout
-            cmd = f"rfd3 design out_dir={out_dir} inputs={input_path}"
+            rfd3_cli = get_cli_path("rfd3")
+            cmd = f"{rfd3_cli} design out_dir={out_dir} inputs={input_path}"
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, timeout=3600
             )
@@ -334,7 +349,8 @@ async def process_rf3_real(job_id: str, request: RF3Request):
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)
 
-            cmd = f"rf3 predict out_dir={out_dir} inputs={fasta_path}"
+            rf3_cli = get_cli_path("rf3")
+            cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={fasta_path}"
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, timeout=3600
             )
@@ -399,8 +415,9 @@ async def process_mpnn_real(job_id: str, request: MPNNRequest):
             os.makedirs(out_dir, exist_ok=True)
 
             # rc-foundry uses 'mpnn' command
+            mpnn_cli = get_cli_path("mpnn")
             cmd = (
-                f"mpnn "
+                f"{mpnn_cli} "
                 f"--pdb {pdb_path} "
                 f"--out_dir {out_dir} "
                 f"--num_seq_per_target {request.num_sequences} "

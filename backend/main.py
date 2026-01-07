@@ -283,8 +283,8 @@ async def process_rfd3_mock(job_id: str, request: RFD3Request):
 async def process_rfd3_real(job_id: str, request: RFD3Request):
     """Real Foundry RFD3 implementation using Python API"""
     try:
-        # Import Foundry modules (only available when Foundry is installed)
-        from foundry.models.rfd3 import RFD3InferenceConfig, RFD3InferenceEngine
+        # Import Foundry modules (based on official Colab example)
+        from rfd3.engine import RFD3InferenceConfig, RFD3InferenceEngine
 
         with tempfile.TemporaryDirectory() as tmpdir:
             out_dir = os.path.join(tmpdir, "output")
@@ -307,21 +307,19 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
                 # Conditional design with contig string
                 spec = {"contig": contig_str}
 
-            # Add any extra config
-            spec["extra"] = request.config or {}
-
-            # Create RFD3 config
+            # Create RFD3 config (based on official example)
             config = RFD3InferenceConfig(
-                out_dir=out_dir,
-                inputs=None,  # Use specification dict instead of file
                 specification=spec,
                 diffusion_batch_size=request.num_designs,
-                n_batches=1,
             )
 
-            # Run inference
-            engine = RFD3InferenceEngine(config)
-            results = engine.run()
+            # Initialize engine with unpacked config and run
+            model = RFD3InferenceEngine(**config)
+            outputs_dict = model.run(
+                inputs=None,      # None for unconditional generation
+                out_dir=out_dir,  # Save to temp dir
+                n_batches=1,
+            )
 
             # Collect output PDB files
             outputs = []
@@ -331,12 +329,15 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
                     with open(filepath) as f:
                         outputs.append({"filename": filename, "content": f.read()})
 
-            # If no files in out_dir, check if results contain structures directly
-            if not outputs and results:
-                for i, result in enumerate(results):
+            # If no files in out_dir, check if outputs_dict contains structures
+            if not outputs and outputs_dict:
+                for key, result in outputs_dict.items():
                     if hasattr(result, 'to_pdb'):
                         pdb_content = result.to_pdb()
-                        outputs.append({"filename": f"design_{i+1}.pdb", "content": pdb_content})
+                        outputs.append({"filename": f"{key}.pdb", "content": pdb_content})
+                    elif hasattr(result, 'structure'):
+                        # Try to get structure and convert to PDB
+                        outputs.append({"filename": f"{key}.pdb", "content": str(result)})
 
             jobs[job_id]["status"] = "completed"
             jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()

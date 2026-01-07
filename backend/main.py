@@ -286,13 +286,32 @@ def atom_array_to_cif(atom_array) -> str:
         return buf.getvalue()
 
 
-def pdb_to_atom_array(pdb_content: str):
-    """Convert PDB string to biotite AtomArray"""
-    from biotite.structure.io.pdb import PDBFile
+def pdb_to_atom_array(content: str):
+    """Convert PDB or CIF string to biotite AtomArray.
+
+    Automatically detects format based on content:
+    - CIF files start with 'data_'
+    - PDB files start with HEADER, ATOM, etc.
+    """
     import io
 
-    pdb_file = PDBFile.read(io.StringIO(pdb_content))
-    return pdb_file.get_structure(model=1)
+    # Detect format
+    content_stripped = content.strip()
+    if content_stripped.startswith('data_'):
+        # CIF format (mmCIF)
+        from biotite.structure.io.pdbx import CIFFile
+        cif_file = CIFFile.read(io.StringIO(content))
+        # Get the first block
+        block = list(cif_file.values())[0] if cif_file else None
+        if block is None:
+            raise ValueError("Empty CIF file")
+        from biotite.structure.io.pdbx import get_structure
+        return get_structure(block, model=1)
+    else:
+        # PDB format
+        from biotite.structure.io.pdb import PDBFile
+        pdb_file = PDBFile.read(io.StringIO(content))
+        return pdb_file.get_structure(model=1)
 
 
 def extract_sequence_from_atom_array(atom_array) -> str:

@@ -100,21 +100,21 @@ export function ProteinViewer({ pdbContent, className = '' }: ProteinViewerProps
     };
   }, []);
 
-  // Load PDB content when it changes
+  // Load structure content when it changes (supports both PDB and CIF formats)
   useEffect(() => {
     const plugin = pluginRef.current;
-    console.log('[ProteinViewer] Load PDB effect - pdbContent:', pdbContent ? `${pdbContent.length} chars` : null, 'isReady:', isReady);
+    console.log('[ProteinViewer] Load structure effect - content:', pdbContent ? `${pdbContent.length} chars` : null, 'isReady:', isReady);
 
     if (!pdbContent || !plugin || !isReady) return;
 
     // Check if WebGL context is lost
     if (plugin.canvas3d?.webgl?.isContextLost) {
-      console.log('[ProteinViewer] WebGL context lost, cannot load PDB');
+      console.log('[ProteinViewer] WebGL context lost, cannot load structure');
       setError('3D viewer context lost. Please refresh the page.');
       return;
     }
 
-    const loadPdb = async () => {
+    const loadStructure = async () => {
       setLoading(true);
       setError(null);
 
@@ -122,30 +122,37 @@ export function ProteinViewer({ pdbContent, className = '' }: ProteinViewerProps
         console.log('[ProteinViewer] Clearing existing structures...');
         await plugin.clear();
 
-        console.log('[ProteinViewer] Loading PDB data...');
+        // Detect format: CIF files start with "data_", PDB files start with HEADER/ATOM/etc
+        const isCif = pdbContent.trimStart().startsWith('data_');
+        const format = isCif ? 'mmcif' : 'pdb';
+        const extension = isCif ? 'cif' : 'pdb';
+
+        console.log(`[ProteinViewer] Detected format: ${format}`);
+
+        console.log('[ProteinViewer] Loading structure data...');
         const data = await plugin.builders.data.rawData({
           data: pdbContent,
-          label: 'structure.pdb',
+          label: `structure.${extension}`,
         });
 
-        console.log('[ProteinViewer] Parsing trajectory...');
-        const trajectory = await plugin.builders.structure.parseTrajectory(data, 'pdb');
+        console.log(`[ProteinViewer] Parsing trajectory as ${format}...`);
+        const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
 
         console.log('[ProteinViewer] Applying preset...');
         await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default');
 
         console.log('[ProteinViewer] Resetting camera...');
         plugin.canvas3d?.requestCameraReset();
-        console.log('[ProteinViewer] PDB loaded successfully');
+        console.log('[ProteinViewer] Structure loaded successfully');
       } catch (err) {
-        console.error('[ProteinViewer] Failed to load PDB:', err);
-        setError('Failed to load structure');
+        console.error('[ProteinViewer] Failed to load structure:', err);
+        setError(`Failed to load structure: ${err instanceof Error ? err.message : 'Unknown error'}`);
       } finally {
         setLoading(false);
       }
     };
 
-    loadPdb();
+    loadStructure();
   }, [pdbContent, isReady]);
 
   return (

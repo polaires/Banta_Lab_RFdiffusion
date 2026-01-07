@@ -284,8 +284,22 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
     """Real Foundry RFD3 implementation"""
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create input configuration
-            input_config = {"contigs": [request.contig], **(request.config or {})}
+            # Create input configuration for RFD3
+            # RFD3 uses 'length' for de novo design, 'contig' for conditional design
+            # Simple integers/ranges use 'length', complex contig specs use 'contig'
+            contig_str = request.contig or ""
+
+            # Detect if it's a simple length spec (e.g., "100" or "80-120")
+            # vs a complex contig (e.g., "A40-60,70,A120-170")
+            is_simple_length = contig_str.replace("-", "").isdigit()
+
+            if is_simple_length:
+                # De novo design - use 'length' field
+                input_config = {"length": contig_str, **(request.config or {})}
+            else:
+                # Conditional design - use 'contig' field (singular, not 'contigs')
+                input_config = {"contig": contig_str, **(request.config or {})}
+
             input_path = os.path.join(tmpdir, "input.json")
             with open(input_path, "w") as f:
                 json.dump(input_config, f)

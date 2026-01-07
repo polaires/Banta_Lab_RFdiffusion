@@ -70,6 +70,51 @@ NEXT_PUBLIC_API_URL=https://{POD_ID}-8000.proxy.runpod.net
 
 ---
 
+## Real Foundry Mode Setup (Advanced)
+
+For real protein design (not mock data), you need to install `rc-foundry` and download model checkpoints.
+
+### Step 1: Create Python 3.12 Virtual Environment
+```python
+# rc-foundry requires Python 3.12+
+!apt update && apt install -y python3.12 python3.12-venv python3.12-dev -qq
+
+# Create and activate venv
+!python3.12 -m venv /workspace/foundry_env
+!/workspace/foundry_env/bin/pip install --upgrade pip -q
+```
+
+### Step 2: Install rc-foundry
+```python
+!/workspace/foundry_env/bin/pip install "rc-foundry[all]" -q
+```
+
+### Step 3: Configure Checkpoint Directory
+```python
+import os
+os.environ["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
+!mkdir -p /workspace/checkpoints
+```
+
+### Step 4: Start Backend with Foundry
+```python
+import subprocess
+env = os.environ.copy()
+env["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
+subprocess.Popen(
+    ["/workspace/foundry_env/bin/python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"],
+    env=env,
+    cwd="/workspace"
+)
+```
+
+### Current Limitations
+- **Checkpoint Download**: Model checkpoints (~4GB each) need to be downloaded from IPD servers
+- The rc-foundry package should auto-download on first inference, but this may require specific setup
+- For now, use **mock mode** for testing the frontend workflow
+
+---
+
 ## Backend Features
 
 The unified backend (`main.py`) includes:

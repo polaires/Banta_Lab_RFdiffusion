@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
-import { Play, Loader2, Info } from 'lucide-react';
+import { Play, Loader2, Info, Wand2 } from 'lucide-react';
+import { ContigBuilder } from './ContigBuilder';
 
 const EXAMPLE_CONFIGS = {
   'De novo helix bundle': {
@@ -34,6 +35,7 @@ export function RFD3Panel() {
   const [numDesigns, setNumDesigns] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showBuilder, setShowBuilder] = useState(false);
 
   const handleSubmit = async () => {
     if (!health) {
@@ -130,12 +132,25 @@ export function RFD3Panel() {
 
       {/* Contig Specification */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
-          Contig Specification
-          <span title="Define regions to design">
-            <Info className="w-4 h-4 text-gray-500" />
-          </span>
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+            Contig Specification
+            <span title="Define regions to design">
+              <Info className="w-4 h-4 text-gray-500" />
+            </span>
+          </label>
+          <button
+            onClick={() => setShowBuilder(!showBuilder)}
+            className={`text-xs px-2 py-1 rounded flex items-center gap-1 transition ${
+              showBuilder
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+            }`}
+          >
+            <Wand2 className="w-3 h-3" />
+            {showBuilder ? 'Hide Builder' : 'Visual Builder'}
+          </button>
+        </div>
         <input
           type="text"
           value={contig}
@@ -147,6 +162,14 @@ export function RFD3Panel() {
           Examples: &quot;100&quot; for 100 residues, &quot;A1-50/0 50-100&quot; for binder with 50-100 new residues
         </p>
       </div>
+
+      {/* Visual Contig Builder */}
+      {showBuilder && (
+        <ContigBuilder
+          onContigChange={(newContig) => setContig(newContig)}
+          initialContig={contig}
+        />
+      )}
 
       {/* Number of Designs */}
       <div className="space-y-2">

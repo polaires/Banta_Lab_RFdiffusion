@@ -32,10 +32,22 @@ from contextlib import asynccontextmanager
 MOCK_MODE = os.environ.get("MOCK_MODE", "auto").lower()
 CHECKPOINT_DIR = os.environ.get("FOUNDRY_CHECKPOINT_DIRS", "/workspace/checkpoints")
 
-# Detect venv bin directory from current Python interpreter
+# Detect venv bin directory from current Python interpreter or known locations
 import sys
 VENV_BIN_DIR = os.path.dirname(sys.executable)
-CLI_PREFIX = VENV_BIN_DIR if os.path.exists(os.path.join(VENV_BIN_DIR, "rfd3")) else ""
+
+# Check common venv locations if current interpreter doesn't have CLI tools
+KNOWN_VENV_PATHS = [
+    VENV_BIN_DIR,
+    "/workspace/foundry_env/bin",  # RunPod common location
+    os.path.expanduser("~/foundry_env/bin"),
+]
+
+CLI_PREFIX = ""
+for venv_path in KNOWN_VENV_PATHS:
+    if os.path.exists(os.path.join(venv_path, "rfd3")):
+        CLI_PREFIX = venv_path
+        break
 
 # Global state
 FOUNDRY_AVAILABLE = False
@@ -127,6 +139,7 @@ async def lifespan(app: FastAPI):
     GPU_INFO = get_gpu_info()
     print(f"[STARTUP] GPU: {GPU_INFO}")
     print(f"[STARTUP] Checkpoint dir: {CHECKPOINT_DIR}")
+    print(f"[STARTUP] CLI prefix: {CLI_PREFIX or '(system PATH)'}")
 
     yield
 

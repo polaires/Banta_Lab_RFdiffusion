@@ -621,10 +621,22 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)
 
+            # Create .project-root file that rootutils requires
+            # Create in both tmpdir and /workspace to cover all cases
+            with open(os.path.join(tmpdir, ".project-root"), "w") as f:
+                f.write("")
+            workspace_root = "/workspace/.project-root"
+            if not os.path.exists(workspace_root):
+                try:
+                    with open(workspace_root, "w") as f:
+                        f.write("")
+                except Exception:
+                    pass  # May not have write permission
+
             rf3_cli = get_cli_path("rf3")
             cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={fasta_path}"
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=3600
+                cmd, shell=True, capture_output=True, text=True, timeout=3600, cwd=tmpdir
             )
 
             if result.returncode == 0:

@@ -621,9 +621,12 @@ def ensure_rf3_checkpoint():
         return True
 
     # Check common locations and create symlink
+    # Note: The actual checkpoint might have "_remapped" suffix
     possible_locations = [
-        f"/workspace/checkpoints/rf3/{rf3_ckpt_name}",
+        f"/workspace/checkpoints/rf3_foundry_01_24_latest_remapped.ckpt",  # Most common
         f"/workspace/checkpoints/{rf3_ckpt_name}",
+        f"/workspace/checkpoints/rf3/{rf3_ckpt_name}",
+        f"/workspace/checkpoints/rf3/rf3_foundry_01_24_latest_remapped.ckpt",
         f"/workspace/foundry_checkpoints/rf3/{rf3_ckpt_name}",
         f"/root/.cache/foundry/rf3/{rf3_ckpt_name}",
         f"/root/.foundry/checkpoints/rf3/{rf3_ckpt_name}",
@@ -684,7 +687,7 @@ def ensure_rf3_checkpoint():
 
 
 async def process_rf3_cli(job_id: str, request: RF3Request):
-    """Fallback CLI implementation for RF3"""
+    """CLI implementation for RF3 using YAML config for sequence input"""
     try:
         # Ensure checkpoint is available before running
         if not ensure_rf3_checkpoint():
@@ -697,9 +700,22 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             return
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            fasta_path = os.path.join(tmpdir, "input.fasta")
-            with open(fasta_path, "w") as f:
-                f.write(f">query\n{request.sequence}\n")
+            # RF3 CLI doesn't accept FASTA directly - needs YAML/JSON config
+            # Create a YAML config file for sequence input (per RF3 documentation)
+            config_path = os.path.join(tmpdir, "input.yaml")
+            example_id = request.name or "prediction"
+
+            # RF3 YAML format for sequence prediction
+            # Based on RF3 input specification
+            yaml_content = f"""# RF3 sequence prediction config
+{example_id}:
+  sequences:
+    A: "{request.sequence}"
+"""
+            with open(config_path, "w") as f:
+                f.write(yaml_content)
+
+            print(f"[RF3] Created YAML config:\n{yaml_content}")
 
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)
@@ -719,7 +735,7 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             env["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
 
             rf3_cli = get_cli_path("rf3")
-            cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={fasta_path}"
+            cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={config_path}"
             print(f"[RF3] Running: {cmd}")
             print(f"[RF3] FOUNDRY_CHECKPOINT_DIRS={env.get('FOUNDRY_CHECKPOINT_DIRS')}")
             result = subprocess.run(
@@ -729,25 +745,38 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
 
             if result.returncode == 0:
                 outputs = []
+                # Check output directory for results
                 for filename in os.listdir(out_dir):
                     if filename.endswith((".pdb", ".cif")):
                         with open(os.path.join(out_dir, filename)) as f:
                             outputs.append({"filename": filename, "content": f.read()})
+
+                # Also check subdirectories (RF3 may create example_id subdirectory)
+                for subdir in os.listdir(out_dir):
+                    subpath = os.path.join(out_dir, subdir)
+                    if os.path.isdir(subpath):
+                        for filename in os.listdir(subpath):
+                            if filename.endswith((".pdb", ".cif")):
+                                with open(os.path.join(subpath, filename)) as f:
+                                    outputs.append({"filename": filename, "content": f.read()})
 
                 jobs[job_id]["status"] = "completed"
                 jobs[job_id]["completed_at"] = datetime.utcnow().isoformat()
                 jobs[job_id]["result"] = {
                     "predictions": outputs,
                     "confidences": None,  # Not available from CLI
-                    "mode": "real (cli fallback)",
+                    "mode": "real (cli)",
+                    "stdout": result.stdout[-2000:] if result.stdout else None,  # Last 2000 chars
                 }
             else:
                 jobs[job_id]["status"] = "failed"
-                jobs[job_id]["error"] = result.stderr or "Unknown error"
+                error_msg = result.stderr or result.stdout or "Unknown error"
+                jobs[job_id]["error"] = error_msg
 
     except Exception as e:
+        import traceback
         jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["error"] = f"{str(e)}\n{traceback.format_exc()}"
 
 
 # ============== MPNN Job Processing (Python API with model type) ==============

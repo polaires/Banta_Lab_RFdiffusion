@@ -36,7 +36,7 @@ Then restart frontend: `npm run dev`
 
 ---
 
-## Current State Summary
+## Current State Summary (Updated Jan 7, 2026)
 
 ### Completed Features
 - [x] **Unified Backend** (`backend/main.py`) - Auto-detects Foundry, falls back to mock
@@ -45,27 +45,59 @@ Then restart frontend: `npm run dev`
 - [x] **Panel Data Flow** - "Use Latest Design" button in MPNN panel
 - [x] **Molstar 3D Viewer** - Protein structure visualization
 - [x] **Field Name Compatibility** - Accepts both `contig` and `contigs`
+- [x] **ContigBuilder.tsx** - Visual UI for building contig specifications
+- [x] **WorkflowStepper.tsx** - Horizontal progress indicator showing RFD3 → RF3 → MPNN
 
-### Pending Features
-- [ ] **ContigBuilder.tsx** - Visual UI for building contig specifications
-- [ ] **WorkflowStepper.tsx** - Horizontal progress indicator in header
-- [ ] **Real Foundry Integration** - Requires Python 3.12+ pod for `rc-foundry[all]`
+### In Progress / Next Steps
+- [ ] **Complete RFD3 Checkpoint Download** - RF3 downloaded successfully, RFD3 still needed
+- [ ] **Test Real Inference End-to-End** - Once all checkpoints are installed
 
 ---
 
 ## For Real Model Inference
 
-The `rc-foundry` package requires Python 3.12+. Current RunPod PyTorch templates use Python 3.10.
+### Official Foundry Documentation
+https://github.com/RosettaCommons/foundry/tree/production
 
-**Options:**
-1. Use a custom Docker image with Python 3.12
-2. Wait for RosettaCommons to release a Python 3.10 compatible version
-3. Install Python 3.12 manually on the pod
+### Setup Steps (Verified Working)
 
-Once available, install with:
+**Step 1: Create Python 3.12 venv**
+```python
+!apt update && apt install -y python3.12 python3.12-venv python3.12-dev -qq
+!python3.12 -m venv /workspace/foundry_env
+!/workspace/foundry_env/bin/pip install --upgrade pip -q
+```
+
+**Step 2: Install rc-foundry**
+```python
+!/workspace/foundry_env/bin/pip install "rc-foundry[all]" -q
+```
+
+**Step 3: Download Checkpoints (CRITICAL)**
+```python
+# Download all base models at once
+!/workspace/foundry_env/bin/foundry install base-models --checkpoint-dir /workspace/checkpoints
+
+# OR download individually
+!/workspace/foundry_env/bin/foundry install rfd3 --checkpoint-dir /workspace/checkpoints
+!/workspace/foundry_env/bin/foundry install rf3 --checkpoint-dir /workspace/checkpoints
+!/workspace/foundry_env/bin/foundry install proteinmpnn --checkpoint-dir /workspace/checkpoints
+```
+
+**Verify installation:**
 ```bash
-pip install "rc-foundry[all]"
-export FOUNDRY_CHECKPOINT_DIRS=/workspace/checkpoints
+/workspace/foundry_env/bin/foundry list-installed
+```
+
+**Step 4: Start Backend**
+```python
+import subprocess, os
+env = os.environ.copy()
+env["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
+subprocess.Popen(
+    ["/workspace/foundry_env/bin/python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"],
+    env=env
+)
 ```
 
 ---
@@ -76,7 +108,9 @@ export FOUNDRY_CHECKPOINT_DIRS=/workspace/checkpoints
 |------|---------|
 | `backend/main.py` | Unified FastAPI backend (mock + real mode) |
 | `frontend/src/components/ConnectionStatus.tsx` | Backend status display |
-| `frontend/src/components/RFD3Panel.tsx` | RFdiffusion design panel |
+| `frontend/src/components/RFD3Panel.tsx` | RFdiffusion design panel with ContigBuilder |
+| `frontend/src/components/ContigBuilder.tsx` | Visual segment builder for contig strings |
+| `frontend/src/components/WorkflowStepper.tsx` | Horizontal workflow progress indicator |
 | `frontend/src/components/MPNNPanel.tsx` | ProteinMPNN panel with "Use Latest Design" |
 | `frontend/src/components/ProteinViewer.tsx` | Molstar 3D viewer |
 | `frontend/src/components/NotificationToast.tsx` | Workflow notifications |
@@ -91,13 +125,16 @@ Continue working on Banta_Lab_RFdiffusion:
 
 Current state:
 - Backend unified with mock/real mode auto-detection (working)
-- Frontend has notifications, 3D viewer, panel data flow (working)
-- rc-foundry requires Python 3.12+ (blocked on RunPod template)
+- Frontend complete with ContigBuilder, WorkflowStepper, notifications, 3D viewer
+- rc-foundry installed in Python 3.12 venv
+- RF3 checkpoint downloaded successfully
+- RFD3 checkpoint still needs to be downloaded
 
 Next priorities:
-1. Create ContigBuilder.tsx - Visual UI to help beginners build contig strings
-2. Create WorkflowStepper.tsx - Progress indicator: Design → Validate → Sequences
-3. (Optional) Find Python 3.12 RunPod solution for real Foundry models
+1. Run: /workspace/foundry_env/bin/foundry install rfd3 --checkpoint-dir /workspace/checkpoints
+2. Test real RFD3 inference from frontend
+3. If working, test full workflow: RFD3 → MPNN
 
-The plan file at ~/.claude/plans/velvet-snuggling-pony.md has full details.
+See RUNPOD_QUICK_SETUP.md for detailed setup instructions.
+Official Foundry docs: https://github.com/RosettaCommons/foundry/tree/production
 ```

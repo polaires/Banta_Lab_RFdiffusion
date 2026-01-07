@@ -74,6 +74,8 @@ NEXT_PUBLIC_API_URL=https://{POD_ID}-8000.proxy.runpod.net
 
 For real protein design (not mock data), you need to install `rc-foundry` and download model checkpoints.
 
+> **Official Documentation**: https://github.com/RosettaCommons/foundry/tree/production
+
 ### Step 1: Create Python 3.12 Virtual Environment
 ```python
 # rc-foundry requires Python 3.12+
@@ -89,18 +91,36 @@ For real protein design (not mock data), you need to install `rc-foundry` and do
 !/workspace/foundry_env/bin/pip install "rc-foundry[all]" -q
 ```
 
-### Step 3: Configure Checkpoint Directory
+### Step 3: Download Model Checkpoints (IMPORTANT!)
+Use the `foundry install` CLI command to download checkpoints:
+
 ```python
-import os
-os.environ["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
-!mkdir -p /workspace/checkpoints
+# Download all base models (RFD3, RF3, MPNN) - ~10GB total
+!/workspace/foundry_env/bin/foundry install base-models --checkpoint-dir /workspace/checkpoints
+
+# OR download specific models individually:
+# !/workspace/foundry_env/bin/foundry install rfd3 --checkpoint-dir /workspace/checkpoints
+# !/workspace/foundry_env/bin/foundry install rf3 --checkpoint-dir /workspace/checkpoints
+# !/workspace/foundry_env/bin/foundry install proteinmpnn --checkpoint-dir /workspace/checkpoints
+```
+
+**Useful commands:**
+```bash
+# List all available checkpoints
+/workspace/foundry_env/bin/foundry list-available
+
+# Check what's already installed
+/workspace/foundry_env/bin/foundry list-installed
 ```
 
 ### Step 4: Start Backend with Foundry
 ```python
 import subprocess
+import os
+
 env = os.environ.copy()
 env["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
+
 subprocess.Popen(
     ["/workspace/foundry_env/bin/python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"],
     env=env,
@@ -108,10 +128,11 @@ subprocess.Popen(
 )
 ```
 
-### Current Limitations
-- **Checkpoint Download**: Model checkpoints (~4GB each) need to be downloaded from IPD servers
-- The rc-foundry package should auto-download on first inference, but this may require specific setup
-- For now, use **mock mode** for testing the frontend workflow
+### Notes
+- Checkpoints are ~3-4GB each and download from RosettaCommons servers
+- The `base-models` option installs latest RFD3, RF3, and MPNN variants
+- Use `foundry install all` to download ALL available model variants
+- Checkpoints persist on the network volume between pod restarts
 
 ---
 

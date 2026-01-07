@@ -39,7 +39,8 @@ GPU_INFO: Dict[str, Any] = {}
 
 def check_foundry_available() -> bool:
     """Check if Foundry CLI tools are installed"""
-    for cmd in ["rfd3", "rf3", "proteinmpnn"]:
+    # rc-foundry uses 'mpnn' not 'proteinmpnn'
+    for cmd in ["rfd3", "rf3", "mpnn"]:
         try:
             result = subprocess.run([cmd, "--help"], capture_output=True, timeout=10)
             if result.returncode == 0:
@@ -397,8 +398,9 @@ async def process_mpnn_real(job_id: str, request: MPNNRequest):
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)
 
+            # rc-foundry uses 'mpnn' command
             cmd = (
-                f"proteinmpnn "
+                f"mpnn "
                 f"--pdb {pdb_path} "
                 f"--out_dir {out_dir} "
                 f"--num_seq_per_target {request.num_sequences} "

@@ -621,30 +621,29 @@ async def process_rf3_cli(job_id: str, request: RF3Request):
             out_dir = os.path.join(tmpdir, "output")
             os.makedirs(out_dir, exist_ok=True)
 
-            # Create .project-root file that rootutils requires
-            # rootutils searches from rf3 package location UP the directory tree
-            # We need to create it in locations along that path
-            project_root_locations = [
-                os.path.join(tmpdir, ".project-root"),
-                "/workspace/.project-root",
-                "/workspace/foundry_env/.project-root",
-                "/workspace/foundry_env/lib/.project-root",
-                "/workspace/foundry_env/lib/python3.12/.project-root",
-                "/workspace/foundry_env/lib/python3.12/site-packages/.project-root",
-            ]
-            for loc in project_root_locations:
+            # Create .project-root file in /workspace for rootutils
+            # IMPORTANT: Must be in /workspace, NOT in tmpdir, otherwise RF3 looks for
+            # checkpoints in the wrong location
+            workspace_root = "/workspace/.project-root"
+            if not os.path.exists(workspace_root):
                 try:
-                    if not os.path.exists(loc):
-                        with open(loc, "w") as f:
-                            f.write("")
-                        print(f"[RF3] Created {loc}")
+                    with open(workspace_root, "w") as f:
+                        f.write("")
+                    print(f"[RF3] Created {workspace_root}")
                 except Exception as e:
-                    print(f"[RF3] Could not create {loc}: {e}")
+                    print(f"[RF3] Could not create {workspace_root}: {e}")
+
+            # Set up environment with checkpoint directory
+            env = os.environ.copy()
+            env["FOUNDRY_CHECKPOINT_DIRS"] = "/workspace/checkpoints"
 
             rf3_cli = get_cli_path("rf3")
             cmd = f"{rf3_cli} predict out_dir={out_dir} inputs={fasta_path}"
+            print(f"[RF3] Running: {cmd}")
+            print(f"[RF3] FOUNDRY_CHECKPOINT_DIRS={env.get('FOUNDRY_CHECKPOINT_DIRS')}")
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=3600, cwd=tmpdir
+                cmd, shell=True, capture_output=True, text=True, timeout=3600,
+                cwd="/workspace", env=env
             )
 
             if result.returncode == 0:

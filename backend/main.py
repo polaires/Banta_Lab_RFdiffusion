@@ -180,13 +180,26 @@ class HealthResponse(BaseModel):
 
 
 class RFD3Request(BaseModel):
-    """RFdiffusion3 design request with seed control"""
+    """RFdiffusion3 design request with advanced options"""
     contig: Optional[str] = None
     contigs: Optional[str] = None
     num_designs: int = Field(default=1, ge=1, le=10)
     pdb_content: Optional[str] = None
     seed: Optional[int] = None  # For reproducibility
     config: Optional[Dict[str, Any]] = None
+
+    # Phase 1: Hotspot residues - dict mapping residue ranges to atom selection
+    # e.g., {"A15-20": "ALL", "A25": "TIP", "A30-35": "BKBN"}
+    select_hotspots: Optional[Dict[str, str]] = None
+
+    # Phase 1: Partial diffusion - noise level in Angstroms (5-20 recommended)
+    partial_t: Optional[float] = Field(default=None, ge=0.0, le=30.0)
+
+    # Phase 1: Diffusion sampling parameters
+    num_timesteps: Optional[int] = Field(default=None, ge=50, le=500)
+    step_scale: Optional[float] = Field(default=None, ge=0.5, le=3.0)
+    noise_scale: Optional[float] = Field(default=None, ge=0.9, le=1.1)
+    gamma_0: Optional[float] = Field(default=None, ge=0.1, le=1.0)
 
     @model_validator(mode="after")
     def normalize_contig(self):
@@ -414,6 +427,7 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
         contig_str = request.contig or "100"
         is_simple_length = contig_str.replace("-", "").isdigit()
 
+        # Build specification dict
         if is_simple_length:
             if "-" in contig_str:
                 spec = {"length": contig_str}
@@ -422,10 +436,41 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
         else:
             spec = {"contig": contig_str}
 
-        config = RFD3InferenceConfig(
-            specification=spec,
-            diffusion_batch_size=request.num_designs,
-        )
+        # Phase 1: Add hotspot residues to specification
+        if request.select_hotspots:
+            spec["select_hotspots"] = request.select_hotspots
+            print(f"[RFD3] Added hotspots: {request.select_hotspots}")
+
+        # Phase 1: Add partial diffusion to specification
+        if request.partial_t is not None:
+            spec["partial_t"] = request.partial_t
+            print(f"[RFD3] Partial diffusion enabled: {request.partial_t}Å")
+
+        # Build inference sampler config for diffusion parameters
+        sampler_config = {}
+        if request.num_timesteps is not None:
+            sampler_config["num_timesteps"] = request.num_timesteps
+        if request.step_scale is not None:
+            sampler_config["step_scale"] = request.step_scale
+        if request.noise_scale is not None:
+            sampler_config["noise_scale"] = request.noise_scale
+        if request.gamma_0 is not None:
+            sampler_config["gamma_0"] = request.gamma_0
+
+        if sampler_config:
+            print(f"[RFD3] Sampler config: {sampler_config}")
+
+        # Build the inference config
+        config_kwargs = {
+            "specification": spec,
+            "diffusion_batch_size": request.num_designs,
+        }
+
+        # Add sampler config if any parameters were set
+        if sampler_config:
+            config_kwargs["inference_sampler"] = sampler_config
+
+        config = RFD3InferenceConfig(**config_kwargs)
 
         model = RFD3InferenceEngine(**config)
         outputs_dict = model.run(
@@ -1063,12 +1108,30 @@ async def health():
 async def submit_rfd3_design(request: RFD3Request, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
 
+    # Build request summary for logging
+    request_summary = {
+        "contig": request.contig,
+        "num_designs": request.num_designs,
+        "seed": request.seed,
+    }
+    # Add Phase 1 parameters if set
+    if request.select_hotspots:
+        request_summary["select_hotspots"] = request.select_hotspots
+    if request.partial_t is not None:
+        request_summary["partial_t"] = request.partial_t
+    if request.num_timesteps is not None:
+        request_summary["num_timesteps"] = request.num_timesteps
+    if request.step_scale is not None:
+        request_summary["step_scale"] = request.step_scale
+    if request.gamma_0 is not None:
+        request_summary["gamma_0"] = request.gamma_0
+
     jobs[job_id] = {
         "job_id": job_id,
         "status": "pending",
         "created_at": datetime.utcnow().isoformat(),
         "type": "rfd3",
-        "request": {"contig": request.contig, "num_designs": request.num_designs, "seed": request.seed},
+        "request": request_summary,
     }
 
     background_tasks.add_task(process_rfd3_job, job_id, request)

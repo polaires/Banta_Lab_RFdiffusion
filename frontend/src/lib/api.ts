@@ -33,6 +33,19 @@ export interface RFD3Request {
   num_designs?: number;
   pdb_content?: string;
   seed?: number;  // For reproducibility
+
+  // Phase 1: Hotspot residues - dict mapping residue ranges to atom selection
+  // e.g., {"A15-20": "ALL", "A25": "TIP", "A30-35": "BKBN"}
+  select_hotspots?: Record<string, string>;
+
+  // Phase 1: Partial diffusion - noise level in Angstroms (5-20 recommended)
+  partial_t?: number;
+
+  // Phase 1: Diffusion sampling parameters
+  num_timesteps?: number;  // 50-500, default 200
+  step_scale?: number;     // 0.5-3.0, default 1.5 (higher = less diverse, more designable)
+  noise_scale?: number;    // 0.9-1.1, default 1.003
+  gamma_0?: number;        // 0.1-1.0, default 0.6 (lower = more designable, less diverse)
 }
 
 export interface RF3Request {
@@ -220,7 +233,16 @@ class FoundryAPI {
       await supabaseSaveJob({
         runpod_id: result.job_id,
         type: 'rfd3',
-        request: { contig: request.contig, num_designs: request.num_designs, seed: request.seed },
+        request: {
+          contig: request.contig,
+          num_designs: request.num_designs,
+          seed: request.seed,
+          select_hotspots: request.select_hotspots,
+          partial_t: request.partial_t,
+          num_timesteps: request.num_timesteps,
+          step_scale: request.step_scale,
+          gamma_0: request.gamma_0,
+        },
       });
     }
 

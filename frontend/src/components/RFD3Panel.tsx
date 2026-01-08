@@ -20,6 +20,48 @@ const EXAMPLE_CONFIGS = {
   },
 };
 
+// Diffusion quality presets
+const DIFFUSION_PRESETS = {
+  'Quick': {
+    num_timesteps: 50,
+    step_scale: 1.8,
+    gamma_0: 0.5,
+    description: 'Fast generation, good for exploration',
+  },
+  'Balanced': {
+    num_timesteps: 200,
+    step_scale: 1.5,
+    gamma_0: 0.6,
+    description: 'Default settings, balanced quality',
+  },
+  'High Quality': {
+    num_timesteps: 500,
+    step_scale: 1.2,
+    gamma_0: 0.7,
+    description: 'Slower but higher quality designs',
+  },
+  'Diverse': {
+    num_timesteps: 200,
+    step_scale: 1.0,
+    gamma_0: 0.8,
+    description: 'More diverse, creative designs',
+  },
+};
+
+// Hotspot atom selection options
+const HOTSPOT_ATOM_OPTIONS = [
+  { value: 'ALL', label: 'All atoms', description: 'Contact any atom in residue' },
+  { value: 'BKBN', label: 'Backbone', description: 'Contact backbone (N, CA, C, O)' },
+  { value: 'TIP', label: 'Tip atom', description: 'Contact functional tip only' },
+];
+
+interface Hotspot {
+  id: string;
+  chain: string;
+  residues: string;
+  atoms: string;
+}
+
 export function RFD3Panel() {
   const {
     health,
@@ -43,6 +85,23 @@ export function RFD3Panel() {
   const [lastDesignPdb, setLastDesignPdb] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Phase 1: Advanced options state
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<string>('Balanced');
+  const [numTimesteps, setNumTimesteps] = useState<number | null>(null);
+  const [stepScale, setStepScale] = useState<number | null>(null);
+  const [gamma0, setGamma0] = useState<number | null>(null);
+
+  // Phase 1: Partial diffusion (only when PDB uploaded)
+  const [usePartialDiffusion, setUsePartialDiffusion] = useState(false);
+  const [partialT, setPartialT] = useState(10);
+
+  // Phase 1: Hotspot residues
+  const [hotspots, setHotspots] = useState<Hotspot[]>([]);
+  const [newHotspotChain, setNewHotspotChain] = useState('A');
+  const [newHotspotResidues, setNewHotspotResidues] = useState('');
+  const [newHotspotAtoms, setNewHotspotAtoms] = useState('ALL');
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -75,6 +134,45 @@ export function RFD3Panel() {
     setUseSeed(true);
   };
 
+  // Apply diffusion preset
+  const applyPreset = (presetName: string) => {
+    const preset = DIFFUSION_PRESETS[presetName as keyof typeof DIFFUSION_PRESETS];
+    if (preset) {
+      setSelectedPreset(presetName);
+      setNumTimesteps(preset.num_timesteps);
+      setStepScale(preset.step_scale);
+      setGamma0(preset.gamma_0);
+    }
+  };
+
+  // Hotspot management
+  const addHotspot = () => {
+    if (!newHotspotResidues.trim()) return;
+    const newHotspot: Hotspot = {
+      id: `${Date.now()}`,
+      chain: newHotspotChain,
+      residues: newHotspotResidues.trim(),
+      atoms: newHotspotAtoms,
+    };
+    setHotspots([...hotspots, newHotspot]);
+    setNewHotspotResidues('');
+  };
+
+  const removeHotspot = (id: string) => {
+    setHotspots(hotspots.filter((h: Hotspot) => h.id !== id));
+  };
+
+  // Convert hotspots to API format
+  const buildHotspotsDict = (): Record<string, string> | undefined => {
+    if (hotspots.length === 0) return undefined;
+    const dict: Record<string, string> = {};
+    for (const h of hotspots) {
+      const key = `${h.chain}${h.residues}`;
+      dict[key] = h.atoms;
+    }
+    return dict;
+  };
+
   const handleSubmit = async () => {
     if (!health) {
       setError('Backend not connected');
@@ -85,12 +183,37 @@ export function RFD3Panel() {
     setSubmitting(true);
 
     try {
-      const response = await api.submitRFD3Design({
+      // Build request with Phase 1 advanced options
+      const request: Parameters<typeof api.submitRFD3Design>[0] = {
         contig,
         num_designs: numDesigns,
         ...(useSeed && seed !== null && { seed }),
         ...(inputPdb && { pdb_content: inputPdb }),
-      });
+      };
+
+      // Add hotspots if defined
+      const hotspotsDict = buildHotspotsDict();
+      if (hotspotsDict) {
+        request.select_hotspots = hotspotsDict;
+      }
+
+      // Add partial diffusion if enabled and PDB is provided
+      if (usePartialDiffusion && inputPdb && partialT > 0) {
+        request.partial_t = partialT;
+      }
+
+      // Add diffusion parameters if not using defaults
+      if (numTimesteps !== null && numTimesteps !== 200) {
+        request.num_timesteps = numTimesteps;
+      }
+      if (stepScale !== null && stepScale !== 1.5) {
+        request.step_scale = stepScale;
+      }
+      if (gamma0 !== null && gamma0 !== 0.6) {
+        request.gamma_0 = gamma0;
+      }
+
+      const response = await api.submitRFD3Design(request);
 
       addJob({
         id: response.job_id,
@@ -207,6 +330,38 @@ export function RFD3Panel() {
             </div>
           </div>
 
+          {/* Diffusion Quality Presets */}
+          <div className="space-y-3">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+              Quality Preset
+              <span
+                className="material-symbols-outlined text-slate-300 text-sm cursor-help hover:text-slate-500 transition-colors"
+                title="Control speed vs quality tradeoff"
+              >
+                info
+              </span>
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(DIFFUSION_PRESETS).map(([name, preset]) => (
+                <button
+                  key={name}
+                  onClick={() => applyPreset(name)}
+                  className={`group px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm ${
+                    selectedPreset === name
+                      ? 'bg-blue-600 text-white border border-blue-600 shadow-blue-200'
+                      : 'bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 text-slate-600 hover:text-blue-700'
+                  }`}
+                  title={preset.description}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 pl-1">
+              {DIFFUSION_PRESETS[selectedPreset as keyof typeof DIFFUSION_PRESETS]?.description || 'Select a preset'}
+            </p>
+          </div>
+
           {/* Contig Specification */}
           <div className="space-y-2">
             <div className="flex justify-between items-end px-1">
@@ -305,6 +460,210 @@ export function RFD3Panel() {
               </div>
             </div>
           </div>
+
+          {/* Advanced Options Toggle */}
+          <div className="border-t border-slate-100 pt-4">
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-blue-600 transition-colors"
+            >
+              <span className={`material-symbols-outlined text-lg transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>
+                chevron_right
+              </span>
+              Advanced Options
+              {(hotspots.length > 0 || usePartialDiffusion) && (
+                <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">
+                  {hotspots.length + (usePartialDiffusion ? 1 : 0)}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Advanced Options Panel */}
+          {showAdvanced && (
+            <div className="space-y-6 pl-2 border-l-2 border-slate-100">
+              {/* Hotspot Residues */}
+              <div className="space-y-3">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+                  Hotspot Residues
+                  <span
+                    className="material-symbols-outlined text-slate-300 text-sm cursor-help hover:text-slate-500 transition-colors"
+                    title="Specify residues the designed protein must contact (~4.5Å)"
+                  >
+                    info
+                  </span>
+                </label>
+
+                {/* Hotspot input row */}
+                <div className="flex gap-2 items-end">
+                  <div className="w-16">
+                    <label className="block text-xs text-slate-500 mb-1">Chain</label>
+                    <input
+                      type="text"
+                      value={newHotspotChain}
+                      onChange={(e) => setNewHotspotChain(e.target.value.toUpperCase().slice(0, 1))}
+                      className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2.5 text-center"
+                      placeholder="A"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs text-slate-500 mb-1">Residues</label>
+                    <input
+                      type="text"
+                      value={newHotspotResidues}
+                      onChange={(e) => setNewHotspotResidues(e.target.value)}
+                      className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2.5"
+                      placeholder="15-20 or 15,16,17"
+                    />
+                  </div>
+                  <div className="w-28">
+                    <label className="block text-xs text-slate-500 mb-1">Atoms</label>
+                    <select
+                      value={newHotspotAtoms}
+                      onChange={(e) => setNewHotspotAtoms(e.target.value)}
+                      className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2"
+                    >
+                      {HOTSPOT_ATOM_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={addHotspot}
+                    disabled={!newHotspotResidues.trim()}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-lg">add</span>
+                  </button>
+                </div>
+
+                {/* Hotspot list */}
+                {hotspots.length > 0 && (
+                  <div className="space-y-2">
+                    {hotspots.map(h => (
+                      <div key={h.id} className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-blue-700">{h.chain}{h.residues}</span>
+                          <span className="text-slate-400">·</span>
+                          <span className="text-slate-600">{HOTSPOT_ATOM_OPTIONS.find(o => o.value === h.atoms)?.label}</span>
+                        </div>
+                        <button
+                          onClick={() => removeHotspot(h.id)}
+                          className="text-slate-400 hover:text-red-500 transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-lg">close</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-xs text-slate-400 pl-1">
+                  Selected residues will be within ~4.5Å of the designed protein for functional binding.
+                </p>
+              </div>
+
+              {/* Partial Diffusion - only show when PDB is uploaded */}
+              {inputPdb && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+                      Partial Diffusion
+                      <span
+                        className="material-symbols-outlined text-slate-300 text-sm cursor-help hover:text-slate-500 transition-colors"
+                        title="Refine existing structure instead of generating from scratch"
+                      >
+                        info
+                      </span>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="use-partial"
+                        checked={usePartialDiffusion}
+                        onChange={(e) => setUsePartialDiffusion(e.target.checked)}
+                        className="h-3.5 w-3.5 text-blue-600 focus:ring-blue-500 border-slate-300 rounded cursor-pointer"
+                      />
+                      <label htmlFor="use-partial" className="text-xs text-slate-500 cursor-pointer select-none">
+                        Enable
+                      </label>
+                    </div>
+                  </div>
+
+                  {usePartialDiffusion && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-4">
+                        <input
+                          type="range"
+                          min={5}
+                          max={20}
+                          step={1}
+                          value={partialT}
+                          onChange={(e) => setPartialT(parseInt(e.target.value))}
+                          className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                        />
+                        <span className="text-sm font-mono text-slate-700 w-12 text-right">{partialT}Å</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 px-1">
+                        <span>Minor refinement</span>
+                        <span>Major redesign</span>
+                      </div>
+                      <p className="text-xs text-slate-400 pl-1">
+                        Lower values preserve more of the input structure. Higher values allow more changes.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Detailed Parameters */}
+              <div className="space-y-3">
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1">
+                  Detailed Parameters
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Timesteps</label>
+                    <input
+                      type="number"
+                      value={numTimesteps ?? 200}
+                      onChange={(e) => setNumTimesteps(parseInt(e.target.value) || 200)}
+                      min={50}
+                      max={500}
+                      className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Step Scale</label>
+                    <input
+                      type="number"
+                      value={stepScale ?? 1.5}
+                      onChange={(e) => setStepScale(parseFloat(e.target.value) || 1.5)}
+                      min={0.5}
+                      max={3.0}
+                      step={0.1}
+                      className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Gamma</label>
+                    <input
+                      type="number"
+                      value={gamma0 ?? 0.6}
+                      onChange={(e) => setGamma0(parseFloat(e.target.value) || 0.6)}
+                      min={0.1}
+                      max={1.0}
+                      step={0.1}
+                      className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2.5"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 pl-1">
+                  Timesteps: more = higher quality. Step Scale: higher = more designable. Gamma: lower = more designable.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right column - File upload */}

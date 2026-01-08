@@ -10,21 +10,30 @@ FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including Python 3.12 (required by rc-foundry)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     wget \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa -y \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip
+# Create Python 3.12 virtual environment and use it
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip in venv
 RUN pip install --upgrade pip
 
 # Install RunPod SDK
 RUN pip install --no-cache-dir runpod
 
-# Install Foundry and dependencies
-# Note: This is a large installation (~5GB), consider using a pre-built base image
-# Install rc-foundry separately to better handle potential dependency issues
+# Install Foundry and dependencies (requires Python 3.12)
 RUN pip install --no-cache-dir "rc-foundry[all]" && \
     pip install --no-cache-dir biotite
 

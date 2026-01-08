@@ -131,10 +131,12 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             return handle_rmsd(job_input)
         elif task == "download_checkpoints":
             return handle_download_checkpoints(job_input)
+        elif task == "delete_file":
+            return handle_delete_file(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, download_checkpoints"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -395,6 +397,53 @@ def handle_download_checkpoints(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "status": "failed",
             "error": str(e),
             "traceback": traceback.format_exc()
+        }
+
+
+def handle_delete_file(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Delete a specific file from the Network Volume.
+    Only allows deleting files within the checkpoint directory for safety.
+
+    Input:
+        filename: str - Name of file to delete (e.g., "rfd3_latest.ckpt")
+    """
+    filename = job_input.get("filename")
+    if not filename:
+        return {"status": "failed", "error": "Missing 'filename' parameter"}
+
+    # Safety: only allow deleting from checkpoint directory
+    filepath = os.path.join(CHECKPOINT_DIR, filename)
+
+    # Prevent path traversal
+    if not os.path.abspath(filepath).startswith(os.path.abspath(CHECKPOINT_DIR)):
+        return {"status": "failed", "error": "Invalid filename - path traversal not allowed"}
+
+    if not os.path.exists(filepath):
+        return {
+            "status": "completed",
+            "result": {
+                "deleted": False,
+                "message": f"File does not exist: {filepath}"
+            }
+        }
+
+    try:
+        file_size = os.path.getsize(filepath)
+        os.remove(filepath)
+        return {
+            "status": "completed",
+            "result": {
+                "deleted": True,
+                "filepath": filepath,
+                "size_bytes": file_size,
+                "message": f"Successfully deleted {filepath} ({file_size} bytes)"
+            }
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "error": f"Failed to delete {filepath}: {str(e)}"
         }
 
 

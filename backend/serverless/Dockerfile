@@ -24,10 +24,9 @@ RUN pip install --no-cache-dir runpod
 
 # Install Foundry and dependencies
 # Note: This is a large installation (~5GB), consider using a pre-built base image
-RUN pip install --no-cache-dir \
-    rc-foundry[all] \
-    biotite \
-    lightning
+# Install rc-foundry separately to better handle potential dependency issues
+RUN pip install --no-cache-dir "rc-foundry[all]" && \
+    pip install --no-cache-dir biotite
 
 # Copy handler code
 COPY handler.py /app/

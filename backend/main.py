@@ -179,6 +179,21 @@ class HealthResponse(BaseModel):
     models: Dict[str, Dict[str, Any]]
 
 
+class SymmetryConfig(BaseModel):
+    """Symmetry configuration for oligomeric design"""
+    id: str  # C2, C3, C4, D2, D3, T, O, I
+    is_unsym_motif: Optional[str] = None  # Chains to exclude from symmetry
+    is_symmetric_motif: bool = True
+
+
+class CFGConfig(BaseModel):
+    """Classifier-Free Guidance configuration"""
+    enabled: bool = False
+    scale: float = Field(default=1.5, ge=0.5, le=3.0)
+    t_max: float = Field(default=0.8, ge=0.0, le=1.0)
+    features: Optional[List[str]] = None  # active_donor, active_acceptor, ref_atomwise_rasa
+
+
 class RFD3Request(BaseModel):
     """RFdiffusion3 design request with advanced options"""
     contig: Optional[str] = None
@@ -200,6 +215,15 @@ class RFD3Request(BaseModel):
     step_scale: Optional[float] = Field(default=None, ge=0.5, le=3.0)
     noise_scale: Optional[float] = Field(default=None, ge=0.9, le=1.1)
     gamma_0: Optional[float] = Field(default=None, ge=0.1, le=1.0)
+
+    # Phase 2: Symmetry design - for oligomeric proteins
+    symmetry: Optional[SymmetryConfig] = None
+
+    # Phase 2: Ligand binding - chemical component ID (e.g., "ATP", "NAD", "ZN")
+    ligand: Optional[str] = None
+
+    # Phase 2: Classifier-Free Guidance
+    cfg: Optional[CFGConfig] = None
 
     @model_validator(mode="after")
     def normalize_contig(self):
@@ -446,6 +470,20 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
             spec["partial_t"] = request.partial_t
             print(f"[RFD3] Partial diffusion enabled: {request.partial_t}Å")
 
+        # Phase 2: Add symmetry configuration
+        if request.symmetry:
+            symmetry_dict = {"id": request.symmetry.id}
+            if request.symmetry.is_unsym_motif:
+                symmetry_dict["is_unsym_motif"] = request.symmetry.is_unsym_motif
+            symmetry_dict["is_symmetric_motif"] = request.symmetry.is_symmetric_motif
+            spec["symmetry"] = symmetry_dict
+            print(f"[RFD3] Symmetry enabled: {request.symmetry.id}")
+
+        # Phase 2: Add ligand binding
+        if request.ligand:
+            spec["ligand"] = request.ligand
+            print(f"[RFD3] Ligand binding enabled: {request.ligand}")
+
         # Build inference sampler config for diffusion parameters
         sampler_config = {}
         if request.num_timesteps is not None:
@@ -457,14 +495,35 @@ async def process_rfd3_real(job_id: str, request: RFD3Request):
         if request.gamma_0 is not None:
             sampler_config["gamma_0"] = request.gamma_0
 
+        # Phase 2: Add symmetry sampler kind
+        if request.symmetry:
+            sampler_config["kind"] = "symmetry"
+
+        # Phase 2: Add Classifier-Free Guidance
+        if request.cfg and request.cfg.enabled:
+            sampler_config["use_classifier_free_guidance"] = True
+            sampler_config["cfg_scale"] = request.cfg.scale
+            sampler_config["cfg_t_max"] = request.cfg.t_max
+            if request.cfg.features:
+                sampler_config["cfg_features"] = request.cfg.features
+            print(f"[RFD3] CFG enabled: scale={request.cfg.scale}, features={request.cfg.features}")
+
         if sampler_config:
             print(f"[RFD3] Sampler config: {sampler_config}")
 
         # Build the inference config
+        # Symmetry requires batch_size=1 due to memory constraints
+        batch_size = 1 if request.symmetry else request.num_designs
+
         config_kwargs = {
             "specification": spec,
-            "diffusion_batch_size": request.num_designs,
+            "diffusion_batch_size": batch_size,
         }
+
+        # High-order symmetry requires low memory mode
+        if request.symmetry and request.symmetry.id in ["T", "O", "I"]:
+            config_kwargs["low_memory_mode"] = True
+            print(f"[RFD3] Low memory mode enabled for {request.symmetry.id} symmetry")
 
         # Add sampler config if any parameters were set
         if sampler_config:
@@ -1125,6 +1184,13 @@ async def submit_rfd3_design(request: RFD3Request, background_tasks: BackgroundT
         request_summary["step_scale"] = request.step_scale
     if request.gamma_0 is not None:
         request_summary["gamma_0"] = request.gamma_0
+    # Add Phase 2 parameters if set
+    if request.symmetry:
+        request_summary["symmetry"] = request.symmetry.id
+    if request.ligand:
+        request_summary["ligand"] = request.ligand
+    if request.cfg and request.cfg.enabled:
+        request_summary["cfg"] = {"scale": request.cfg.scale, "features": request.cfg.features}
 
     jobs[job_id] = {
         "job_id": job_id,

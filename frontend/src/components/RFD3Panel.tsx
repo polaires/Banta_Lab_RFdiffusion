@@ -55,6 +55,42 @@ const HOTSPOT_ATOM_OPTIONS = [
   { value: 'TIP', label: 'Tip atom', description: 'Contact functional tip only' },
 ];
 
+// Phase 2: Symmetry options
+const SYMMETRY_OPTIONS = [
+  { id: 'C2', label: 'C2 (Dimer)', subunits: 2, description: '2-fold rotational symmetry' },
+  { id: 'C3', label: 'C3 (Trimer)', subunits: 3, description: '3-fold rotational symmetry' },
+  { id: 'C4', label: 'C4 (Tetramer)', subunits: 4, description: '4-fold rotational symmetry' },
+  { id: 'C5', label: 'C5 (Pentamer)', subunits: 5, description: '5-fold rotational symmetry' },
+  { id: 'C6', label: 'C6 (Hexamer)', subunits: 6, description: '6-fold rotational symmetry' },
+  { id: 'D2', label: 'D2 (4 chains)', subunits: 4, description: 'Dihedral with 2-fold axes' },
+  { id: 'D3', label: 'D3 (6 chains)', subunits: 6, description: 'Dihedral with 3-fold axis' },
+  { id: 'D4', label: 'D4 (8 chains)', subunits: 8, description: 'Dihedral with 4-fold axis' },
+  { id: 'T', label: 'Tetrahedral', subunits: 12, description: '12 subunits, cage-like' },
+  { id: 'O', label: 'Octahedral', subunits: 24, description: '24 subunits, cubic' },
+  { id: 'I', label: 'Icosahedral', subunits: 60, description: '60 subunits, viral capsid' },
+];
+
+// Phase 2: Common ligands
+const COMMON_LIGANDS = [
+  { id: 'ATP', label: 'ATP', category: 'Nucleotide', description: 'Adenosine triphosphate' },
+  { id: 'ADP', label: 'ADP', category: 'Nucleotide', description: 'Adenosine diphosphate' },
+  { id: 'NAD', label: 'NAD+', category: 'Cofactor', description: 'Nicotinamide adenine dinucleotide' },
+  { id: 'FAD', label: 'FAD', category: 'Cofactor', description: 'Flavin adenine dinucleotide' },
+  { id: 'HEM', label: 'Heme', category: 'Cofactor', description: 'Iron porphyrin' },
+  { id: 'ZN', label: 'Zinc', category: 'Metal', description: 'Zinc ion' },
+  { id: 'MG', label: 'Magnesium', category: 'Metal', description: 'Magnesium ion' },
+  { id: 'CA', label: 'Calcium', category: 'Metal', description: 'Calcium ion' },
+  { id: 'FE', label: 'Iron', category: 'Metal', description: 'Iron ion' },
+  { id: 'SAM', label: 'SAM', category: 'Cofactor', description: 'S-adenosyl methionine' },
+];
+
+// Phase 2: CFG feature options
+const CFG_FEATURES = [
+  { id: 'active_donor', label: 'H-bond Donors', description: 'Favor hydrogen bond donor surfaces' },
+  { id: 'active_acceptor', label: 'H-bond Acceptors', description: 'Favor hydrogen bond acceptor surfaces' },
+  { id: 'ref_atomwise_rasa', label: 'Surface Accessibility', description: 'Guide based on RASA patterns' },
+];
+
 interface Hotspot {
   id: string;
   chain: string;
@@ -102,6 +138,21 @@ export function RFD3Panel() {
   const [newHotspotChain, setNewHotspotChain] = useState('A');
   const [newHotspotResidues, setNewHotspotResidues] = useState('');
   const [newHotspotAtoms, setNewHotspotAtoms] = useState('ALL');
+
+  // Phase 2: Symmetry design
+  const [useSymmetry, setUseSymmetry] = useState(false);
+  const [symmetryType, setSymmetryType] = useState('C2');
+  const [asymmetricChains, setAsymmetricChains] = useState('');
+
+  // Phase 2: Ligand binding
+  const [useLigand, setUseLigand] = useState(false);
+  const [selectedLigand, setSelectedLigand] = useState('');
+  const [customLigand, setCustomLigand] = useState('');
+
+  // Phase 2: Classifier-Free Guidance
+  const [useCFG, setUseCFG] = useState(false);
+  const [cfgScale, setCfgScale] = useState(1.5);
+  const [cfgFeatures, setCfgFeatures] = useState<string[]>([]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -173,6 +224,33 @@ export function RFD3Panel() {
     return dict;
   };
 
+  // Phase 2: Toggle CFG feature
+  const toggleCfgFeature = (featureId: string) => {
+    setCfgFeatures(prev =>
+      prev.includes(featureId)
+        ? prev.filter(f => f !== featureId)
+        : [...prev, featureId]
+    );
+  };
+
+  // Phase 2: Get effective ligand (custom or selected)
+  const getEffectiveLigand = (): string | undefined => {
+    if (!useLigand) return undefined;
+    if (customLigand.trim()) return customLigand.trim().toUpperCase();
+    if (selectedLigand) return selectedLigand;
+    return undefined;
+  };
+
+  // Count active advanced features for badge
+  const countActiveFeatures = (): number => {
+    let count = hotspots.length;
+    if (usePartialDiffusion) count++;
+    if (useSymmetry) count++;
+    if (useLigand && getEffectiveLigand()) count++;
+    if (useCFG) count++;
+    return count;
+  };
+
   const handleSubmit = async () => {
     if (!health) {
       setError('Backend not connected');
@@ -211,6 +289,32 @@ export function RFD3Panel() {
       }
       if (gamma0 !== null && gamma0 !== 0.6) {
         request.gamma_0 = gamma0;
+      }
+
+      // Phase 2: Add symmetry configuration
+      if (useSymmetry) {
+        request.symmetry = {
+          id: symmetryType,
+          is_symmetric_motif: true,
+        };
+        if (asymmetricChains.trim()) {
+          request.symmetry.is_unsym_motif = asymmetricChains.trim();
+        }
+      }
+
+      // Phase 2: Add ligand binding
+      const effectiveLigand = getEffectiveLigand();
+      if (effectiveLigand) {
+        request.ligand = effectiveLigand;
+      }
+
+      // Phase 2: Add Classifier-Free Guidance
+      if (useCFG) {
+        request.cfg = {
+          enabled: true,
+          scale: cfgScale,
+          features: cfgFeatures.length > 0 ? cfgFeatures : undefined,
+        };
       }
 
       const response = await api.submitRFD3Design(request);
@@ -471,9 +575,9 @@ export function RFD3Panel() {
                 chevron_right
               </span>
               Advanced Options
-              {(hotspots.length > 0 || usePartialDiffusion) && (
+              {countActiveFeatures() > 0 && (
                 <span className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">
-                  {hotspots.length + (usePartialDiffusion ? 1 : 0)}
+                  {countActiveFeatures()}
                 </span>
               )}
             </button>
@@ -661,6 +765,254 @@ export function RFD3Panel() {
                 <p className="text-xs text-slate-400 pl-1">
                   Timesteps: more = higher quality. Step Scale: higher = more designable. Gamma: lower = more designable.
                 </p>
+              </div>
+
+              {/* Phase 2: Symmetry Design */}
+              <div className="space-y-3 border-t border-slate-100 pt-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-amber-500 text-sm">hub</span>
+                    Symmetry Design
+                    <span
+                      className="material-symbols-outlined text-slate-300 text-sm cursor-help hover:text-slate-500 transition-colors"
+                      title="Design symmetric oligomeric proteins (dimers, trimers, etc.)"
+                    >
+                      info
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="use-symmetry"
+                      checked={useSymmetry}
+                      onChange={(e) => setUseSymmetry(e.target.checked)}
+                      className="h-3.5 w-3.5 text-blue-600 focus:ring-blue-500 border-slate-300 rounded cursor-pointer"
+                    />
+                    <label htmlFor="use-symmetry" className="text-xs text-slate-500 cursor-pointer select-none">
+                      Enable
+                    </label>
+                  </div>
+                </div>
+
+                {useSymmetry && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-2">Symmetry Type</label>
+                      <div className="grid grid-cols-4 gap-2">
+                        {SYMMETRY_OPTIONS.slice(0, 8).map(sym => (
+                          <button
+                            key={sym.id}
+                            onClick={() => setSymmetryType(sym.id)}
+                            className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              symmetryType === sym.id
+                                ? 'bg-amber-500 text-white border border-amber-500'
+                                : 'bg-white border border-slate-200 text-slate-600 hover:border-amber-300 hover:bg-amber-50'
+                            }`}
+                            title={sym.description}
+                          >
+                            {sym.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        {SYMMETRY_OPTIONS.slice(8).map(sym => (
+                          <button
+                            key={sym.id}
+                            onClick={() => setSymmetryType(sym.id)}
+                            className={`px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              symmetryType === sym.id
+                                ? 'bg-amber-500 text-white border border-amber-500'
+                                : 'bg-white border border-slate-200 text-slate-600 hover:border-amber-300 hover:bg-amber-50'
+                            }`}
+                            title={sym.description}
+                          >
+                            {sym.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-amber-50 rounded-lg p-3 text-xs">
+                      <div className="flex items-center gap-2 text-amber-700 font-medium mb-1">
+                        <span className="material-symbols-outlined text-sm">info</span>
+                        {SYMMETRY_OPTIONS.find(s => s.id === symmetryType)?.label}
+                      </div>
+                      <p className="text-amber-600">
+                        {SYMMETRY_OPTIONS.find(s => s.id === symmetryType)?.subunits} identical subunits.
+                        {['T', 'O', 'I'].includes(symmetryType) && ' High memory usage - uses low memory mode.'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Asymmetric Chains (optional)</label>
+                      <input
+                        type="text"
+                        value={asymmetricChains}
+                        onChange={(e) => setAsymmetricChains(e.target.value)}
+                        className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2.5"
+                        placeholder="e.g., Y1-11,Z16-25"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">
+                        Chains/residues that should NOT be symmetrized (e.g., DNA, ligand).
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Phase 2: Ligand Binding */}
+              <div className="space-y-3 border-t border-slate-100 pt-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-emerald-500 text-sm">science</span>
+                    Ligand Binding
+                    <span
+                      className="material-symbols-outlined text-slate-300 text-sm cursor-help hover:text-slate-500 transition-colors"
+                      title="Design protein with binding site for specific ligand"
+                    >
+                      info
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="use-ligand"
+                      checked={useLigand}
+                      onChange={(e) => setUseLigand(e.target.checked)}
+                      className="h-3.5 w-3.5 text-blue-600 focus:ring-blue-500 border-slate-300 rounded cursor-pointer"
+                    />
+                    <label htmlFor="use-ligand" className="text-xs text-slate-500 cursor-pointer select-none">
+                      Enable
+                    </label>
+                  </div>
+                </div>
+
+                {useLigand && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-2">Common Ligands</label>
+                      <div className="flex flex-wrap gap-2">
+                        {COMMON_LIGANDS.map(lig => (
+                          <button
+                            key={lig.id}
+                            onClick={() => { setSelectedLigand(lig.id); setCustomLigand(''); }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                              selectedLigand === lig.id && !customLigand
+                                ? 'bg-emerald-500 text-white border border-emerald-500'
+                                : 'bg-white border border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50'
+                            }`}
+                            title={`${lig.description} (${lig.category})`}
+                          >
+                            {lig.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Or Custom Ligand ID</label>
+                      <input
+                        type="text"
+                        value={customLigand}
+                        onChange={(e) => { setCustomLigand(e.target.value); if (e.target.value) setSelectedLigand(''); }}
+                        className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm py-2 px-2.5"
+                        placeholder="e.g., GTP, FMN, or custom 3-letter code"
+                      />
+                    </div>
+
+                    {(selectedLigand || customLigand) && (
+                      <div className="bg-emerald-50 rounded-lg p-3 text-xs">
+                        <div className="flex items-center gap-2 text-emerald-700 font-medium">
+                          <span className="material-symbols-outlined text-sm">check_circle</span>
+                          Designing binding site for: <span className="font-mono">{getEffectiveLigand()}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Phase 2: Classifier-Free Guidance */}
+              <div className="space-y-3 border-t border-slate-100 pt-4">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-purple-500 text-sm">tune</span>
+                    Classifier-Free Guidance
+                    <span
+                      className="material-symbols-outlined text-slate-300 text-sm cursor-help hover:text-slate-500 transition-colors"
+                      title="Guide designs toward specific surface properties"
+                    >
+                      info
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="use-cfg"
+                      checked={useCFG}
+                      onChange={(e) => setUseCFG(e.target.checked)}
+                      className="h-3.5 w-3.5 text-blue-600 focus:ring-blue-500 border-slate-300 rounded cursor-pointer"
+                    />
+                    <label htmlFor="use-cfg" className="text-xs text-slate-500 cursor-pointer select-none">
+                      Enable
+                    </label>
+                  </div>
+                </div>
+
+                {useCFG && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Guidance Strength</label>
+                      <div className="flex items-center gap-4">
+                        <input
+                          type="range"
+                          min={0.5}
+                          max={3.0}
+                          step={0.1}
+                          value={cfgScale}
+                          onChange={(e) => setCfgScale(parseFloat(e.target.value))}
+                          className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                        />
+                        <span className="text-sm font-mono text-slate-700 w-10 text-right">{cfgScale.toFixed(1)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400 px-1 mt-1">
+                        <span>Subtle</span>
+                        <span>Strong</span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-2">Guide Toward Features</label>
+                      <div className="space-y-2">
+                        {CFG_FEATURES.map(feature => (
+                          <label
+                            key={feature.id}
+                            className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
+                              cfgFeatures.includes(feature.id)
+                                ? 'bg-purple-50 border border-purple-200'
+                                : 'bg-slate-50 border border-transparent hover:bg-slate-100'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={cfgFeatures.includes(feature.id)}
+                              onChange={() => toggleCfgFeature(feature.id)}
+                              className="h-3.5 w-3.5 text-purple-600 focus:ring-purple-500 border-slate-300 rounded"
+                            />
+                            <div>
+                              <span className="text-sm font-medium text-slate-700">{feature.label}</span>
+                              <p className="text-xs text-slate-500">{feature.description}</p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-slate-400 pl-1">
+                      CFG biases the diffusion process to favor designs with selected surface properties.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )}

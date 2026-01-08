@@ -28,6 +28,21 @@ export type ApiMode = 'traditional' | 'serverless';
 
 // ============== Request Types ==============
 
+// Phase 2: Symmetry configuration for oligomeric design
+export interface SymmetryConfig {
+  id: string;  // C2, C3, C4, C5, C6, D2, D3, D4, T, O, I
+  is_unsym_motif?: string;  // Chains to exclude from symmetry
+  is_symmetric_motif?: boolean;  // Default true
+}
+
+// Phase 2: Classifier-Free Guidance configuration
+export interface CFGConfig {
+  enabled: boolean;
+  scale?: number;  // 0.5-3.0, default 1.5
+  t_max?: number;  // 0.0-1.0, default 0.8
+  features?: string[];  // active_donor, active_acceptor, ref_atomwise_rasa
+}
+
 export interface RFD3Request {
   contig: string;
   num_designs?: number;
@@ -46,6 +61,15 @@ export interface RFD3Request {
   step_scale?: number;     // 0.5-3.0, default 1.5 (higher = less diverse, more designable)
   noise_scale?: number;    // 0.9-1.1, default 1.003
   gamma_0?: number;        // 0.1-1.0, default 0.6 (lower = more designable, less diverse)
+
+  // Phase 2: Symmetry design - for oligomeric proteins
+  symmetry?: SymmetryConfig;
+
+  // Phase 2: Ligand binding - chemical component ID (e.g., "ATP", "NAD", "ZN")
+  ligand?: string;
+
+  // Phase 2: Classifier-Free Guidance
+  cfg?: CFGConfig;
 }
 
 export interface RF3Request {
@@ -242,6 +266,9 @@ class FoundryAPI {
           num_timesteps: request.num_timesteps,
           step_scale: request.step_scale,
           gamma_0: request.gamma_0,
+          symmetry: request.symmetry,
+          ligand: request.ligand,
+          cfg: request.cfg,
         },
       });
     }

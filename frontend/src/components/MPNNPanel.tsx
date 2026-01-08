@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
+import { saveJob as saveJobToSupabase, updateJob as updateJobInSupabase } from '@/lib/supabase';
 
 type ModelType = 'ligand_mpnn' | 'protein_mpnn';
 
@@ -55,14 +56,16 @@ export function MPNNPanel() {
     setSubmitting(true);
 
     try {
-      const response = await api.submitMPNNDesign({
+      const request = {
         pdb_content: pdbContent,
         num_sequences: numSequences,
         temperature,
         model_type: modelType,
         remove_waters: removeWaters,
-      });
+      };
+      const response = await api.submitMPNNDesign(request);
 
+      // Add to local store (UI state)
       addJob({
         id: response.job_id,
         type: 'mpnn',
@@ -70,12 +73,26 @@ export function MPNNPanel() {
         createdAt: new Date().toISOString(),
       });
 
+      // Persist to Supabase (async, non-blocking) - exclude pdb_content to save space
+      saveJobToSupabase({
+        runpod_id: response.job_id,
+        type: 'mpnn',
+        request: { num_sequences: numSequences, temperature, model_type: modelType },
+      });
+
       const jobResult = await api.waitForJob(response.job_id, (status) => {
+        // Update local store
         updateJob(response.job_id, {
           status: status.status,
           completedAt: status.completed_at,
           result: status.result,
           error: status.error,
+        });
+        // Update Supabase (async, non-blocking)
+        updateJobInSupabase(response.job_id, {
+          status: status.status,
+          completed_at: status.completed_at || null,
+          result: status.result || null,
         });
       });
 

@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { ContigBuilder } from './ContigBuilder';
+import { saveJob as saveJobToSupabase, updateJob as updateJobInSupabase } from '@/lib/supabase';
 
 const EXAMPLE_CONFIGS = {
   'De novo helix bundle': {
@@ -319,6 +320,7 @@ export function RFD3Panel() {
 
       const response = await api.submitRFD3Design(request);
 
+      // Add to local store (UI state)
       addJob({
         id: response.job_id,
         type: 'rfd3',
@@ -326,12 +328,26 @@ export function RFD3Panel() {
         createdAt: new Date().toISOString(),
       });
 
+      // Persist to Supabase (async, non-blocking)
+      saveJobToSupabase({
+        runpod_id: response.job_id,
+        type: 'rfd3',
+        request: request as Record<string, any>,
+      });
+
       const result = await api.waitForJob(response.job_id, (status) => {
+        // Update local store
         updateJob(response.job_id, {
           status: status.status,
           completedAt: status.completed_at,
           result: status.result,
           error: status.error,
+        });
+        // Update Supabase (async, non-blocking)
+        updateJobInSupabase(response.job_id, {
+          status: status.status,
+          completed_at: status.completed_at || null,
+          result: status.result || null,
         });
       });
 

@@ -197,7 +197,7 @@ export function MPNNPanel() {
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="material-symbols-outlined text-violet-600 text-lg">molecular_lasso</span>
+                  <span className="material-symbols-outlined text-violet-600 text-lg">biotech</span>
                   <span className="font-semibold text-slate-900">LigandMPNN</span>
                 </div>
                 <p className="text-xs text-slate-500">Ligand-aware design (recommended)</p>

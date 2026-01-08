@@ -10,32 +10,28 @@ FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
 
 WORKDIR /app
 
-# Install system dependencies including Python 3.12 (required by rc-foundry)
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     wget \
-    software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa -y \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    python3.12 \
-    python3.12-venv \
-    python3.12-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Create Python 3.12 virtual environment and use it
-RUN python3.12 -m venv /opt/venv
+# Install uv (fast Python package manager that can install Python versions)
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.local/bin:$PATH"
+
+# Install Python 3.12 using uv and create venv
+RUN uv python install 3.12 && \
+    uv venv /opt/venv --python 3.12
 ENV PATH="/opt/venv/bin:$PATH"
+ENV VIRTUAL_ENV="/opt/venv"
 
-# Upgrade pip in venv
-RUN pip install --upgrade pip
-
-# Install RunPod SDK
-RUN pip install --no-cache-dir runpod
+# Upgrade pip and install RunPod SDK
+RUN uv pip install --upgrade pip runpod
 
 # Install Foundry and dependencies (requires Python 3.12)
-RUN pip install --no-cache-dir "rc-foundry[all]" && \
-    pip install --no-cache-dir biotite
+RUN uv pip install "rc-foundry[all]" biotite
 
 # Copy handler code
 COPY handler.py /app/

@@ -317,6 +317,15 @@ def handle_download_checkpoints(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 }
             }
 
+        # If force is enabled, delete any 0-byte (corrupted) checkpoint files first
+        if force:
+            for file_info in before_info.get("files", []):
+                if file_info.get("size_mb", 0) == 0:
+                    filepath = file_info.get("path")
+                    if filepath and os.path.exists(filepath):
+                        print(f"[Handler] Deleting corrupted 0-byte file: {filepath}")
+                        os.remove(filepath)
+
         # Download checkpoints using Foundry CLI
         cmd = ["foundry", "install", "base-models"]
         if force:

@@ -1,12 +1,13 @@
 'use client';
 
 import { useStore } from '@/lib/store';
-import { Dna, FlaskConical, Atom, History, Server, Check } from 'lucide-react';
+
+type TabId = 'rfd3' | 'mpnn' | 'rf3' | 'jobs';
 
 const workflowSteps = [
-  { id: 'rfd3' as const, label: 'Design Structure', shortLabel: 'RFD3', icon: Dna },
-  { id: 'mpnn' as const, label: 'Design Sequences', shortLabel: 'MPNN', icon: FlaskConical },
-  { id: 'rf3' as const, label: 'Validate Fold', shortLabel: 'RF3', icon: Atom },
+  { id: 'rfd3' as const, label: 'RFdiffusion3', step: 1 },
+  { id: 'mpnn' as const, label: 'MPNN', step: 2 },
+  { id: 'rf3' as const, label: 'Validate', step: 3 },
 ];
 
 export function Header() {
@@ -23,81 +24,58 @@ export function Header() {
   const isConnected = health?.status === 'healthy';
   const pendingJobs = jobs.filter(j => j.status === 'pending' || j.status === 'running').length;
 
-  // Determine step completion status based on workflow progress
-  const getStepStatus = (stepId: string, index: number) => {
+  const getStepStatus = (stepId: string) => {
     if (activeTab === stepId) return 'active';
-
-    // Check if step has been completed
     if (stepId === 'rfd3' && latestRfd3Design) return 'completed';
     if (stepId === 'mpnn' && lastCompletedJobType === 'mpnn') return 'completed';
     if (stepId === 'rf3' && lastCompletedJobType === 'rf3') return 'completed';
-
     return 'upcoming';
   };
 
   return (
-    <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 backdrop-blur-sm shadow-sm">
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        {/* Logo & Title (Left) */}
-        <div className="flex items-center gap-3 min-w-[180px]">
-          <Dna className="w-7 h-7 text-blue-600" />
+    <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
+      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+        {/* Logo & Brand */}
+        <div className="flex items-center gap-3">
+          <div className="text-blue-600 bg-blue-50 rounded-lg p-1.5 flex items-center justify-center">
+            <span className="material-symbols-outlined text-[24px]">biotech</span>
+          </div>
           <div>
-            <h1 className="text-lg font-bold leading-tight text-gray-900">Foundry Protein Design</h1>
-            <p className="text-xs text-gray-500 hidden sm:block">IPD Design Pipeline</p>
+            <h1 className="font-bold text-sm text-slate-900 leading-tight">Foundry Protein Design</h1>
+            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">IPD Design Pipeline</p>
           </div>
         </div>
 
-        {/* Workflow Stepper (Center) */}
-        <nav className="hidden md:flex items-center gap-1">
+        {/* Workflow Stepper */}
+        <nav className="hidden md:flex items-center space-x-1">
           {workflowSteps.map((step, index) => {
-            const status = getStepStatus(step.id, index);
-            const StepIcon = step.icon;
+            const status = getStepStatus(step.id);
+            const isActive = status === 'active';
 
             return (
               <div key={step.id} className="flex items-center">
-                {/* Connector line (before step, except first) */}
-                {index > 0 && (
-                  <div
-                    className={`w-8 h-0.5 ${
-                      status === 'completed' || getStepStatus(workflowSteps[index - 1].id, index - 1) === 'completed'
-                        ? 'bg-green-500'
-                        : 'bg-gray-300'
-                    }`}
-                  />
-                )}
+                {index > 0 && <div className="w-8 h-px bg-slate-200" />}
 
-                {/* Step button */}
                 <button
                   onClick={() => setActiveTab(step.id)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
-                    status === 'active'
-                      ? 'bg-blue-600 text-white'
-                      : status === 'completed'
-                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                      : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all ${
+                    isActive
+                      ? 'bg-white border border-blue-200 shadow-sm'
+                      : 'opacity-50 grayscale hover:opacity-75'
                   }`}
-                  title={step.label}
                 >
-                  {/* Step circle/icon */}
-                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                    status === 'active'
-                      ? 'bg-white/20'
-                      : status === 'completed'
-                      ? 'bg-green-500 text-white'
-                      : 'bg-gray-200 text-gray-600'
+                  <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-slate-200 text-slate-600'
                   }`}>
-                    {status === 'completed' ? (
-                      <Check className="w-3.5 h-3.5" />
-                    ) : (
-                      index + 1
-                    )}
-                  </div>
-
-                  {/* Step label */}
-                  <div className="text-left hidden lg:block">
-                    <div className="text-xs font-medium">{step.shortLabel}</div>
-                    <div className="text-[10px] opacity-70">{step.label}</div>
-                  </div>
+                    {step.step}
+                  </span>
+                  <span className={`text-xs font-semibold ${
+                    isActive ? 'text-blue-900' : 'text-slate-600'
+                  }`}>
+                    {step.label}
+                  </span>
                 </button>
               </div>
             );
@@ -105,60 +83,58 @@ export function Header() {
         </nav>
 
         {/* Mobile step indicator */}
-        <div className="md:hidden flex items-center gap-2">
-          {workflowSteps.map((step, index) => {
-            const status = getStepStatus(step.id, index);
+        <div className="md:hidden flex items-center gap-1">
+          {workflowSteps.map((step) => {
+            const status = getStepStatus(step.id);
+            const isActive = status === 'active';
             return (
               <button
                 key={step.id}
                 onClick={() => setActiveTab(step.id)}
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                  status === 'active'
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition ${
+                  isActive
                     ? 'bg-blue-600 text-white'
-                    : status === 'completed'
-                    ? 'bg-green-500 text-white'
-                    : 'bg-gray-200 text-gray-600'
+                    : 'bg-slate-200 text-slate-600'
                 }`}
               >
-                {status === 'completed' ? <Check className="w-4 h-4" /> : index + 1}
+                {step.step}
               </button>
             );
           })}
         </div>
 
-        {/* Icon buttons (Right) */}
-        <div className="flex items-center gap-2 min-w-[100px] justify-end">
-          {/* Jobs button */}
+        {/* Action buttons */}
+        <div className="flex items-center gap-2">
+          {/* History button */}
           <button
             onClick={() => setActiveTab('jobs')}
-            className={`relative p-2 rounded-lg transition ${
+            className={`p-2 rounded-full transition-all relative ${
               activeTab === 'jobs'
-                ? 'bg-gray-200 text-gray-900'
-                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                ? 'text-slate-700 bg-slate-100'
+                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
             }`}
             title="Job History"
           >
-            <History className="w-5 h-5" />
+            <span className="material-symbols-outlined text-xl">history</span>
             {pendingJobs > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white">
                 {pendingJobs}
               </span>
             )}
           </button>
 
-          {/* Connection button */}
+          <div className="h-4 w-px bg-slate-200 mx-1" />
+
+          {/* Connection status */}
           <button
             onClick={() => setConnectionModalOpen(true)}
-            className="relative p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition"
+            className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all relative"
             title={isConnected ? 'Connected to backend' : 'Connect to backend'}
           >
-            <Server className="w-5 h-5" />
-            {/* Status dot */}
-            <span
-              className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${
-                isConnected ? 'bg-green-500' : 'bg-red-500'
-              }`}
-            />
+            <span className="material-symbols-outlined text-xl">dns</span>
+            <span className={`absolute top-2 right-2 w-2 h-2 rounded-full border border-white ${
+              isConnected ? 'bg-emerald-500' : 'bg-red-500'
+            }`} />
           </button>
         </div>
       </div>

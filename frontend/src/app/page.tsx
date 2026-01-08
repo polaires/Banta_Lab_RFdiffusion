@@ -33,14 +33,14 @@ export default function Home() {
   }, [backendUrl, setHealth]);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col">
       {/* Header with workflow stepper */}
       <Header />
 
       {/* Main Content */}
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">
         {/* Active Panel */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="bg-white rounded-2xl shadow-card p-8">
           {activeTab === 'rfd3' && <RFD3Panel />}
           {activeTab === 'mpnn' && <MPNNPanel />}
           {activeTab === 'rf3' && <RF3Panel />}
@@ -50,7 +50,6 @@ export default function Home() {
         {/* Collapsible Structure Viewer */}
         <CollapsibleViewer />
       </main>
-
 
       {/* Connection Modal */}
       <ConnectionModal />

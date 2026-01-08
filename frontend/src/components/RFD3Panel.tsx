@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
-import { Play, Loader2, Info, Wand2, Upload, Shuffle, Download } from 'lucide-react';
 import { ContigBuilder } from './ContigBuilder';
 
 const EXAMPLE_CONFIGS = {
@@ -42,6 +41,8 @@ export function RFD3Panel() {
   const [inputPdb, setInputPdb] = useState<string | null>(null);
   const [inputPdbName, setInputPdbName] = useState<string | null>(null);
   const [lastDesignPdb, setLastDesignPdb] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -49,6 +50,20 @@ export function RFD3Panel() {
       const reader = new FileReader();
       reader.onload = (e) => {
         setInputPdb(e.target?.result as string);
+        setInputPdbName(file.name);
+      };
+      reader.readAsText(file);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.pdb')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setInputPdb(ev.target?.result as string);
         setInputPdbName(file.name);
       };
       reader.readAsText(file);
@@ -84,7 +99,6 @@ export function RFD3Panel() {
         createdAt: new Date().toISOString(),
       });
 
-      // Poll for completion
       const result = await api.waitForJob(response.job_id, (status) => {
         updateJob(response.job_id, {
           status: status.status,
@@ -102,10 +116,8 @@ export function RFD3Panel() {
         setLastCompletedJobType('rfd3');
         setLastDesignPdb(pdbContent);
 
-        // Extract sequence from PDB for cross-panel use
         const sequence = extractSequenceFromPdb(pdbContent);
 
-        // Store for cross-panel data flow
         setLatestRfd3Design({
           jobId: response.job_id,
           pdbContent,
@@ -115,7 +127,6 @@ export function RFD3Panel() {
           timestamp: Date.now(),
         });
 
-        // Notify user with next step suggestion
         addNotification({
           type: 'success',
           title: 'Structure designed!',
@@ -160,195 +171,248 @@ export function RFD3Panel() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs font-medium px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">Step 1</span>
-          <h2 className="text-xl font-bold">RFdiffusion3 - Structure Design</h2>
+    <div className="p-8 space-y-8">
+      {/* Header */}
+      <div className="border-b border-slate-100 pb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="bg-blue-50 text-blue-700 border border-blue-100 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
+            Step 1
+          </span>
+          <h2 className="text-xl font-bold text-slate-900">RFdiffusion3 - Structure Design</h2>
         </div>
-        <p className="text-gray-600 text-sm">
+        <p className="text-slate-500 text-sm leading-relaxed max-w-3xl pl-1">
           Generate de novo protein backbone structures. After design, proceed to MPNN for sequence design.
         </p>
       </div>
 
-      {/* Quick Examples */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">Quick Examples</label>
-        <div className="flex flex-wrap gap-2">
-          {Object.entries(EXAMPLE_CONFIGS).map(([name, config]) => (
-            <button
-              key={name}
-              onClick={() => setContig(config.contig)}
-              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
-              title={config.description}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Contig Specification */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-            Contig Specification
-            <span title="Define regions to design">
-              <Info className="w-4 h-4 text-gray-400" />
-            </span>
-          </label>
-          <button
-            onClick={() => setShowBuilder(!showBuilder)}
-            className={`text-xs px-2 py-1 rounded flex items-center gap-1 transition ${
-              showBuilder
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-            }`}
-          >
-            <Wand2 className="w-3 h-3" />
-            {showBuilder ? 'Hide Builder' : 'Visual Builder'}
-          </button>
-        </div>
-        <input
-          type="text"
-          value={contig}
-          onChange={(e) => setContig(e.target.value)}
-          placeholder="e.g., A1-50/0 50-100"
-          className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none text-gray-900"
-        />
-        <p className="text-xs text-gray-500">
-          Examples: &quot;100&quot; for 100 residues, &quot;A1-50/0 50-100&quot; for binder with 50-100 new residues
-        </p>
-      </div>
-
-      {/* Visual Contig Builder */}
-      {showBuilder && (
-        <ContigBuilder
-          onContigChange={(newContig) => setContig(newContig)}
-          initialContig={contig}
-        />
-      )}
-
-      {/* Input PDB for Conditional Design */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">
-          Input Structure (Optional - for binder/scaffold design)
-        </label>
-        <label className="flex py-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 cursor-pointer transition items-center justify-center gap-2 bg-gray-50">
-          <Upload className="w-5 h-5 text-gray-400" />
-          <span className="text-sm text-gray-500">
-            {inputPdbName || 'Upload target PDB'}
-          </span>
-          <input
-            type="file"
-            accept=".pdb"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-        </label>
-        {inputPdb && (
-          <div className="flex items-center justify-between text-xs text-gray-600">
-            <span>✓ {inputPdbName} loaded</span>
-            <button
-              onClick={() => {
-                setInputPdb(null);
-                setInputPdbName(null);
-              }}
-              className="text-red-600 hover:text-red-700"
-            >
-              Remove
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Number of Designs & Seed */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700">Number of Designs</label>
-          <input
-            type="number"
-            value={numDesigns}
-            onChange={(e) => setNumDesigns(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-            min={1}
-            max={10}
-            className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none text-gray-900"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="useSeed"
-              checked={useSeed}
-              onChange={(e) => setUseSeed(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 bg-white text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="useSeed" className="text-sm font-medium text-gray-700">
-              Use Seed (reproducibility)
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
+        {/* Left column - Main controls */}
+        <div className="lg:col-span-7 space-y-8">
+          {/* Quick Examples */}
+          <div className="space-y-3">
+            <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider pl-1">
+              Quick Examples
             </label>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(EXAMPLE_CONFIGS).map(([name, config]) => (
+                <button
+                  key={name}
+                  onClick={() => setContig(config.contig)}
+                  className="group bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 text-slate-600 hover:text-blue-700 px-4 py-2 rounded-lg text-xs font-medium transition-all duration-200 shadow-sm"
+                  title={config.description}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              value={seed ?? ''}
-              onChange={(e) => setSeed(parseInt(e.target.value) || null)}
-              placeholder="Random seed"
-              disabled={!useSeed}
-              className="flex-1 px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none disabled:opacity-50 text-gray-900"
+
+          {/* Contig Specification */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-end px-1">
+              <label className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                Contig Specification
+                <span
+                  className="material-symbols-outlined text-slate-300 text-sm cursor-help hover:text-slate-500 transition-colors"
+                  title="Define the length or structure of regions to design"
+                >
+                  info
+                </span>
+              </label>
+              <button
+                onClick={() => setShowBuilder(!showBuilder)}
+                className="text-blue-600 hover:text-blue-800 text-xs font-semibold flex items-center gap-1 group transition-colors"
+              >
+                <span className="material-symbols-outlined text-base group-hover:rotate-12 transition-transform">
+                  design_services
+                </span>
+                {showBuilder ? 'Hide Builder' : 'Visual Builder'}
+              </button>
+            </div>
+            <div>
+              <input
+                type="text"
+                value={contig}
+                onChange={(e) => setContig(e.target.value)}
+                className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2.5 px-3 transition-colors placeholder:text-slate-400"
+                placeholder="e.g., 100 or A1-50/0 50-100"
+              />
+              <p className="text-xs text-slate-400 mt-2 pl-1">
+                Format: &quot;100&quot; for 100 residues, &quot;A1-50/0 50-100&quot; for binders.
+              </p>
+            </div>
+          </div>
+
+          {/* Visual Builder */}
+          {showBuilder && (
+            <ContigBuilder
+              onContigChange={(newContig) => setContig(newContig)}
+              initialContig={contig}
             />
-            <button
-              onClick={generateRandomSeed}
-              disabled={!useSeed}
-              className="p-2 bg-gray-200 hover:bg-gray-300 rounded disabled:opacity-50 text-gray-700"
-              title="Generate random seed"
+          )}
+
+          <div className="border-t border-slate-100 my-4" />
+
+          {/* Number of Designs & Seed */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-slate-700 pl-1">
+                Number of Designs
+              </label>
+              <input
+                type="number"
+                value={numDesigns}
+                onChange={(e) => setNumDesigns(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
+                min={1}
+                max={10}
+                className="block w-full rounded-lg border-slate-200 bg-slate-50 focus:bg-white text-slate-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-2.5 px-3"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pl-1">
+                <label className="block text-sm font-medium text-slate-700">Seed</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="use-seed"
+                    checked={useSeed}
+                    onChange={(e) => setUseSeed(e.target.checked)}
+                    className="h-3.5 w-3.5 text-blue-600 focus:ring-blue-500 border-slate-300 rounded cursor-pointer"
+                  />
+                  <label htmlFor="use-seed" className="text-xs text-slate-500 cursor-pointer select-none">
+                    Fix seed
+                  </label>
+                </div>
+              </div>
+              <div className="flex rounded-lg shadow-sm">
+                <input
+                  type="text"
+                  value={useSeed && seed !== null ? seed : ''}
+                  onChange={(e) => setSeed(parseInt(e.target.value) || null)}
+                  disabled={!useSeed}
+                  placeholder="Random"
+                  className="flex-1 min-w-0 block w-full px-3 py-2.5 rounded-l-lg border border-slate-200 bg-slate-100 text-slate-500 sm:text-sm focus:ring-blue-500 focus:border-blue-500 disabled:opacity-70 disabled:cursor-not-allowed"
+                />
+                <button
+                  type="button"
+                  onClick={generateRandomSeed}
+                  className="inline-flex items-center px-3 py-2 border border-l-0 border-slate-200 rounded-r-lg bg-white text-slate-500 hover:text-blue-600 hover:bg-slate-50 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                  title="Generate random seed"
+                >
+                  <span className="material-symbols-outlined text-lg">shuffle</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right column - File upload */}
+        <div className="lg:col-span-5 flex flex-col">
+          <div className="flex-grow space-y-2 flex flex-col">
+            <label className="block text-sm font-medium text-slate-700 pl-1">
+              Input Structure <span className="text-slate-400 font-normal">(Optional)</span>
+            </label>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`flex-grow min-h-[200px] border-2 border-dashed rounded-xl transition-all cursor-pointer group flex flex-col items-center justify-center p-6 text-center relative ${
+                isDragOver
+                  ? 'border-blue-400 bg-blue-50/50'
+                  : inputPdb
+                  ? 'border-emerald-300 bg-emerald-50/30'
+                  : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 bg-slate-50/50'
+              }`}
             >
-              <Shuffle className="w-4 h-4" />
-            </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdb"
+                onChange={handleFileUpload}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+              />
+
+              {inputPdb ? (
+                <>
+                  <div className="w-14 h-14 bg-emerald-100 shadow-sm rounded-full flex items-center justify-center mb-4">
+                    <span className="material-symbols-outlined text-emerald-600 text-2xl">check_circle</span>
+                  </div>
+                  <div className="text-sm text-emerald-700 font-medium">{inputPdbName}</div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setInputPdb(null);
+                      setInputPdbName(null);
+                    }}
+                    className="mt-2 text-xs text-slate-500 hover:text-red-600 transition-colors"
+                  >
+                    Remove file
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="w-14 h-14 bg-white shadow-sm rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                    <span className="material-symbols-outlined text-slate-400 group-hover:text-blue-600 text-2xl">
+                      upload_file
+                    </span>
+                  </div>
+                  <div className="text-sm text-slate-700 font-medium">
+                    Drop PDB file here or <span className="text-blue-600 hover:underline">browse</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2 max-w-[200px]">
+                    Required for binder or scaffold design workflows.
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Error Display */}
+      {/* Error display */}
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+          <span className="material-symbols-outlined text-red-500">error</span>
           {error}
         </div>
       )}
 
-      {/* Submit Button */}
-      <button
-        onClick={handleSubmit}
-        disabled={!health || submitting || !contig}
-        className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium flex items-center justify-center gap-2 transition"
-      >
-        {submitting ? (
-          <>
-            <Loader2 className="w-5 h-5 animate-spin" />
-            Running RFD3...
-          </>
-        ) : (
-          <>
-            <Play className="w-5 h-5" />
-            Design Structure
-          </>
+      {/* Submit button */}
+      <div className="pt-6 mt-2 border-t border-slate-100">
+        <button
+          onClick={handleSubmit}
+          disabled={!health || submitting || !contig}
+          className="w-full flex justify-center items-center gap-2 py-3.5 px-4 rounded-xl shadow-lg shadow-blue-500/20 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 hover:shadow-blue-600/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all transform active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+        >
+          {submitting ? (
+            <>
+              <span className="material-symbols-outlined text-xl animate-spin">progress_activity</span>
+              Running RFdiffusion3...
+            </>
+          ) : (
+            <>
+              <span className="material-symbols-outlined text-xl">play_circle</span>
+              Design Structure
+            </>
+          )}
+        </button>
+
+        {!health && (
+          <p className="text-sm text-amber-600 text-center mt-3">
+            Connect to backend to enable design
+          </p>
         )}
-      </button>
+      </div>
 
-      {!health && (
-        <p className="text-sm text-amber-600 text-center">
-          Connect to backend to enable design
-        </p>
-      )}
-
-      {/* Download Design Button */}
+      {/* Download button */}
       {lastDesignPdb && (
         <button
           onClick={downloadPdb}
-          className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded font-medium flex items-center justify-center gap-2 transition text-sm"
+          className="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
         >
-          <Download className="w-4 h-4" />
+          <span className="material-symbols-outlined text-lg">download</span>
           Download Design (PDB)
         </button>
       )}

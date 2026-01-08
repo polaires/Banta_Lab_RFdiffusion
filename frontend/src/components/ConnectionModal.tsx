@@ -3,21 +3,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import api, { ApiMode } from '@/lib/api';
-import {
-  X,
-  Wifi,
-  WifiOff,
-  Cpu,
-  AlertCircle,
-  Sparkles,
-  HelpCircle,
-  ChevronDown,
-  ChevronUp,
-  ExternalLink,
-  Loader2,
-  Cloud,
-  Server,
-} from 'lucide-react';
 
 export function ConnectionModal() {
   const {
@@ -113,83 +98,81 @@ export function ConnectionModal() {
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-md border border-gray-200">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            {isConnected ? (
-              <Wifi className="w-5 h-5 text-green-600" />
-            ) : (
-              <WifiOff className="w-5 h-5 text-red-500" />
-            )}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <span className={`material-symbols-outlined ${isConnected ? 'text-emerald-600' : 'text-red-500'}`}>
+              {isConnected ? 'wifi' : 'wifi_off'}
+            </span>
             Backend Connection
           </h2>
           <button
             onClick={() => setConnectionModalOpen(false)}
-            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <span className="material-symbols-outlined text-xl">close</span>
           </button>
         </div>
 
         {/* Content */}
-        <div className="px-5 py-4 space-y-4">
+        <div className="px-6 py-5 space-y-5">
           {/* Mode Selection */}
-          <div className="space-y-2">
-            <label className="text-sm text-gray-600">Connection Mode</label>
-            <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Connection Mode</label>
+            <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => handleModeChange('traditional')}
-                className={`p-3 rounded-lg border-2 transition text-left ${
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
                   connectionMode === 'traditional'
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? 'border-blue-500 bg-blue-50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <Server className="w-4 h-4 text-gray-600" />
-                  <span className="font-medium text-gray-900 text-sm">Traditional</span>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="material-symbols-outlined text-slate-600 text-lg">dns</span>
+                  <span className="font-semibold text-slate-900 text-sm">Traditional</span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Always-on GPU Pod</p>
+                <p className="text-xs text-slate-500">Always-on GPU Pod</p>
               </button>
               <button
                 onClick={() => handleModeChange('serverless')}
-                className={`p-3 rounded-lg border-2 transition text-left ${
+                className={`p-4 rounded-xl border-2 transition-all text-left ${
                   connectionMode === 'serverless'
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? 'border-blue-500 bg-blue-50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
-                <div className="flex items-center gap-2">
-                  <Cloud className="w-4 h-4 text-gray-600" />
-                  <span className="font-medium text-gray-900 text-sm">Serverless</span>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="material-symbols-outlined text-slate-600 text-lg">cloud</span>
+                  <span className="font-semibold text-slate-900 text-sm">Serverless</span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Pay-per-use (~95% savings)</p>
+                <p className="text-xs text-slate-500">Pay-per-use (~95% savings)</p>
               </button>
             </div>
           </div>
 
           {/* URL Input (Traditional Mode Only) */}
           {connectionMode === 'traditional' && (
-            <div className="space-y-2">
-              <label className="text-sm text-gray-600">RunPod API URL</label>
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">RunPod API URL</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
                   placeholder="https://your-runpod-endpoint:8000"
-                  className="flex-1 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none text-sm text-gray-900"
+                  className="flex-1 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none text-sm text-slate-900 transition-all"
                   onKeyDown={(e) => e.key === 'Enter' && checkConnection()}
                 />
                 <button
                   onClick={checkConnection}
                   disabled={checking}
-                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition flex items-center gap-2"
+                  className="px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm hover:shadow-md"
                 >
                   {checking ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
                       <span className="hidden sm:inline">Checking</span>
                     </>
                   ) : (
@@ -202,21 +185,24 @@ export function ConnectionModal() {
 
           {/* Serverless Info */}
           {connectionMode === 'serverless' && (
-            <div className="space-y-3">
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-700 font-medium">Serverless Mode</p>
-                <p className="text-xs text-green-600 mt-1">
+            <div className="space-y-4">
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="material-symbols-outlined text-emerald-600">bolt</span>
+                  <p className="text-sm font-semibold text-emerald-700">Serverless Mode</p>
+                </div>
+                <p className="text-xs text-emerald-600">
                   Using RunPod Serverless via Vercel Edge Function. Cold start: ~60-90 seconds.
                 </p>
               </div>
               <button
                 onClick={checkConnection}
                 disabled={checking}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
               >
                 {checking ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
                     Checking Endpoint...
                   </>
                 ) : (
@@ -228,12 +214,12 @@ export function ConnectionModal() {
 
           {/* Status Display */}
           {health && (
-            <div className="bg-gray-50 rounded-lg p-4 space-y-3 border border-gray-200">
+            <div className="bg-slate-50 rounded-xl p-4 space-y-3 border border-slate-200">
               {/* Connection status */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Status</span>
-                <span className={`text-sm font-medium flex items-center gap-1.5 ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
-                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-sm text-slate-600">Status</span>
+                <span className={`text-sm font-semibold flex items-center gap-1.5 ${isConnected ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
                   {isConnected ? 'Connected' : 'Disconnected'}
                 </span>
               </div>
@@ -241,13 +227,11 @@ export function ConnectionModal() {
               {/* Mode */}
               {health.mode && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Mode</span>
-                  <span className={`text-sm font-medium flex items-center gap-1.5 ${isMockMode ? 'text-amber-600' : 'text-green-600'}`}>
-                    {isMockMode ? (
-                      <AlertCircle className="w-4 h-4" />
-                    ) : (
-                      <Sparkles className="w-4 h-4" />
-                    )}
+                  <span className="text-sm text-slate-600">Mode</span>
+                  <span className={`text-sm font-semibold flex items-center gap-1.5 ${isMockMode ? 'text-amber-600' : 'text-emerald-600'}`}>
+                    <span className="material-symbols-outlined text-base">
+                      {isMockMode ? 'warning' : 'auto_awesome'}
+                    </span>
                     {isMockMode ? 'Mock (Demo)' : 'Real (Foundry)'}
                   </span>
                 </div>
@@ -255,29 +239,30 @@ export function ConnectionModal() {
 
               {/* GPU */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">GPU</span>
+                <span className="text-sm text-slate-600">GPU</span>
                 {health.gpu_available ? (
-                  <span className="text-sm font-medium text-green-600 flex items-center gap-1.5">
-                    <Cpu className="w-4 h-4" />
+                  <span className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-base">memory</span>
                     {health.gpu_name || 'Available'}
                     {health.gpu_memory_gb && ` (${Math.round(health.gpu_memory_gb)}GB)`}
                   </span>
                 ) : (
-                  <span className="text-sm text-red-600">Not Available</span>
+                  <span className="text-sm text-red-600 font-medium">Not Available</span>
                 )}
               </div>
 
               {/* Models */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">Models</span>
-                <span className="text-sm font-medium text-gray-900">{getModelsDisplay()}</span>
+                <span className="text-sm text-slate-600">Models</span>
+                <span className="text-sm font-semibold text-slate-900">{getModelsDisplay()}</span>
               </div>
             </div>
           )}
 
           {/* Not connected warning */}
           {!health && !checking && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+              <span className="material-symbols-outlined text-red-500">error</span>
               <p className="text-sm text-red-700">
                 Unable to connect to backend. Make sure your RunPod pod is running.
               </p>
@@ -285,38 +270,37 @@ export function ConnectionModal() {
           )}
 
           {/* Setup Help Accordion */}
-          <div className="border-t border-gray-200 pt-4">
+          <div className="border-t border-slate-200 pt-4">
             <button
               onClick={() => setShowHelp(!showHelp)}
-              className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-800 w-full"
+              className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 w-full transition-colors"
             >
-              <HelpCircle className="w-4 h-4" />
-              <span>Setup Instructions</span>
-              {showHelp ? (
-                <ChevronUp className="w-4 h-4 ml-auto" />
-              ) : (
-                <ChevronDown className="w-4 h-4 ml-auto" />
-              )}
+              <span className="material-symbols-outlined text-lg">help</span>
+              <span className="font-medium">Setup Instructions</span>
+              <span className="material-symbols-outlined text-lg ml-auto">
+                {showHelp ? 'expand_less' : 'expand_more'}
+              </span>
             </button>
 
             {showHelp && (
               <div className="mt-4 space-y-3 text-sm">
-                <div className="bg-gray-50 rounded-lg p-3 space-y-2 border border-gray-200">
-                  <h3 className="font-medium text-gray-900">Quick Setup (RunPod)</h3>
-                  <ol className="list-decimal list-inside space-y-1 text-gray-600 text-xs">
+                <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
+                  <h3 className="font-semibold text-slate-900">Quick Setup (RunPod)</h3>
+                  <ol className="list-decimal list-inside space-y-1.5 text-slate-600 text-xs">
                     <li>
                       Deploy a GPU pod (A40 recommended) on{' '}
                       <a
                         href="https://console.runpod.io/deploy"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
+                        className="text-blue-600 hover:underline font-medium"
                       >
-                        RunPod <ExternalLink className="w-3 h-3 inline" />
+                        RunPod
+                        <span className="material-symbols-outlined text-xs align-middle ml-0.5">open_in_new</span>
                       </a>
                     </li>
                     <li>
-                      Add <code className="bg-gray-200 px-1 rounded">8000</code> to HTTP Ports
+                      Add <code className="bg-slate-200 px-1.5 py-0.5 rounded text-slate-800">8000</code> to HTTP Ports
                     </li>
                     <li>
                       Open Jupyter Lab and run the setup cell from{' '}
@@ -324,38 +308,39 @@ export function ConnectionModal() {
                         href="https://github.com/polaires/Banta_Lab_RFdiffusion/blob/main/RUNPOD_QUICK_SETUP.md"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
+                        className="text-blue-600 hover:underline font-medium"
                       >
-                        RUNPOD_QUICK_SETUP.md <ExternalLink className="w-3 h-3 inline" />
+                        RUNPOD_QUICK_SETUP.md
+                        <span className="material-symbols-outlined text-xs align-middle ml-0.5">open_in_new</span>
                       </a>
                     </li>
                     <li>Copy your API URL and paste above</li>
                   </ol>
                 </div>
 
-                <div className="bg-gray-50 rounded-lg p-3 space-y-2 border border-gray-200">
-                  <h3 className="font-medium text-gray-900">URL Format</h3>
-                  <code className="block bg-gray-200 px-2 py-1 rounded text-xs text-gray-800">
+                <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
+                  <h3 className="font-semibold text-slate-900">URL Format</h3>
+                  <code className="block bg-slate-200 px-3 py-2 rounded-lg text-xs text-slate-800 font-mono">
                     https://abc123xyz-8000.proxy.runpod.net
                   </code>
                 </div>
 
-                <div className="bg-gray-50 rounded-lg p-3 space-y-2 border border-gray-200">
-                  <h3 className="font-medium text-gray-900">Troubleshooting</h3>
-                  <ul className="space-y-1 text-gray-600 text-xs">
+                <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
+                  <h3 className="font-semibold text-slate-900">Troubleshooting</h3>
+                  <ul className="space-y-1.5 text-slate-600 text-xs">
                     <li>
-                      <span className="text-amber-600">Connection refused:</span> Re-run setup cell
+                      <span className="text-amber-600 font-medium">Connection refused:</span> Re-run setup cell
                     </li>
                     <li>
-                      <span className="text-amber-600">CORS error:</span> Check port 8000 is exposed
+                      <span className="text-amber-600 font-medium">CORS error:</span> Check port 8000 is exposed
                     </li>
                     <li>
-                      <span className="text-amber-600">Mock mode:</span> Checkpoints still downloading
+                      <span className="text-amber-600 font-medium">Mock mode:</span> Checkpoints still downloading
                     </li>
                   </ul>
                 </div>
 
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-slate-500">
                   Your URL is automatically saved and persists across sessions.
                 </p>
               </div>
@@ -364,8 +349,8 @@ export function ConnectionModal() {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 rounded-b-xl">
-          <p className="text-xs text-gray-500 text-center">
+        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 rounded-b-2xl">
+          <p className="text-xs text-slate-500 text-center">
             Connection status auto-refreshes every 30 seconds
           </p>
         </div>

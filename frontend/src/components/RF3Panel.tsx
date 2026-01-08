@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
-import { Play, Loader2, ArrowRight, Calculator } from 'lucide-react';
 import { ConfidenceMetricsDisplay } from './ConfidenceMetrics';
 import { ExportPanel } from './ExportPanel';
 import type { ConfidenceMetrics, RMSDResult } from '@/lib/api';
@@ -170,32 +169,38 @@ export function RF3Panel() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      {/* Header */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs font-medium px-2 py-0.5 bg-green-100 text-green-700 rounded-full">Step 3</span>
-          <h2 className="text-xl font-bold">RosettaFold3 - Structure Validation</h2>
+        <div className="flex items-center gap-3 mb-3">
+          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">3</span>
+          <h2 className="text-lg font-bold text-slate-900">RosettaFold3 — Structure Validation</h2>
         </div>
-        <p className="text-gray-600 text-sm">
+        <p className="text-slate-600 text-sm leading-relaxed">
           Validate designability by predicting the structure from MPNN sequences. Compare to RFD3 design via RMSD.
         </p>
       </div>
 
       {/* Use from RFD3 button */}
       {latestRfd3Design && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded">
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-blue-700">RFD3 Design Available</p>
-              <p className="text-xs text-gray-500">
-                Use sequence from your latest RFD3 design for validation
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
+                <span className="material-symbols-outlined text-blue-600">science</span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-blue-700">RFD3 Design Available</p>
+                <p className="text-xs text-slate-500">
+                  Use sequence from your latest RFD3 design for validation
+                </p>
+              </div>
             </div>
             <button
               onClick={useRfd3Sequence}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm flex items-center gap-1 transition"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-all shadow-sm hover:shadow-md"
             >
-              <ArrowRight className="w-4 h-4" />
+              <span className="material-symbols-outlined text-lg">arrow_forward</span>
               Use Sequence
             </button>
           </div>
@@ -203,14 +208,14 @@ export function RF3Panel() {
       )}
 
       {/* Quick Examples */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">Example Sequences</label>
+      <div className="space-y-3">
+        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Example Sequences</label>
         <div className="flex flex-wrap gap-2">
           {Object.entries(EXAMPLE_SEQUENCES).map(([name, seq]) => (
             <button
               key={name}
               onClick={() => setSequence(seq)}
-              className="px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition"
+              className="px-4 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
             >
               {name}
             </button>
@@ -219,25 +224,31 @@ export function RF3Panel() {
       </div>
 
       {/* Sequence Input */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">
-          Protein Sequence (FASTA or plain)
+      <div className="space-y-3">
+        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+          Protein Sequence
         </label>
         <textarea
           value={sequence}
           onChange={(e) => setSequence(e.target.value)}
           placeholder="MSKGEELFTGVVPILVELDGDVNGHKFSVSG..."
           rows={6}
-          className="w-full px-4 py-2 bg-gray-50 rounded border border-gray-300 focus:border-blue-500 focus:outline-none font-mono text-sm text-gray-900"
+          className="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono text-sm text-slate-900 transition-all"
         />
-        <p className="text-xs text-gray-500">
-          {sequence.replace(/[^A-Za-z]/g, '').length} residues
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-slate-500">
+            Accepts FASTA or plain sequence
+          </p>
+          <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
+            {sequence.replace(/[^A-Za-z]/g, '').length} residues
+          </span>
+        </div>
       </div>
 
       {/* Error Display */}
       {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+        <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-start gap-3">
+          <span className="material-symbols-outlined text-red-500">error</span>
           {error}
         </div>
       )}
@@ -246,16 +257,16 @@ export function RF3Panel() {
       <button
         onClick={handleSubmit}
         disabled={!health || submitting || !sequence}
-        className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium flex items-center justify-center gap-2 transition"
+        className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md"
       >
         {submitting ? (
           <>
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="material-symbols-outlined animate-spin">progress_activity</span>
             Predicting Structure...
           </>
         ) : (
           <>
-            <Play className="w-5 h-5" />
+            <span className="material-symbols-outlined">play_arrow</span>
             Predict Structure
           </>
         )}
@@ -266,16 +277,16 @@ export function RF3Panel() {
         <button
           onClick={handleCalculateRMSD}
           disabled={calculatingRmsd}
-          className="w-full py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded font-medium flex items-center justify-center gap-2 transition text-sm"
+          className="w-full py-3 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-all text-sm"
         >
           {calculatingRmsd ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
               Calculating RMSD...
             </>
           ) : (
             <>
-              <Calculator className="w-4 h-4" />
+              <span className="material-symbols-outlined text-lg">calculate</span>
               Validate Design (Calculate RMSD vs RFD3)
             </>
           )}

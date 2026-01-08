@@ -129,10 +129,12 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             return handle_mpnn(job_input)
         elif task == "rmsd":
             return handle_rmsd(job_input)
+        elif task == "download_checkpoints":
+            return handle_download_checkpoints(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, download_checkpoints"
             }
 
     except Exception as e:
@@ -239,6 +241,149 @@ def handle_rmsd(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "failed", "error": result["error"]}
 
     return {"status": "completed", "result": result}
+
+
+def handle_download_checkpoints(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Download model checkpoints to the Network Volume using Foundry CLI.
+
+    This task downloads the required model checkpoints (RFD3, RF3, MPNN) to the
+    Network Volume at /runpod-volume/checkpoints/. This only needs to be run once.
+
+    Input:
+        force: bool - Force re-download even if checkpoints exist (default: False)
+
+    Returns:
+        status: "completed" | "failed"
+        result: {
+            checkpoints_dir: str,
+            before: {files, total_size_gb},
+            after: {files, total_size_gb},
+            downloaded: bool,
+            message: str
+        }
+    """
+    import subprocess
+    import glob as glob_module
+
+    force = job_input.get("force", False)
+
+    def get_checkpoint_info(directory: str) -> Dict[str, Any]:
+        """Get info about checkpoint files in directory"""
+        files = []
+        total_size = 0
+
+        if os.path.exists(directory):
+            # Look for checkpoint files
+            patterns = ["**/*.ckpt", "**/*.pt", "**/*.pth", "**/*.safetensors"]
+            for pattern in patterns:
+                for filepath in glob_module.glob(os.path.join(directory, pattern), recursive=True):
+                    size = os.path.getsize(filepath)
+                    files.append({
+                        "name": os.path.basename(filepath),
+                        "path": filepath,
+                        "size_mb": round(size / (1024 * 1024), 2)
+                    })
+                    total_size += size
+
+        return {
+            "files": files,
+            "file_count": len(files),
+            "total_size_gb": round(total_size / (1024 * 1024 * 1024), 2)
+        }
+
+    try:
+        print(f"[Handler] Checking checkpoints at: {CHECKPOINT_DIR}")
+
+        # Ensure checkpoint directory exists
+        os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+
+        # Get current state
+        before_info = get_checkpoint_info(CHECKPOINT_DIR)
+        print(f"[Handler] Before: {before_info['file_count']} files, {before_info['total_size_gb']} GB")
+
+        # Check if we already have checkpoints
+        has_checkpoints = before_info["total_size_gb"] > 1.0  # At least 1GB of checkpoints
+
+        if has_checkpoints and not force:
+            return {
+                "status": "completed",
+                "result": {
+                    "checkpoints_dir": CHECKPOINT_DIR,
+                    "before": before_info,
+                    "after": before_info,
+                    "downloaded": False,
+                    "message": f"Checkpoints already exist ({before_info['total_size_gb']} GB). Use force=True to re-download."
+                }
+            }
+
+        # Download checkpoints using Foundry CLI
+        print("[Handler] Downloading checkpoints using Foundry CLI...")
+        print("[Handler] Running: foundry install base-models")
+
+        # Set environment for Foundry
+        env = os.environ.copy()
+        env["FOUNDRY_CHECKPOINT_DIRS"] = CHECKPOINT_DIR
+
+        # Run foundry install
+        result = subprocess.run(
+            ["foundry", "install", "base-models"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=3600  # 1 hour timeout for downloads
+        )
+
+        print(f"[Handler] Foundry stdout: {result.stdout}")
+        if result.stderr:
+            print(f"[Handler] Foundry stderr: {result.stderr}")
+
+        if result.returncode != 0:
+            # Try alternative: foundry download
+            print("[Handler] Trying alternative: foundry download...")
+            result2 = subprocess.run(
+                ["foundry", "download", "--all"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=3600
+            )
+            print(f"[Handler] Alternative stdout: {result2.stdout}")
+            if result2.stderr:
+                print(f"[Handler] Alternative stderr: {result2.stderr}")
+
+        # Get updated state
+        after_info = get_checkpoint_info(CHECKPOINT_DIR)
+        print(f"[Handler] After: {after_info['file_count']} files, {after_info['total_size_gb']} GB")
+
+        downloaded_size = after_info["total_size_gb"] - before_info["total_size_gb"]
+
+        return {
+            "status": "completed",
+            "result": {
+                "checkpoints_dir": CHECKPOINT_DIR,
+                "before": before_info,
+                "after": after_info,
+                "downloaded": True,
+                "downloaded_gb": round(downloaded_size, 2),
+                "message": f"Downloaded {round(downloaded_size, 2)} GB of checkpoints. Total: {after_info['total_size_gb']} GB",
+                "foundry_output": result.stdout[:2000] if result.stdout else None
+            }
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "failed",
+            "error": "Checkpoint download timed out after 1 hour"
+        }
+    except Exception as e:
+        print(f"[Handler] Download error: {e}")
+        traceback.print_exc()
+        return {
+            "status": "failed",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 
 # ============== RunPod Entry Point ==============

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
-import api from '@/lib/api';
+import api, { ApiMode } from '@/lib/api';
 import {
   X,
   Wifi,
@@ -15,6 +15,8 @@ import {
   ChevronUp,
   ExternalLink,
   Loader2,
+  Cloud,
+  Server,
 } from 'lucide-react';
 
 export function ConnectionModal() {
@@ -30,19 +32,29 @@ export function ConnectionModal() {
   const [inputUrl, setInputUrl] = useState(backendUrl);
   const [checking, setChecking] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [connectionMode, setConnectionMode] = useState<ApiMode>(api.getMode());
 
   const checkConnection = async () => {
     setChecking(true);
     try {
-      api.setBaseUrl(inputUrl);
+      api.setMode(connectionMode);
+      if (connectionMode === 'traditional') {
+        api.setBaseUrl(inputUrl);
+        setBackendUrl(inputUrl);
+      }
       const healthResponse = await api.checkHealth();
       setHealth(healthResponse);
-      setBackendUrl(inputUrl);
     } catch {
       setHealth(null);
     } finally {
       setChecking(false);
     }
+  };
+
+  const handleModeChange = (mode: ApiMode) => {
+    setConnectionMode(mode);
+    api.setMode(mode);
+    setHealth(null); // Reset health when mode changes
   };
 
   // Initial connection check when modal opens
@@ -122,34 +134,97 @@ export function ConnectionModal() {
 
         {/* Content */}
         <div className="px-5 py-4 space-y-4">
-          {/* URL Input */}
+          {/* Mode Selection */}
           <div className="space-y-2">
-            <label className="text-sm text-gray-600">RunPod API URL</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={inputUrl}
-                onChange={(e) => setInputUrl(e.target.value)}
-                placeholder="https://your-runpod-endpoint:8000"
-                className="flex-1 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none text-sm text-gray-900"
-                onKeyDown={(e) => e.key === 'Enter' && checkConnection()}
-              />
+            <label className="text-sm text-gray-600">Connection Mode</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => handleModeChange('traditional')}
+                className={`p-3 rounded-lg border-2 transition text-left ${
+                  connectionMode === 'traditional'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Server className="w-4 h-4 text-gray-600" />
+                  <span className="font-medium text-gray-900 text-sm">Traditional</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Always-on GPU Pod</p>
+              </button>
+              <button
+                onClick={() => handleModeChange('serverless')}
+                className={`p-3 rounded-lg border-2 transition text-left ${
+                  connectionMode === 'serverless'
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Cloud className="w-4 h-4 text-gray-600" />
+                  <span className="font-medium text-gray-900 text-sm">Serverless</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Pay-per-use (~95% savings)</p>
+              </button>
+            </div>
+          </div>
+
+          {/* URL Input (Traditional Mode Only) */}
+          {connectionMode === 'traditional' && (
+            <div className="space-y-2">
+              <label className="text-sm text-gray-600">RunPod API URL</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={inputUrl}
+                  onChange={(e) => setInputUrl(e.target.value)}
+                  placeholder="https://your-runpod-endpoint:8000"
+                  className="flex-1 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none text-sm text-gray-900"
+                  onKeyDown={(e) => e.key === 'Enter' && checkConnection()}
+                />
+                <button
+                  onClick={checkConnection}
+                  disabled={checking}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition flex items-center gap-2"
+                >
+                  {checking ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="hidden sm:inline">Checking</span>
+                    </>
+                  ) : (
+                    'Connect'
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Serverless Info */}
+          {connectionMode === 'serverless' && (
+            <div className="space-y-3">
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-700 font-medium">Serverless Mode</p>
+                <p className="text-xs text-green-600 mt-1">
+                  Using RunPod Serverless via Vercel Edge Function. Cold start: ~60-90 seconds.
+                </p>
+              </div>
               <button
                 onClick={checkConnection}
                 disabled={checking}
-                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition flex items-center gap-2"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
               >
                 {checking ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="hidden sm:inline">Checking</span>
+                    Checking Endpoint...
                   </>
                 ) : (
-                  'Connect'
+                  'Test Connection'
                 )}
               </button>
             </div>
-          </div>
+          )}
 
           {/* Status Display */}
           {health && (

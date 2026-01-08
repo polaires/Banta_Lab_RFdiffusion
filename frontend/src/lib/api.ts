@@ -1,9 +1,30 @@
 /**
  * API client for Foundry backend on RunPod (v2.0)
  * Supports confidence metrics, RMSD validation, and cross-panel data flow
+ *
+ * Modes:
+ * - "traditional": Direct connection to RunPod Pod backend
+ * - "serverless": Uses Vercel Edge Function proxy to RunPod Serverless
  */
 
+import {
+  saveJob as supabaseSaveJob,
+  updateJob as supabaseUpdateJob,
+  getJobs as supabaseGetJobs,
+  isSupabaseConfigured,
+} from './supabase';
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// Check if serverless mode is available
+const isServerlessAvailable = () => {
+  return !!(
+    process.env.NEXT_PUBLIC_RUNPOD_SERVERLESS === 'true' ||
+    (typeof window !== 'undefined' && (window as any).__RUNPOD_SERVERLESS__)
+  );
+};
+
+export type ApiMode = 'traditional' | 'serverless';
 
 // ============== Request Types ==============
 
@@ -134,9 +155,12 @@ export interface StoredStructure {
 
 class FoundryAPI {
   private baseUrl: string;
+  private mode: ApiMode;
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
+    // Auto-detect mode: serverless if RUNPOD_SERVERLESS env is set
+    this.mode = isServerlessAvailable() ? 'serverless' : 'traditional';
   }
 
   setBaseUrl(url: string) {
@@ -147,9 +171,31 @@ class FoundryAPI {
     return this.baseUrl;
   }
 
+  setMode(mode: ApiMode) {
+    this.mode = mode;
+  }
+
+  getMode(): ApiMode {
+    return this.mode;
+  }
+
+  // Get the appropriate endpoint URL based on mode
+  private getEndpoint(path: string): string {
+    if (this.mode === 'serverless') {
+      // Use Vercel Edge Function proxy
+      return `/api/runpod/${path.replace(/^\/?(api\/)?/, '')}`;
+    }
+    // Traditional mode: direct to backend
+    return `${this.baseUrl}/${path.replace(/^\//, '')}`;
+  }
+
   // Health check
   async checkHealth(): Promise<HealthResponse> {
-    const response = await fetch(`${this.baseUrl}/health`);
+    const endpoint = this.mode === 'serverless'
+      ? '/api/runpod/health'
+      : `${this.baseUrl}/health`;
+
+    const response = await fetch(endpoint);
     if (!response.ok) {
       throw new Error('Backend not available');
     }
@@ -158,7 +204,8 @@ class FoundryAPI {
 
   // RFD3 Design
   async submitRFD3Design(request: RFD3Request): Promise<JobResponse> {
-    const response = await fetch(`${this.baseUrl}/api/rfd3/design`, {
+    const endpoint = this.getEndpoint('api/rfd3/design');
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -166,12 +213,24 @@ class FoundryAPI {
     if (!response.ok) {
       throw new Error(`Failed to submit RFD3 job: ${response.statusText}`);
     }
-    return response.json();
+    const result = await response.json();
+
+    // Save to Supabase in serverless mode
+    if (this.mode === 'serverless' && isSupabaseConfigured()) {
+      await supabaseSaveJob({
+        runpod_id: result.job_id,
+        type: 'rfd3',
+        request: { contig: request.contig, num_designs: request.num_designs, seed: request.seed },
+      });
+    }
+
+    return result;
   }
 
   // RF3 Prediction
   async submitRF3Prediction(request: RF3Request): Promise<JobResponse> {
-    const response = await fetch(`${this.baseUrl}/api/rf3/predict`, {
+    const endpoint = this.getEndpoint('api/rf3/predict');
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -179,12 +238,24 @@ class FoundryAPI {
     if (!response.ok) {
       throw new Error(`Failed to submit RF3 job: ${response.statusText}`);
     }
-    return response.json();
+    const result = await response.json();
+
+    // Save to Supabase in serverless mode
+    if (this.mode === 'serverless' && isSupabaseConfigured()) {
+      await supabaseSaveJob({
+        runpod_id: result.job_id,
+        type: 'rf3',
+        request: { sequence_length: request.sequence?.length },
+      });
+    }
+
+    return result;
   }
 
   // MPNN Design
   async submitMPNNDesign(request: ProteinMPNNRequest): Promise<JobResponse> {
-    const response = await fetch(`${this.baseUrl}/api/mpnn/design`, {
+    const endpoint = this.getEndpoint('api/mpnn/design');
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -192,12 +263,28 @@ class FoundryAPI {
     if (!response.ok) {
       throw new Error(`Failed to submit MPNN job: ${response.statusText}`);
     }
-    return response.json();
+    const result = await response.json();
+
+    // Save to Supabase in serverless mode
+    if (this.mode === 'serverless' && isSupabaseConfigured()) {
+      await supabaseSaveJob({
+        runpod_id: result.job_id,
+        type: 'mpnn',
+        request: {
+          num_sequences: request.num_sequences,
+          temperature: request.temperature,
+          model_type: request.model_type,
+        },
+      });
+    }
+
+    return result;
   }
 
   // RMSD Validation
   async calculateRMSD(request: RMSDRequest): Promise<RMSDResult> {
-    const response = await fetch(`${this.baseUrl}/api/validate/rmsd`, {
+    const endpoint = this.getEndpoint('api/validate/rmsd');
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request),
@@ -209,8 +296,18 @@ class FoundryAPI {
     return response.json();
   }
 
-  // Structure Export
+  // Structure Export (not available in serverless mode)
   async exportStructure(request: ExportRequest): Promise<ExportResult> {
+    if (this.mode === 'serverless') {
+      // In serverless mode, export locally
+      return {
+        filename: `structure.${request.format}`,
+        content: request.pdb_content,
+        format: request.format,
+        confidences_json: request.confidences ? JSON.stringify(request.confidences, null, 2) : undefined,
+      };
+    }
+
     const response = await fetch(`${this.baseUrl}/api/export/structure`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -225,6 +322,11 @@ class FoundryAPI {
 
   // Get stored structure from job (for cross-panel data flow)
   async getStoredStructure(jobId: string): Promise<StoredStructure> {
+    if (this.mode === 'serverless') {
+      // In serverless mode, structures are stored in frontend state
+      throw new Error('Stored structures not available in serverless mode');
+    }
+
     const response = await fetch(`${this.baseUrl}/api/stored/${jobId}`);
     if (!response.ok) {
       throw new Error('Structure not found');
@@ -234,14 +336,43 @@ class FoundryAPI {
 
   // Job Management
   async getJobStatus(jobId: string): Promise<JobStatus> {
-    const response = await fetch(`${this.baseUrl}/api/jobs/${jobId}`);
+    const endpoint = this.mode === 'serverless'
+      ? `/api/runpod/jobs/${jobId}`
+      : `${this.baseUrl}/api/jobs/${jobId}`;
+
+    const response = await fetch(endpoint);
     if (!response.ok) {
       throw new Error(`Failed to get job status: ${response.statusText}`);
     }
-    return response.json();
+    const status = await response.json();
+
+    // Update Supabase in serverless mode
+    if (this.mode === 'serverless' && isSupabaseConfigured()) {
+      await supabaseUpdateJob(jobId, {
+        status: status.status,
+        result: status.result,
+        completed_at: status.completed_at,
+      });
+    }
+
+    return status;
   }
 
   async listJobs(): Promise<Record<string, { status: string; type: string; created_at: string }>> {
+    if (this.mode === 'serverless' && isSupabaseConfigured()) {
+      // In serverless mode, list from Supabase
+      const jobs = await supabaseGetJobs({ limit: 50 });
+      const result: Record<string, { status: string; type: string; created_at: string }> = {};
+      for (const job of jobs) {
+        result[job.runpod_id] = {
+          status: job.status,
+          type: job.type,
+          created_at: job.created_at,
+        };
+      }
+      return result;
+    }
+
     const response = await fetch(`${this.baseUrl}/api/jobs`);
     if (!response.ok) {
       throw new Error(`Failed to list jobs: ${response.statusText}`);
@@ -250,6 +381,12 @@ class FoundryAPI {
   }
 
   async deleteJob(jobId: string): Promise<void> {
+    if (this.mode === 'serverless') {
+      // In serverless mode, jobs are deleted from Supabase
+      // (RunPod auto-deletes after 1 hour)
+      return;
+    }
+
     const response = await fetch(`${this.baseUrl}/api/jobs/${jobId}`, {
       method: 'DELETE',
     });

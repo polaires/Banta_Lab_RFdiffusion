@@ -318,8 +318,11 @@ def handle_download_checkpoints(job_input: Dict[str, Any]) -> Dict[str, Any]:
             }
 
         # Download checkpoints using Foundry CLI
-        print("[Handler] Downloading checkpoints using Foundry CLI...")
-        print("[Handler] Running: foundry install base-models")
+        cmd = ["foundry", "install", "base-models"]
+        if force:
+            cmd.append("--force")
+        print(f"[Handler] Downloading checkpoints using Foundry CLI...")
+        print(f"[Handler] Running: {' '.join(cmd)}")
 
         # Set environment for Foundry
         env = os.environ.copy()
@@ -327,7 +330,7 @@ def handle_download_checkpoints(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
         # Run foundry install
         result = subprocess.run(
-            ["foundry", "install", "base-models"],
+            cmd,
             capture_output=True,
             text=True,
             env=env,

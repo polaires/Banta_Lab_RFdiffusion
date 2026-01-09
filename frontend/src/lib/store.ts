@@ -34,6 +34,9 @@ interface Job {
   errorContext?: ErrorContext;
 }
 
+// Tab type for navigation
+export type TabId = 'task' | 'rfd3' | 'rf3' | 'mpnn' | 'jobs';
+
 // Notification types for workflow guidance
 export interface Notification {
   id: string;
@@ -42,7 +45,7 @@ export interface Notification {
   message: string;
   action?: {
     label: string;
-    tab: 'rfd3' | 'rf3' | 'mpnn' | 'jobs';
+    tab: TabId;
   };
   createdAt: number;
 }
@@ -78,8 +81,12 @@ interface AppState {
   setSelectedPdb: (pdb: string | null) => void;
 
   // Active tab
-  activeTab: 'rfd3' | 'rf3' | 'mpnn' | 'jobs';
-  setActiveTab: (tab: 'rfd3' | 'rf3' | 'mpnn' | 'jobs') => void;
+  activeTab: TabId;
+  setActiveTab: (tab: TabId) => void;
+
+  // Selected design task (persisted between task and rfd3 tabs)
+  selectedDesignTask: string | null;
+  setSelectedDesignTask: (task: string | null) => void;
 
   // Notifications for workflow guidance
   notifications: Notification[];
@@ -152,9 +159,13 @@ export const useStore = create<AppState>((set) => ({
   selectedPdb: null,
   setSelectedPdb: (pdb) => set({ selectedPdb: pdb }),
 
-  // Active tab
-  activeTab: 'rfd3',
+  // Active tab - start at task selection
+  activeTab: 'task',
   setActiveTab: (tab) => set({ activeTab: tab }),
+
+  // Selected design task
+  selectedDesignTask: null,
+  setSelectedDesignTask: (task) => set({ selectedDesignTask: task }),
 
   // Notifications
   notifications: [],

@@ -44,32 +44,49 @@ export interface CFGConfig {
 }
 
 export interface RFD3Request {
-  contig: string;
+  // Core parameters - either contig OR length is required
+  contig?: string;
+  length?: string;  // Can be "100" or "80-120" range
   num_designs?: number;
   pdb_content?: string;
   seed?: number;  // For reproducibility
 
-  // Phase 1: Hotspot residues - dict mapping residue ranges to atom selection
-  // e.g., {"A15-20": "ALL", "A25": "TIP", "A30-35": "BKBN"}
-  select_hotspots?: Record<string, string>;
-
-  // Phase 1: Partial diffusion - noise level in Angstroms (5-20 recommended)
-  partial_t?: number;
-
-  // Phase 1: Diffusion sampling parameters
+  // Quality/sampling parameters
   num_timesteps?: number;  // 50-500, default 200
   step_scale?: number;     // 0.5-3.0, default 1.5 (higher = less diverse, more designable)
   noise_scale?: number;    // 0.9-1.1, default 1.003
   gamma_0?: number;        // 0.1-1.0, default 0.6 (lower = more designable, less diverse)
+  is_non_loopy?: boolean;  // Cleaner secondary structures
 
-  // Phase 2: Symmetry design - for oligomeric proteins
+  // Partial diffusion (refinement)
+  partial_t?: number;  // Noise level in Angstroms (5-20 recommended)
+
+  // Symmetry design - for oligomeric proteins
   symmetry?: SymmetryConfig;
 
-  // Phase 2: Ligand binding - chemical component ID (e.g., "ATP", "NAD", "ZN")
-  ligand?: string;
+  // Protein binder design
+  hotspots?: string[];  // Hotspot residues (e.g., ["A15", "A20", "A25"])
+  infer_ori_strategy?: string;  // "hotspots" recommended for binders
 
-  // Phase 2: Classifier-Free Guidance
-  cfg?: CFGConfig;
+  // Small molecule / enzyme design
+  ligand?: string;  // Chemical component ID (e.g., "ATP", "NAD", "ZN")
+  unindex?: string;  // Catalytic residues with inferred positions
+  select_fixed_atoms?: Record<string, string>;  // Fixed atoms on residues/ligands
+
+  // RASA conditioning (binding pocket design)
+  select_buried?: Record<string, string>;  // Atoms to bury in binding pocket
+  select_exposed?: Record<string, string>;  // Atoms to keep solvent accessible
+  select_partially_buried?: Record<string, string>;  // Atoms at surface edge
+
+  // Nucleic acid binder design
+  na_chains?: string;  // NA chain IDs (e.g., "A,B")
+  ori_token?: number[];  // Origin position [x, y, z]
+  select_hbond_donor?: Record<string, string>;  // H-bond donor conditioning
+  select_hbond_acceptor?: Record<string, string>;  // H-bond acceptor conditioning
+
+  // Legacy/deprecated
+  select_hotspots?: Record<string, string>;  // Old hotspot format
+  cfg?: CFGConfig;  // Classifier-Free Guidance
 }
 
 export interface RF3Request {
@@ -276,16 +293,18 @@ class FoundryAPI {
         type: 'rfd3',
         request: {
           contig: request.contig,
+          length: request.length,
           num_designs: request.num_designs,
           seed: request.seed,
-          select_hotspots: request.select_hotspots,
-          partial_t: request.partial_t,
           num_timesteps: request.num_timesteps,
           step_scale: request.step_scale,
           gamma_0: request.gamma_0,
+          is_non_loopy: request.is_non_loopy,
+          partial_t: request.partial_t,
           symmetry: request.symmetry,
+          hotspots: request.hotspots,
           ligand: request.ligand,
-          cfg: request.cfg,
+          unindex: request.unindex,
         },
       });
     }

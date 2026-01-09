@@ -192,19 +192,82 @@ def handle_health() -> Dict[str, Any]:
 
 def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """Handle RFD3 design request"""
+    # Core parameters
     contig = job_input.get("contig") or job_input.get("contigs")
-    if not contig:
-        return {"status": "failed", "error": "Missing 'contig' parameter"}
+    length = job_input.get("length")
+
+    # Either contig or length is required
+    if not contig and not length:
+        return {"status": "failed", "error": "Missing 'contig' or 'length' parameter"}
 
     num_designs = job_input.get("num_designs", 1)
     seed = job_input.get("seed")
     pdb_content = job_input.get("pdb_content")
 
+    # Quality settings
+    num_timesteps = job_input.get("num_timesteps")
+    step_scale = job_input.get("step_scale")
+    gamma_0 = job_input.get("gamma_0")
+    is_non_loopy = job_input.get("is_non_loopy")
+
+    # Partial diffusion (refinement)
+    partial_t = job_input.get("partial_t")
+
+    # Symmetry
+    symmetry = job_input.get("symmetry")
+
+    # Small molecule / enzyme design
+    ligand = job_input.get("ligand")
+    select_fixed_atoms = job_input.get("select_fixed_atoms")
+    unindex = job_input.get("unindex")
+
+    # RASA conditioning (binding pocket design)
+    select_buried = job_input.get("select_buried")
+    select_exposed = job_input.get("select_exposed")
+    select_partially_buried = job_input.get("select_partially_buried")
+
+    # Protein binder design
+    hotspots = job_input.get("hotspots")
+    infer_ori_strategy = job_input.get("infer_ori_strategy")
+
+    # Nucleic acid binder design
+    na_chains = job_input.get("na_chains")
+    ori_token = job_input.get("ori_token")
+    select_hbond_donor = job_input.get("select_hbond_donor")
+    select_hbond_acceptor = job_input.get("select_hbond_acceptor")
+
     result = run_rfd3_inference(
         contig=contig,
+        length=length,
         num_designs=num_designs,
         seed=seed,
         pdb_content=pdb_content,
+        # Quality
+        num_timesteps=num_timesteps,
+        step_scale=step_scale,
+        gamma_0=gamma_0,
+        is_non_loopy=is_non_loopy,
+        # Refinement
+        partial_t=partial_t,
+        # Symmetry
+        symmetry=symmetry,
+        # Small molecule / enzyme
+        ligand=ligand,
+        select_fixed_atoms=select_fixed_atoms,
+        unindex=unindex,
+        # RASA conditioning
+        select_buried=select_buried,
+        select_exposed=select_exposed,
+        select_partially_buried=select_partially_buried,
+        # Protein binder
+        hotspots=hotspots,
+        infer_ori_strategy=infer_ori_strategy,
+        # Nucleic acid binder
+        na_chains=na_chains,
+        ori_token=ori_token,
+        select_hbond_donor=select_hbond_donor,
+        select_hbond_acceptor=select_hbond_acceptor,
+        # Mock mode
         use_mock=not FOUNDRY_AVAILABLE
     )
 

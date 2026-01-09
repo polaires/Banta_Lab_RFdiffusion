@@ -152,16 +152,55 @@ def generate_mock_confidences(length: int = 100) -> Dict[str, Any]:
 # ============== RFD3 Inference ==============
 
 def run_rfd3_inference(
-    contig: str,
+    contig: Optional[str] = None,
+    length: Optional[str] = None,
     num_designs: int = 1,
     seed: Optional[int] = None,
     pdb_content: Optional[str] = None,
+    # Quality settings
+    num_timesteps: Optional[int] = None,
+    step_scale: Optional[float] = None,
+    gamma_0: Optional[float] = None,
+    is_non_loopy: Optional[bool] = None,
+    # Partial diffusion (refinement)
+    partial_t: Optional[int] = None,
+    # Symmetry
+    symmetry: Optional[Dict[str, Any]] = None,
+    # Small molecule / enzyme design
+    ligand: Optional[str] = None,
+    select_fixed_atoms: Optional[Dict[str, str]] = None,
+    unindex: Optional[str] = None,
+    # RASA conditioning (binding pocket design)
+    select_buried: Optional[Dict[str, str]] = None,
+    select_exposed: Optional[Dict[str, str]] = None,
+    select_partially_buried: Optional[Dict[str, str]] = None,
+    # Protein binder design
+    hotspots: Optional[List[str]] = None,
+    infer_ori_strategy: Optional[str] = None,
+    # Nucleic acid binder design
+    na_chains: Optional[str] = None,
+    ori_token: Optional[List[float]] = None,
+    select_hbond_donor: Optional[Dict[str, str]] = None,
+    select_hbond_acceptor: Optional[Dict[str, str]] = None,
+    # Mock mode
     use_mock: bool = False
 ) -> Dict[str, Any]:
-    """Run RFD3 inference"""
+    """
+    Run RFD3 inference with full parameter support.
+
+    Supports multiple design tasks:
+    - De novo protein design (length only)
+    - Protein binder design (contig + hotspots)
+    - Small molecule binder design (ligand + RASA conditioning)
+    - Nucleic acid binder design (na_chains + ori_token + H-bond conditioning)
+    - Enzyme scaffold design (ligand + unindex + fixed atoms)
+    - Symmetric oligomer design (symmetry config)
+    - Structure refinement (partial_t)
+    """
 
     if use_mock:
-        return run_rfd3_mock(contig, num_designs)
+        mock_length = length or contig or "100"
+        return run_rfd3_mock(mock_length, num_designs)
 
     try:
         from rfd3.engine import RFD3InferenceConfig, RFD3InferenceEngine
@@ -175,26 +214,114 @@ def run_rfd3_inference(
             except ImportError:
                 pass
 
-        # Parse contig specification
-        contig_str = contig
-        is_simple_length = contig_str.replace("-", "").isdigit()
+        # Build specification dictionary
+        spec: Dict[str, Any] = {}
 
-        if is_simple_length:
-            if "-" in contig_str:
-                spec = {"length": contig_str}
+        # Length or contig
+        if contig:
+            contig_str = contig
+            is_simple_length = contig_str.replace("-", "").isdigit()
+            if is_simple_length:
+                if "-" in contig_str:
+                    spec["length"] = contig_str
+                else:
+                    spec["length"] = int(contig_str)
             else:
-                spec = {"length": int(contig_str)}
-        else:
-            spec = {"contig": contig_str}
+                spec["contig"] = contig_str
+        elif length:
+            length_str = str(length)
+            if "-" in length_str:
+                spec["length"] = length_str
+            elif length_str.isdigit():
+                spec["length"] = int(length_str)
+            else:
+                spec["length"] = length_str
+
+        # Ligand for small molecule / enzyme design
+        if ligand:
+            spec["ligand"] = ligand
+
+        # Unindex for enzyme design (residues with inferred positions)
+        if unindex:
+            spec["unindex"] = unindex
+
+        # Symmetry configuration
+        if symmetry:
+            sym_id = symmetry.get("id") if isinstance(symmetry, dict) else symmetry
+            if sym_id:
+                spec["symmetry"] = sym_id
+                # Symmetric motif flags
+                if isinstance(symmetry, dict):
+                    if symmetry.get("is_symmetric_motif"):
+                        spec["is_symmetric_motif"] = True
+                    if symmetry.get("is_unsym_motif"):
+                        spec["is_unsym_motif"] = symmetry["is_unsym_motif"]
+
+        # Build config kwargs
+        config_kwargs: Dict[str, Any] = {
+            "specification": spec,
+            "diffusion_batch_size": num_designs,
+        }
+
+        # Quality settings
+        if num_timesteps is not None:
+            config_kwargs["num_timesteps"] = num_timesteps
+        if step_scale is not None:
+            config_kwargs["step_scale"] = step_scale
+        if gamma_0 is not None:
+            config_kwargs["gamma_0"] = gamma_0
+        if is_non_loopy is not None:
+            config_kwargs["is_non_loopy"] = is_non_loopy
+
+        # Partial diffusion for refinement
+        if partial_t is not None:
+            config_kwargs["partial_t"] = partial_t
+
+        # Hotspots for protein binder design
+        if hotspots:
+            config_kwargs["hotspots"] = hotspots
+        if infer_ori_strategy:
+            config_kwargs["infer_ori_strategy"] = infer_ori_strategy
+
+        # Origin token for nucleic acid binder
+        if ori_token:
+            config_kwargs["ori_token"] = ori_token
+
+        # RASA conditioning (select_buried, select_exposed, select_partially_buried)
+        if select_buried:
+            config_kwargs["select_buried"] = select_buried
+        if select_exposed:
+            config_kwargs["select_exposed"] = select_exposed
+        if select_partially_buried:
+            config_kwargs["select_partially_buried"] = select_partially_buried
+
+        # Fixed atoms
+        if select_fixed_atoms:
+            config_kwargs["select_fixed_atoms"] = select_fixed_atoms
+
+        # H-bond conditioning for nucleic acid binder
+        if select_hbond_donor:
+            config_kwargs["select_hbond_donor"] = select_hbond_donor
+        if select_hbond_acceptor:
+            config_kwargs["select_hbond_acceptor"] = select_hbond_acceptor
+
+        print(f"[RFD3] Config: {json.dumps({k: str(v)[:100] for k, v in config_kwargs.items()}, indent=2)}")
+
+        # Handle PDB input
+        input_atom_array = None
+        if pdb_content:
+            input_atom_array = pdb_to_atom_array(pdb_content)
+            print(f"[RFD3] Loaded input structure with {len(input_atom_array)} atoms")
 
         # Create config and run
-        config = RFD3InferenceConfig(
-            specification=spec,
-            diffusion_batch_size=num_designs,
-        )
-
+        config = RFD3InferenceConfig(**config_kwargs)
         model = RFD3InferenceEngine(**config)
-        outputs_dict = model.run(inputs=None, out_dir=None, n_batches=1)
+
+        # Run inference
+        if input_atom_array is not None:
+            outputs_dict = model.run(inputs=input_atom_array, out_dir=None, n_batches=1)
+        else:
+            outputs_dict = model.run(inputs=None, out_dir=None, n_batches=1)
 
         # Process outputs
         designs = []
@@ -205,10 +332,10 @@ def run_rfd3_inference(
                 for idx, item in enumerate(items):
                     if hasattr(item, 'atom_array'):
                         try:
-                            pdb_content = atom_array_to_pdb(item.atom_array)
+                            output_pdb = atom_array_to_pdb(item.atom_array)
                             filename = f"{key}_{idx}.pdb" if len(items) > 1 else f"{key}.pdb"
 
-                            design = {"filename": filename, "content": pdb_content}
+                            design: Dict[str, Any] = {"filename": filename, "content": output_pdb}
 
                             try:
                                 design["cif_content"] = atom_array_to_cif(item.atom_array)

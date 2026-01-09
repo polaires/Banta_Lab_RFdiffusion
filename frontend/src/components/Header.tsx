@@ -1,10 +1,9 @@
 'use client';
 
-import { useStore } from '@/lib/store';
-
-type TabId = 'rfd3' | 'mpnn' | 'rf3' | 'jobs';
+import { useStore, TabId } from '@/lib/store';
 
 const workflowSteps = [
+  { id: 'task' as const, label: 'Design Task', step: 0 },
   { id: 'rfd3' as const, label: 'RFdiffusion3', step: 1 },
   { id: 'mpnn' as const, label: 'MPNN', step: 2 },
   { id: 'rf3' as const, label: 'Validate', step: 3 },
@@ -19,6 +18,7 @@ export function Header() {
     setConnectionModalOpen,
     latestRfd3Design,
     lastCompletedJobType,
+    selectedDesignTask,
   } = useStore();
 
   const isConnected = health?.status === 'healthy';
@@ -26,6 +26,7 @@ export function Header() {
 
   const getStepStatus = (stepId: string) => {
     if (activeTab === stepId) return 'active';
+    if (stepId === 'task' && selectedDesignTask) return 'completed';
     if (stepId === 'rfd3' && latestRfd3Design) return 'completed';
     if (stepId === 'mpnn' && lastCompletedJobType === 'mpnn') return 'completed';
     if (stepId === 'rf3' && lastCompletedJobType === 'rf3') return 'completed';

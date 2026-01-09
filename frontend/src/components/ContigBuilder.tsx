@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Trash2, GripVertical, Wand2, HelpCircle, Zap } from 'lucide-react';
 
 type SegmentType = 'denovo' | 'fixed' | 'linker';
 
@@ -21,9 +20,9 @@ interface Segment {
 }
 
 const SEGMENT_PRESETS = {
-  denovo: { label: 'De Novo Region', description: 'Design new residues from scratch', color: 'bg-blue-600' },
-  fixed: { label: 'Fixed Region', description: 'Keep existing residues from input PDB', color: 'bg-green-600' },
-  linker: { label: 'Flexible Linker', description: 'Variable-length connection between segments', color: 'bg-purple-600' },
+  denovo: { label: 'De Novo Region', description: 'Design new residues from scratch', color: 'bg-blue-600', lightBg: 'bg-blue-50', border: 'border-blue-200' },
+  fixed: { label: 'Fixed Region', description: 'Keep existing residues from input PDB', color: 'bg-emerald-600', lightBg: 'bg-emerald-50', border: 'border-emerald-200' },
+  linker: { label: 'Flexible Linker', description: 'Variable-length connection between segments', color: 'bg-violet-600', lightBg: 'bg-violet-50', border: 'border-violet-200' },
 };
 
 // Binder design presets
@@ -81,7 +80,6 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
   const generateId = () => Math.random().toString(36).substring(2, 9);
 
   const applyPreset = (preset: typeof BINDER_PRESETS[0]) => {
-    // Generate new IDs for segments
     const newSegments = preset.segments.map(seg => ({
       ...seg,
       id: generateId(),
@@ -135,34 +133,33 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
 
   const contigString = buildContigString();
 
-  // Apply to parent
   const applyContig = () => {
     onContigChange(contigString);
   };
 
   return (
-    <div className="bg-gray-800/50 rounded-lg p-4 space-y-4 border border-gray-700">
+    <div className="bg-white rounded-xl p-5 space-y-4 border border-slate-200 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Wand2 className="w-5 h-5 text-blue-400" />
-          <h3 className="font-semibold text-gray-200">Contig Builder</h3>
+          <span className="material-symbols-outlined text-blue-600">construction</span>
+          <h3 className="font-semibold text-slate-800">Contig Builder</h3>
         </div>
         <button
           onClick={() => setShowHelp(!showHelp)}
-          className="p-1 hover:bg-gray-700 rounded"
+          className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
           title="Help"
         >
-          <HelpCircle className="w-4 h-4 text-gray-400" />
+          <span className="material-symbols-outlined text-slate-400 text-xl">help</span>
         </button>
       </div>
 
       {showHelp && (
-        <div className="bg-gray-900/50 p-3 rounded text-sm text-gray-300 space-y-2">
-          <p><strong>De Novo Region:</strong> Generates new amino acids. Specify length or range.</p>
-          <p><strong>Fixed Region:</strong> Keeps residues from input PDB. Specify chain and residue numbers.</p>
-          <p><strong>Flexible Linker:</strong> Gap between segments. Use 0 for direct connection.</p>
-          <p className="pt-2 border-t border-gray-700 mt-2">
-            <strong>Binder Design:</strong> Upload target PDB, add Fixed region (target), Linker (/0), De Novo region (binder).
+        <div className="bg-slate-50 p-4 rounded-lg text-sm text-slate-600 space-y-2 border border-slate-100">
+          <p><strong className="text-slate-700">De Novo Region:</strong> Generates new amino acids. Specify length or range.</p>
+          <p><strong className="text-slate-700">Fixed Region:</strong> Keeps residues from input PDB. Specify chain and residue numbers.</p>
+          <p><strong className="text-slate-700">Flexible Linker:</strong> Gap between segments. Use 0 for direct connection.</p>
+          <p className="pt-2 border-t border-slate-200 mt-2">
+            <strong className="text-slate-700">Binder Design:</strong> Upload target PDB, add Fixed region (target), Linker (/0), De Novo region (binder).
           </p>
         </div>
       )}
@@ -171,9 +168,9 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
       <div className="space-y-2">
         <button
           onClick={() => setShowPresets(!showPresets)}
-          className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300"
+          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
         >
-          <Zap className="w-4 h-4" />
+          <span className="material-symbols-outlined text-lg">bolt</span>
           {showPresets ? 'Hide Design Presets' : 'Show Design Presets'}
         </button>
 
@@ -183,10 +180,10 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
               <button
                 key={preset.name}
                 onClick={() => applyPreset(preset)}
-                className="p-2 text-left bg-gray-700/50 hover:bg-gray-700 rounded border border-gray-600 transition"
+                className="p-3 text-left bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 hover:border-blue-300 transition-all"
               >
-                <div className="font-medium text-sm text-gray-200">{preset.name}</div>
-                <div className="text-xs text-gray-400">{preset.description}</div>
+                <div className="font-medium text-sm text-slate-700">{preset.name}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{preset.description}</div>
               </button>
             ))}
           </div>
@@ -195,169 +192,168 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
 
       {/* Segment List */}
       <div className="space-y-2">
-        {segments.map((segment, index) => (
-          <div
-            key={segment.id}
-            className={`flex items-center gap-2 p-3 rounded border ${
-              segment.type === 'denovo' ? 'border-blue-600/50 bg-blue-900/20' :
-              segment.type === 'fixed' ? 'border-green-600/50 bg-green-900/20' :
-              'border-purple-600/50 bg-purple-900/20'
-            }`}
-          >
-            <GripVertical className="w-4 h-4 text-gray-500 cursor-grab" />
-
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${SEGMENT_PRESETS[segment.type].color}`}>
-              {index + 1}
-            </span>
-
-            {/* Segment Type Selector */}
-            <select
-              value={segment.type}
-              onChange={(e) => {
-                const newType = e.target.value as SegmentType;
-                const updates: Partial<Segment> = { type: newType };
-                if (newType === 'denovo') {
-                  updates.minLength = 50;
-                  updates.maxLength = 50;
-                } else if (newType === 'fixed') {
-                  updates.chain = 'A';
-                  updates.startResidue = 1;
-                  updates.endResidue = 50;
-                } else if (newType === 'linker') {
-                  updates.gapMin = 0;
-                  updates.gapMax = 0;
-                }
-                updateSegment(segment.id, updates);
-              }}
-              className="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm"
+        {segments.map((segment, index) => {
+          const preset = SEGMENT_PRESETS[segment.type];
+          return (
+            <div
+              key={segment.id}
+              className={`flex items-center gap-3 p-3 rounded-lg border ${preset.lightBg} ${preset.border}`}
             >
-              <option value="denovo">De Novo</option>
-              <option value="fixed">Fixed</option>
-              <option value="linker">Linker</option>
-            </select>
+              <span className="material-symbols-outlined text-slate-400 cursor-grab">drag_indicator</span>
 
-            {/* Segment-specific inputs */}
-            {segment.type === 'denovo' && (
-              <div className="flex items-center gap-1 text-sm">
-                <input
-                  type="number"
-                  value={segment.minLength || 0}
-                  onChange={(e) => updateSegment(segment.id, { minLength: parseInt(e.target.value) || 0 })}
-                  className="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                  min={1}
-                  placeholder="Min"
-                />
-                <span className="text-gray-500">-</span>
-                <input
-                  type="number"
-                  value={segment.maxLength || 0}
-                  onChange={(e) => updateSegment(segment.id, { maxLength: parseInt(e.target.value) || 0 })}
-                  className="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                  min={1}
-                  placeholder="Max"
-                />
-                <span className="text-gray-400 text-xs">residues</span>
-              </div>
-            )}
+              <span className={`px-2 py-0.5 rounded text-xs font-semibold text-white ${preset.color}`}>
+                {index + 1}
+              </span>
 
-            {segment.type === 'fixed' && (
-              <div className="flex items-center gap-1 text-sm">
-                <span className="text-gray-400">Chain</span>
-                <input
-                  type="text"
-                  value={segment.chain || 'A'}
-                  onChange={(e) => updateSegment(segment.id, { chain: e.target.value.toUpperCase().slice(0, 1) })}
-                  className="w-10 bg-gray-700 border border-gray-600 rounded px-2 py-1 text-center"
-                  maxLength={1}
-                />
-                <span className="text-gray-400">:</span>
-                <input
-                  type="number"
-                  value={segment.startResidue || 1}
-                  onChange={(e) => updateSegment(segment.id, { startResidue: parseInt(e.target.value) || 1 })}
-                  className="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                  min={1}
-                />
-                <span className="text-gray-500">-</span>
-                <input
-                  type="number"
-                  value={segment.endResidue || 1}
-                  onChange={(e) => updateSegment(segment.id, { endResidue: parseInt(e.target.value) || 1 })}
-                  className="w-16 bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                  min={1}
-                />
-              </div>
-            )}
+              {/* Segment Type Selector */}
+              <select
+                value={segment.type}
+                onChange={(e) => {
+                  const newType = e.target.value as SegmentType;
+                  const updates: Partial<Segment> = { type: newType };
+                  if (newType === 'denovo') {
+                    updates.minLength = 50;
+                    updates.maxLength = 50;
+                  } else if (newType === 'fixed') {
+                    updates.chain = 'A';
+                    updates.startResidue = 1;
+                    updates.endResidue = 50;
+                  } else if (newType === 'linker') {
+                    updates.gapMin = 0;
+                    updates.gapMax = 0;
+                  }
+                  updateSegment(segment.id, updates);
+                }}
+                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+              >
+                <option value="denovo">De Novo</option>
+                <option value="fixed">Fixed</option>
+                <option value="linker">Linker</option>
+              </select>
 
-            {segment.type === 'linker' && (
-              <div className="flex items-center gap-1 text-sm">
-                <span className="text-gray-400">Gap</span>
-                <input
-                  type="number"
-                  value={segment.gapMin ?? 0}
-                  onChange={(e) => updateSegment(segment.id, { gapMin: parseInt(e.target.value) || 0 })}
-                  className="w-14 bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                  min={0}
-                />
-                <span className="text-gray-500">-</span>
-                <input
-                  type="number"
-                  value={segment.gapMax ?? 0}
-                  onChange={(e) => updateSegment(segment.id, { gapMax: parseInt(e.target.value) || 0 })}
-                  className="w-14 bg-gray-700 border border-gray-600 rounded px-2 py-1"
-                  min={0}
-                />
-              </div>
-            )}
+              {/* Segment-specific inputs */}
+              {segment.type === 'denovo' && (
+                <div className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="number"
+                    value={segment.minLength || 0}
+                    onChange={(e) => updateSegment(segment.id, { minLength: parseInt(e.target.value) || 0 })}
+                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    min={1}
+                    placeholder="Min"
+                  />
+                  <span className="text-slate-400">-</span>
+                  <input
+                    type="number"
+                    value={segment.maxLength || 0}
+                    onChange={(e) => updateSegment(segment.id, { maxLength: parseInt(e.target.value) || 0 })}
+                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    min={1}
+                    placeholder="Max"
+                  />
+                  <span className="text-slate-500 text-xs">residues</span>
+                </div>
+              )}
 
-            <div className="flex-1" />
+              {segment.type === 'fixed' && (
+                <div className="flex items-center gap-1.5 text-sm">
+                  <span className="text-slate-500">Chain</span>
+                  <input
+                    type="text"
+                    value={segment.chain || 'A'}
+                    onChange={(e) => updateSegment(segment.id, { chain: e.target.value.toUpperCase().slice(0, 1) })}
+                    className="w-10 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    maxLength={1}
+                  />
+                  <span className="text-slate-400">:</span>
+                  <input
+                    type="number"
+                    value={segment.startResidue || 1}
+                    onChange={(e) => updateSegment(segment.id, { startResidue: parseInt(e.target.value) || 1 })}
+                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    min={1}
+                  />
+                  <span className="text-slate-400">-</span>
+                  <input
+                    type="number"
+                    value={segment.endResidue || 1}
+                    onChange={(e) => updateSegment(segment.id, { endResidue: parseInt(e.target.value) || 1 })}
+                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    min={1}
+                  />
+                </div>
+              )}
 
-            <button
-              onClick={() => removeSegment(segment.id)}
-              disabled={segments.length <= 1}
-              className="p-1 hover:bg-gray-700 rounded disabled:opacity-30"
-              title="Remove segment"
-            >
-              <Trash2 className="w-4 h-4 text-red-400" />
-            </button>
-          </div>
-        ))}
+              {segment.type === 'linker' && (
+                <div className="flex items-center gap-1.5 text-sm">
+                  <span className="text-slate-500">Gap</span>
+                  <input
+                    type="number"
+                    value={segment.gapMin ?? 0}
+                    onChange={(e) => updateSegment(segment.id, { gapMin: parseInt(e.target.value) || 0 })}
+                    className="w-14 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    min={0}
+                  />
+                  <span className="text-slate-400">-</span>
+                  <input
+                    type="number"
+                    value={segment.gapMax ?? 0}
+                    onChange={(e) => updateSegment(segment.id, { gapMax: parseInt(e.target.value) || 0 })}
+                    className="w-14 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    min={0}
+                  />
+                </div>
+              )}
+
+              <div className="flex-1" />
+
+              <button
+                onClick={() => removeSegment(segment.id)}
+                disabled={segments.length <= 1}
+                className="p-1.5 hover:bg-white/80 rounded-lg disabled:opacity-30 transition-colors"
+                title="Remove segment"
+              >
+                <span className="material-symbols-outlined text-red-500 text-xl">delete</span>
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {/* Add Segment Buttons */}
       <div className="flex gap-2">
         <button
           onClick={() => addSegment('denovo')}
-          className="flex-1 py-2 bg-blue-600/20 hover:bg-blue-600/30 border border-blue-600/50 rounded text-sm flex items-center justify-center gap-1"
+          className="flex-1 py-2.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 rounded-lg text-sm font-medium text-blue-700 flex items-center justify-center gap-1.5 transition-all"
         >
-          <Plus className="w-4 h-4" /> De Novo
+          <span className="material-symbols-outlined text-lg">add</span> De Novo
         </button>
         <button
           onClick={() => addSegment('fixed')}
-          className="flex-1 py-2 bg-green-600/20 hover:bg-green-600/30 border border-green-600/50 rounded text-sm flex items-center justify-center gap-1"
+          className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 hover:border-emerald-300 rounded-lg text-sm font-medium text-emerald-700 flex items-center justify-center gap-1.5 transition-all"
         >
-          <Plus className="w-4 h-4" /> Fixed
+          <span className="material-symbols-outlined text-lg">add</span> Fixed
         </button>
         <button
           onClick={() => addSegment('linker')}
-          className="flex-1 py-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-600/50 rounded text-sm flex items-center justify-center gap-1"
+          className="flex-1 py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 rounded-lg text-sm font-medium text-violet-700 flex items-center justify-center gap-1.5 transition-all"
         >
-          <Plus className="w-4 h-4" /> Linker
+          <span className="material-symbols-outlined text-lg">add</span> Linker
         </button>
       </div>
 
       {/* Preview */}
-      <div className="bg-gray-900 rounded p-3 border border-gray-700">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-gray-400">Generated Contig</span>
+      <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Generated Contig</span>
           <button
             onClick={applyContig}
-            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-xs font-medium"
+            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-semibold text-white shadow-sm transition-colors"
           >
-            Use in Design
+            Apply to Design
           </button>
         </div>
-        <code className="text-sm text-green-400 font-mono break-all">
+        <code className="text-sm text-blue-700 font-mono bg-white px-3 py-2 rounded-lg border border-slate-200 block">
           {contigString || '(empty)'}
         </code>
       </div>

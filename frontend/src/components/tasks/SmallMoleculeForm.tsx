@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import {
@@ -13,6 +13,58 @@ import {
 
 type QualityPreset = keyof typeof QUALITY_PRESETS;
 
+// Extract HETATM ligand codes from PDB content
+function extractLigandsFromPdb(pdbContent: string): string[] {
+  const ligands = new Set<string>();
+  const lines = pdbContent.split('\n');
+  for (const line of lines) {
+    if (line.startsWith('HETATM')) {
+      const resName = line.substring(17, 20).trim();
+      if (resName && !['HOH', 'WAT', 'DOD', 'H2O'].includes(resName)) {
+        ligands.add(resName);
+      }
+    }
+  }
+  return Array.from(ligands).sort();
+}
+
+// Metal/ion codes that are single atoms
+const METAL_CODES = new Set([
+  'ZN', 'MG', 'CA', 'FE', 'MN', 'CO', 'CU', 'NI',
+  'LA', 'GD', 'EU', 'TB', 'YB', 'LU',
+  'K', 'NA', 'CL',
+]);
+
+// Replace ligand code in PDB content
+function replaceLigandInPdb(pdbContent: string, sourceCode: string, targetCode: string): string {
+  if (!sourceCode || !targetCode || sourceCode === targetCode) return pdbContent;
+
+  const isMetal = METAL_CODES.has(targetCode.toUpperCase());
+  const lines = pdbContent.split('\n');
+
+  return lines.map(line => {
+    if (line.startsWith('HETATM') || line.startsWith('ATOM')) {
+      const resName = line.substring(17, 20).trim();
+      if (resName === sourceCode) {
+        let paddedLine = line.padEnd(80);
+        const paddedResName = targetCode.padStart(3);
+        paddedLine = paddedLine.substring(0, 17) + paddedResName + paddedLine.substring(20);
+
+        if (isMetal) {
+          const atomName = targetCode.length === 1
+            ? ' ' + targetCode + '  '
+            : targetCode.padStart(2) + '  ';
+          paddedLine = paddedLine.substring(0, 12) + atomName + paddedLine.substring(16);
+          const element = targetCode.length === 1 ? ' ' + targetCode : targetCode.substring(0, 2);
+          paddedLine = paddedLine.substring(0, 76) + element + paddedLine.substring(78);
+        }
+        return paddedLine.trimEnd();
+      }
+    }
+    return line;
+  }).join('\n');
+}
+
 export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   // Required
   const [pdbContent, setPdbContent] = useState<string | null>(null);
@@ -20,7 +72,19 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
   const [ligandCode, setLigandCode] = useState('');
   const [proteinLength, setProteinLength] = useState('100');
 
-  // RASA conditioning (optional)
+  // Ligand replacement
+  const [replaceLigand, setReplaceLigand] = useState(false);
+  const [sourceLigand, setSourceLigand] = useState('');
+  const [targetLigand, setTargetLigand] = useState('');
+
+  // Template refinement (partial diffusion)
+  const [useTemplateRefinement, setUseTemplateRefinement] = useState(false);
+  const [partialT, setPartialT] = useState('10');
+
+  // Advanced options - collapsed by default
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // RASA conditioning
   const [useBuried, setUseBuried] = useState(false);
   const [buriedAtoms, setBuriedAtoms] = useState('');
   const [useExposed, setUseExposed] = useState(false);
@@ -28,8 +92,12 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
   const [usePartiallyBuried, setUsePartiallyBuried] = useState(false);
   const [partiallyBuriedAtoms, setPartiallyBuriedAtoms] = useState('');
 
-  // Fixed atoms (optional)
+  // Fixed atoms
   const [fixedAtomSelection, setFixedAtomSelection] = useState('');
+
+  // Unindex (coordinating residues)
+  const [useUnindex, setUseUnindex] = useState(false);
+  const [unindexResidues, setUnindexResidues] = useState('');
 
   // Options
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Balanced');
@@ -37,12 +105,30 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
   const [numDesigns, setNumDesigns] = useState(1);
   const [seed, setSeed] = useState<string>('');
 
+  // Detected ligands
+  const detectedLigands = useMemo(() => {
+    if (!pdbContent) return [];
+    return extractLigandsFromPdb(pdbContent);
+  }, [pdbContent]);
+
+  // Current ligand code (for display and validation)
+  const currentLigand = replaceLigand ? targetLigand : ligandCode;
+  const isMetal = METAL_CODES.has(currentLigand.toUpperCase());
+
   const handleSubmit = async () => {
     const preset = QUALITY_PRESETS[qualityPreset];
 
+    let finalPdbContent = pdbContent;
+    let finalLigandCode = ligandCode.toUpperCase();
+
+    if (replaceLigand && sourceLigand && targetLigand && pdbContent) {
+      finalPdbContent = replaceLigandInPdb(pdbContent, sourceLigand, targetLigand);
+      finalLigandCode = targetLigand.toUpperCase();
+    }
+
     const request: RFD3Request = {
-      pdb_content: pdbContent || undefined,
-      ligand: ligandCode.toUpperCase(),
+      pdb_content: finalPdbContent || undefined,
+      ligand: finalLigandCode,
       length: proteinLength,
       num_designs: numDesigns,
       is_non_loopy: isNonLoopy,
@@ -51,22 +137,24 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
       gamma_0: preset.gamma_0,
     };
 
-    // RASA conditioning
     if (useBuried && buriedAtoms) {
-      request.select_buried = { [ligandCode.toUpperCase()]: buriedAtoms };
+      request.select_buried = { [finalLigandCode]: buriedAtoms };
     }
     if (useExposed && exposedAtoms) {
-      request.select_exposed = { [ligandCode.toUpperCase()]: exposedAtoms };
+      request.select_exposed = { [finalLigandCode]: exposedAtoms };
     }
     if (usePartiallyBuried && partiallyBuriedAtoms) {
-      request.select_partially_buried = { [ligandCode.toUpperCase()]: partiallyBuriedAtoms };
+      request.select_partially_buried = { [finalLigandCode]: partiallyBuriedAtoms };
     }
-
-    // Fixed atoms
     if (fixedAtomSelection) {
-      request.select_fixed_atoms = { [ligandCode.toUpperCase()]: fixedAtomSelection };
+      request.select_fixed_atoms = { [finalLigandCode]: fixedAtomSelection };
     }
-
+    if (useTemplateRefinement && partialT) {
+      request.partial_t = parseFloat(partialT);
+    }
+    if (useUnindex && unindexResidues) {
+      request.unindex = unindexResidues;
+    }
     if (seed) {
       request.seed = parseInt(seed, 10);
     }
@@ -76,8 +164,10 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
 
   const isValid =
     pdbContent !== null &&
-    ligandCode.trim() !== '' &&
-    proteinLength.trim() !== '';
+    proteinLength.trim() !== '' &&
+    (replaceLigand
+      ? sourceLigand.trim() !== '' && targetLigand.trim() !== ''
+      : ligandCode.trim() !== '');
 
   // Group ligands by category
   const ligandsByCategory = COMMON_LIGANDS.reduce((acc, lig) => {
@@ -99,282 +189,376 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
         </div>
       </div>
 
-      {/* Info Banner */}
-      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
-        <div className="flex items-start gap-3">
-          <span className="material-symbols-outlined text-slate-600 text-xl">info</span>
-          <div className="text-sm text-slate-700">
-            <strong>Requirements:</strong> Your PDB must contain the ligand you want to bind.
-            The model will design a protein scaffold around the ligand, creating a binding pocket.
-          </div>
-        </div>
-      </div>
-
-      {/* Input PDB - Required */}
+      {/* Structure Input Section - Consolidated */}
       <FormSection
-        title="Structure with Ligand"
-        description="Upload PDB containing the ligand you want to design a binder for"
-        required
-      >
-        <PdbUploader
-          label="PDB with Ligand"
-          description="Must contain the target ligand molecule"
-          required
-          value={pdbContent}
-          fileName={pdbFileName}
-          onChange={(content, name) => {
-            setPdbContent(content);
-            setPdbFileName(name);
-          }}
-        />
-      </FormSection>
-
-      {/* Ligand Selection - Required */}
-      <FormSection
-        title="Ligand Code"
-        description="3-letter code identifying the ligand in the PDB file"
+        title="Input Structure"
+        description="Upload PDB containing the ligand"
         required
       >
         <div className="space-y-4">
-          <FormField label="Ligand Code" required>
-            <input
-              type="text"
-              value={ligandCode}
-              onChange={(e) => setLigandCode(e.target.value.toUpperCase())}
-              placeholder="e.g., ATP, NAD, HEM"
-              maxLength={4}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono uppercase"
-            />
-          </FormField>
-
-          {/* Common ligand shortcuts */}
-          <div className="space-y-3">
-            <p className="text-xs text-slate-500 font-medium">Common Ligands:</p>
-            {Object.entries(ligandsByCategory).map(([category, ligands]) => (
-              <div key={category}>
-                <p className="text-xs text-slate-400 uppercase tracking-wider mb-1">{category}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {ligands.map((lig) => (
-                    <button
-                      key={lig.id}
-                      onClick={() => setLigandCode(lig.id)}
-                      className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-all ${
-                        ligandCode === lig.id
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      {lig.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </FormSection>
-
-      {/* Protein Length - Required */}
-      <FormSection
-        title="Protein Length"
-        description="Length of the binding protein to design"
-        required
-      >
-        <FormRow>
-          <FormField label="Length" required hint="e.g., 100 or 80-120">
-            <input
-              type="text"
-              value={proteinLength}
-              onChange={(e) => setProteinLength(e.target.value)}
-              placeholder="100"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-            />
-          </FormField>
-          <FormField label="# Designs">
-            <input
-              type="number"
-              value={numDesigns}
-              onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
-              min={1}
-              max={10}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-            />
-          </FormField>
-        </FormRow>
-      </FormSection>
-
-      {/* RASA Conditioning - Optional but powerful */}
-      <FormSection
-        title="Binding Pocket Design (RASA)"
-        description="Control which ligand atoms should be buried vs exposed in the binding pocket"
-      >
-        <div className="space-y-4">
-          {/* Buried atoms */}
-          <div className={`p-4 rounded-xl border transition-all ${
-            useBuried ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 border-slate-200'
-          }`}>
-            <label className="flex items-center gap-3 cursor-pointer mb-3">
-              <input
-                type="checkbox"
-                checked={useBuried}
-                onChange={(e) => setUseBuried(e.target.checked)}
-                className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              <div>
-                <div className="font-medium text-sm text-slate-900">Buried Atoms</div>
-                <div className="text-xs text-slate-500">
-                  Atoms that should be fully enclosed in the protein
-                </div>
-              </div>
-            </label>
-            {useBuried && (
-              <input
-                type="text"
-                value={buriedAtoms}
-                onChange={(e) => setBuriedAtoms(e.target.value)}
-                placeholder="Atom names (e.g., C1,C2,N1) or ALL"
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono text-sm"
-              />
-            )}
-          </div>
-
-          {/* Exposed atoms */}
-          <div className={`p-4 rounded-xl border transition-all ${
-            useExposed ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 border-slate-200'
-          }`}>
-            <label className="flex items-center gap-3 cursor-pointer mb-3">
-              <input
-                type="checkbox"
-                checked={useExposed}
-                onChange={(e) => setUseExposed(e.target.checked)}
-                className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              <div>
-                <div className="font-medium text-sm text-slate-900">Exposed Atoms</div>
-                <div className="text-xs text-slate-500">
-                  Atoms that should remain solvent accessible
-                </div>
-              </div>
-            </label>
-            {useExposed && (
-              <input
-                type="text"
-                value={exposedAtoms}
-                onChange={(e) => setExposedAtoms(e.target.value)}
-                placeholder="Atom names (e.g., O1,O2) or ALL"
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono text-sm"
-              />
-            )}
-          </div>
-
-          {/* Partially buried */}
-          <div className={`p-4 rounded-xl border transition-all ${
-            usePartiallyBuried ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 border-slate-200'
-          }`}>
-            <label className="flex items-center gap-3 cursor-pointer mb-3">
-              <input
-                type="checkbox"
-                checked={usePartiallyBuried}
-                onChange={(e) => setUsePartiallyBuried(e.target.checked)}
-                className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              <div>
-                <div className="font-medium text-sm text-slate-900">Partially Buried Atoms</div>
-                <div className="text-xs text-slate-500">
-                  Atoms at the protein surface edge
-                </div>
-              </div>
-            </label>
-            {usePartiallyBuried && (
-              <input
-                type="text"
-                value={partiallyBuriedAtoms}
-                onChange={(e) => setPartiallyBuriedAtoms(e.target.value)}
-                placeholder="Atom names"
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono text-sm"
-              />
-            )}
-          </div>
-        </div>
-      </FormSection>
-
-      {/* Fixed Atoms - Optional */}
-      <FormSection
-        title="Fixed Atoms (Optional)"
-        description="Which ligand atoms should stay fixed in space during design"
-      >
-        <FormField label="Fixed Atoms" hint="Leave empty for default (backbone atoms)">
-          <select
-            value={fixedAtomSelection}
-            onChange={(e) => setFixedAtomSelection(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all bg-white"
-          >
-            {ATOM_SELECTION_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label} - {opt.description}
-              </option>
-            ))}
-          </select>
-        </FormField>
-      </FormSection>
-
-      {/* Quality Settings */}
-      <FormSection
-        title="Quality Settings"
-        description="Higher quality takes longer but produces better designs"
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setQualityPreset(preset)}
-              className={`p-3 rounded-xl border-2 text-left transition-all ${
-                qualityPreset === preset
-                  ? 'border-blue-400 bg-blue-50'
-                  : 'border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              <div className="font-medium text-sm text-slate-900">{preset}</div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {QUALITY_PRESETS[preset].description}
-              </div>
-            </button>
-          ))}
-        </div>
-      </FormSection>
-
-      {/* Structure Options */}
-      <FormSection title="Structure Options">
-        <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
-          <input
-            type="checkbox"
-            checked={isNonLoopy}
-            onChange={(e) => setIsNonLoopy(e.target.checked)}
-            className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          <PdbUploader
+            label="PDB with Ligand"
+            description="Must contain the target ligand molecule"
+            required
+            value={pdbContent}
+            fileName={pdbFileName}
+            onChange={(content, name) => {
+              setPdbContent(content);
+              setPdbFileName(name);
+            }}
           />
+
+          {/* Detected ligands - inline */}
+          {detectedLigands.length > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200">
+              <span className="text-xs text-slate-500 font-medium whitespace-nowrap">Detected:</span>
+              <div className="flex flex-wrap gap-1.5">
+                {detectedLigands.map((lig) => (
+                  <button
+                    key={lig}
+                    onClick={() => {
+                      if (!replaceLigand) setLigandCode(lig);
+                      else setSourceLigand(lig);
+                    }}
+                    className={`px-2 py-0.5 text-xs rounded font-mono font-medium transition-all ${
+                      (replaceLigand ? sourceLigand : ligandCode) === lig
+                        ? 'bg-slate-700 text-white'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-300'
+                    }`}
+                  >
+                    {lig}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Replace ligand toggle - inline */}
+          {detectedLigands.length > 0 && (
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={replaceLigand}
+                onChange={(e) => {
+                  setReplaceLigand(e.target.checked);
+                  if (e.target.checked && detectedLigands.length > 0) {
+                    setSourceLigand(detectedLigands[0]);
+                  }
+                }}
+                className="w-4 h-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500"
+              />
+              <span className="text-sm text-slate-600 group-hover:text-slate-900">
+                Replace ligand in PDB (e.g., Ca → Gd)
+              </span>
+            </label>
+          )}
+
+          {/* Replacement controls - show when enabled */}
+          {replaceLigand && (
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200">
+              <div>
+                <label className="text-xs text-slate-500 font-medium">Source</label>
+                <select
+                  value={sourceLigand}
+                  onChange={(e) => setSourceLigand(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none bg-white font-mono text-sm"
+                >
+                  <option value="">Select...</option>
+                  {detectedLigands.map((lig) => (
+                    <option key={lig} value={lig}>{lig}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 font-medium">Target</label>
+                <input
+                  type="text"
+                  value={targetLigand}
+                  onChange={(e) => setTargetLigand(e.target.value.toUpperCase())}
+                  placeholder="GD, LA, EU..."
+                  maxLength={4}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none font-mono text-sm uppercase"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Template refinement toggle - inline */}
+          <label className="flex items-center gap-3 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={useTemplateRefinement}
+              onChange={(e) => setUseTemplateRefinement(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500"
+            />
+            <span className="text-sm text-slate-600 group-hover:text-slate-900">
+              Refine from template (partial diffusion)
+            </span>
+            {useTemplateRefinement && (
+              <input
+                type="number"
+                value={partialT}
+                onChange={(e) => setPartialT(e.target.value)}
+                min={1}
+                max={50}
+                className="w-16 px-2 py-1 rounded border border-slate-200 text-sm text-center"
+                title="Noise level (lower = more similar to input)"
+              />
+            )}
+          </label>
+        </div>
+      </FormSection>
+
+      {/* Ligand Selection */}
+      <FormSection
+        title="Ligand"
+        description={isMetal ? "Metal binding requires template with coordinating residues" : "Select the ligand to design around"}
+        required
+      >
+        <div className="space-y-3">
+          {!replaceLigand && (
+            <div className="grid grid-cols-2 gap-3">
+              {/* Dropdown with grouped options */}
+              <div>
+                <label className="text-xs text-slate-500 font-medium">Common Ligands</label>
+                <select
+                  value={ligandCode}
+                  onChange={(e) => setLigandCode(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none bg-white text-sm"
+                >
+                  <option value="">Select ligand...</option>
+                  {Object.entries(ligandsByCategory).map(([category, ligands]) => (
+                    <optgroup key={category} label={category}>
+                      {ligands.map((lig) => (
+                        <option key={lig.id} value={lig.id}>
+                          {lig.id} - {lig.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              {/* Custom code input */}
+              <div>
+                <label className="text-xs text-slate-500 font-medium">Or enter code</label>
+                <input
+                  type="text"
+                  value={ligandCode}
+                  onChange={(e) => setLigandCode(e.target.value.toUpperCase())}
+                  placeholder="e.g., ATP"
+                  maxLength={4}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none text-sm font-mono uppercase"
+                />
+              </div>
+            </div>
+          )}
+
+          {replaceLigand && sourceLigand && targetLigand && (
+            <div className="text-sm text-slate-600">
+              Using <code className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{targetLigand}</code> (replacing {sourceLigand})
+            </div>
+          )}
+
+          {/* Metal hint - inline */}
+          {isMetal && (
+            <p className="text-xs text-slate-500">
+              For proper coordination, use a template PDB with Asp/Glu residues and enable refinement mode above.
+            </p>
+          )}
+        </div>
+      </FormSection>
+
+      {/* Design Parameters */}
+      <FormSection title="Design Parameters" required>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Length" hint="e.g., 100 or 80-120">
+              <input
+                type="text"
+                value={proteinLength}
+                onChange={(e) => setProteinLength(e.target.value)}
+                placeholder="100"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none transition-all"
+              />
+            </FormField>
+            <FormField label="# Designs">
+              <input
+                type="number"
+                value={numDesigns}
+                onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
+                min={1}
+                max={10}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none transition-all"
+              />
+            </FormField>
+          </div>
+
+          {/* Quality preset buttons */}
           <div>
-            <div className="font-medium text-sm text-slate-900">Non-loopy Mode</div>
-            <div className="text-xs text-slate-500">
-              Produces cleaner secondary structures (recommended)
+            <label className="text-xs text-slate-500 font-medium">Quality</label>
+            <div className="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => setQualityPreset(preset)}
+                  className={`p-2.5 rounded-lg border text-left transition-all ${
+                    qualityPreset === preset
+                      ? 'border-slate-400 bg-slate-100'
+                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-medium text-sm text-slate-800">{preset}</div>
+                  <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">
+                    {QUALITY_PRESETS[preset].description}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
-        </label>
+        </div>
       </FormSection>
 
-      {/* Advanced Options */}
-      <FormSection title="Advanced" description="Additional options for fine-tuning">
-        <FormRow>
-          <FormField label="Random Seed" hint="For reproducible results">
-            <input
-              type="number"
-              value={seed}
-              onChange={(e) => setSeed(e.target.value)}
-              placeholder="Optional"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
-            />
-          </FormField>
-        </FormRow>
-      </FormSection>
+      {/* Advanced Options - Collapsible */}
+      <div className="border border-slate-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+        >
+          <span className="text-sm font-medium text-slate-700">Advanced Options</span>
+          <span className={`material-symbols-outlined text-slate-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>
+            expand_more
+          </span>
+        </button>
+
+        {showAdvanced && (
+          <div className="p-4 space-y-4 border-t border-slate-200">
+            {/* RASA Conditioning */}
+            <div className="space-y-3">
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Binding Pocket (RASA)</p>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useBuried}
+                  onChange={(e) => setUseBuried(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-700"
+                />
+                <span className="text-sm text-slate-600">Buried atoms</span>
+                {useBuried && (
+                  <input
+                    type="text"
+                    value={buriedAtoms}
+                    onChange={(e) => setBuriedAtoms(e.target.value)}
+                    placeholder="ALL or atom names"
+                    className="flex-1 px-3 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                  />
+                )}
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useExposed}
+                  onChange={(e) => setUseExposed(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-700"
+                />
+                <span className="text-sm text-slate-600">Exposed atoms</span>
+                {useExposed && (
+                  <input
+                    type="text"
+                    value={exposedAtoms}
+                    onChange={(e) => setExposedAtoms(e.target.value)}
+                    placeholder="ALL or atom names"
+                    className="flex-1 px-3 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                  />
+                )}
+              </label>
+
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={usePartiallyBuried}
+                  onChange={(e) => setUsePartiallyBuried(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-700"
+                />
+                <span className="text-sm text-slate-600">Partially buried</span>
+                {usePartiallyBuried && (
+                  <input
+                    type="text"
+                    value={partiallyBuriedAtoms}
+                    onChange={(e) => setPartiallyBuriedAtoms(e.target.value)}
+                    placeholder="Atom names"
+                    className="flex-1 px-3 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                  />
+                )}
+              </label>
+            </div>
+
+            {/* Fixed Atoms */}
+            <div className="space-y-2">
+              <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Fixed Atoms</p>
+              <select
+                value={fixedAtomSelection}
+                onChange={(e) => setFixedAtomSelection(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm"
+              >
+                {ATOM_SELECTION_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label} - {opt.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Coordinating Residues */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useUnindex}
+                  onChange={(e) => setUseUnindex(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-700"
+                />
+                <span className="text-sm text-slate-600">Coordinating residues (unindex)</span>
+              </label>
+              {useUnindex && (
+                <input
+                  type="text"
+                  value={unindexResidues}
+                  onChange={(e) => setUnindexResidues(e.target.value)}
+                  placeholder="e.g., A10,A15,A20"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
+                />
+              )}
+            </div>
+
+            {/* Other Options */}
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isNonLoopy}
+                  onChange={(e) => setIsNonLoopy(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-700"
+                />
+                <span className="text-sm text-slate-600">Non-loopy mode</span>
+              </label>
+
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-600">Seed:</span>
+                <input
+                  type="number"
+                  value={seed}
+                  onChange={(e) => setSeed(e.target.value)}
+                  placeholder="Random"
+                  className="w-24 px-2 py-1 rounded border border-slate-200 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Submit Button */}
       <div className="pt-4 border-t border-slate-200">
@@ -395,13 +579,13 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
           ) : (
             <>
               <span className="material-symbols-outlined">rocket_launch</span>
-              Design {numDesigns} {ligandCode || 'Ligand'} Binder{numDesigns > 1 ? 's' : ''}
+              Design {numDesigns} {currentLigand || 'Ligand'} Binder{numDesigns > 1 ? 's' : ''}
             </>
           )}
         </button>
         {!health && (
-          <p className="text-center text-sm text-amber-600 mt-2">
-            Backend service unavailable. Please check connection.
+          <p className="text-center text-sm text-slate-500 mt-2">
+            Backend service unavailable
           </p>
         )}
       </div>

@@ -49,18 +49,34 @@ export const SYMMETRY_OPTIONS = [
 ] as const;
 
 // Common ligands
+// Codes are from PDB Chemical Component Dictionary: https://www.rcsb.org/chemical-component
 export const COMMON_LIGANDS = [
+  // Nucleotides
   { id: 'ATP', label: 'ATP', category: 'Nucleotide' },
   { id: 'ADP', label: 'ADP', category: 'Nucleotide' },
   { id: 'GTP', label: 'GTP', category: 'Nucleotide' },
+  // Cofactors
   { id: 'NAD', label: 'NAD+', category: 'Cofactor' },
   { id: 'FAD', label: 'FAD', category: 'Cofactor' },
   { id: 'HEM', label: 'Heme', category: 'Cofactor' },
   { id: 'SAM', label: 'SAM', category: 'Cofactor' },
+  { id: 'PLP', label: 'PLP', category: 'Cofactor' },
+  // Common metals
   { id: 'ZN', label: 'Zinc', category: 'Metal' },
   { id: 'MG', label: 'Magnesium', category: 'Metal' },
   { id: 'CA', label: 'Calcium', category: 'Metal' },
   { id: 'FE', label: 'Iron', category: 'Metal' },
+  { id: 'MN', label: 'Manganese', category: 'Metal' },
+  { id: 'CO', label: 'Cobalt', category: 'Metal' },
+  { id: 'CU', label: 'Copper', category: 'Metal' },
+  { id: 'NI', label: 'Nickel', category: 'Metal' },
+  // Lanthanides (rare earth metals)
+  { id: 'LA', label: 'Lanthanum', category: 'Lanthanide' },
+  { id: 'GD', label: 'Gadolinium', category: 'Lanthanide' },
+  { id: 'EU', label: 'Europium', category: 'Lanthanide' },
+  { id: 'TB', label: 'Terbium', category: 'Lanthanide' },
+  { id: 'YB', label: 'Ytterbium', category: 'Lanthanide' },
+  { id: 'LU', label: 'Lutetium', category: 'Lanthanide' },
 ] as const;
 
 // Atom selection shortcuts

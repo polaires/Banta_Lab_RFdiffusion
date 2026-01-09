@@ -323,24 +323,25 @@ def run_rfd3_inference(
             if sym_id in ["T", "O", "I"]:
                 config_kwargs["low_memory_mode"] = True
 
+        # Handle PDB input - write to temp file and pass path via spec["input"]
+        temp_pdb_path = None
+        if pdb_content:
+            # Write PDB to temp file - RFD3 expects file path, not AtomArray
+            with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False, mode='w') as f:
+                f.write(pdb_content)
+                temp_pdb_path = f.name
+            spec["input"] = temp_pdb_path
+            print(f"[RFD3] Wrote input structure to {temp_pdb_path}")
+
         print(f"[RFD3] Spec: {json.dumps({k: str(v)[:100] for k, v in spec.items()}, indent=2)}")
         print(f"[RFD3] Config: {json.dumps({k: str(v)[:100] for k, v in config_kwargs.items()}, indent=2)}")
-
-        # Handle PDB input
-        input_atom_array = None
-        if pdb_content:
-            input_atom_array = pdb_to_atom_array(pdb_content)
-            print(f"[RFD3] Loaded input structure with {len(input_atom_array)} atoms")
 
         # Create config and run
         config = RFD3InferenceConfig(**config_kwargs)
         model = RFD3InferenceEngine(**config)
 
-        # Run inference
-        if input_atom_array is not None:
-            outputs_dict = model.run(inputs=input_atom_array, out_dir=None, n_batches=1)
-        else:
-            outputs_dict = model.run(inputs=None, out_dir=None, n_batches=1)
+        # Run inference - inputs are passed via spec["input"], not model.run()
+        outputs_dict = model.run(inputs=None, out_dir=None, n_batches=1)
 
         # Process outputs
         designs = []
@@ -365,6 +366,10 @@ def run_rfd3_inference(
                         except Exception as e:
                             print(f"[RFD3] Error converting output: {e}")
 
+        # Cleanup temp file
+        if temp_pdb_path and os.path.exists(temp_pdb_path):
+            os.unlink(temp_pdb_path)
+
         return {
             "status": "completed",
             "result": {
@@ -376,6 +381,9 @@ def run_rfd3_inference(
 
     except Exception as e:
         import traceback
+        # Cleanup temp file on error
+        if 'temp_pdb_path' in locals() and temp_pdb_path and os.path.exists(temp_pdb_path):
+            os.unlink(temp_pdb_path)
         return {
             "status": "failed",
             "error": str(e),

@@ -245,7 +245,7 @@ def run_rfd3_inference(
         if unindex:
             spec["unindex"] = unindex
 
-        # Symmetry configuration
+        # Symmetry configuration (symmetry ID goes in spec)
         if symmetry:
             sym_id = symmetry.get("id") if isinstance(symmetry, dict) else symmetry
             if sym_id:
@@ -257,54 +257,73 @@ def run_rfd3_inference(
                     if symmetry.get("is_unsym_motif"):
                         spec["is_unsym_motif"] = symmetry["is_unsym_motif"]
 
-        # Build config kwargs
+        # is_non_loopy goes in SPEC (not top-level)
+        if is_non_loopy is not None:
+            spec["is_non_loopy"] = is_non_loopy
+
+        # partial_t goes in SPEC (not top-level)
+        if partial_t is not None:
+            spec["partial_t"] = partial_t
+
+        # Hotspots -> select_hotspots in SPEC
+        if hotspots:
+            # Convert list to dict format: ["A15", "A20"] -> {"A15": "ALL", "A20": "ALL"}
+            spec["select_hotspots"] = {h: "ALL" for h in hotspots}
+
+        # Origin and strategy go in SPEC
+        if ori_token:
+            spec["ori_token"] = ori_token
+        if infer_ori_strategy:
+            spec["infer_ori_strategy"] = infer_ori_strategy
+
+        # RASA conditioning goes in SPEC
+        if select_buried:
+            spec["select_buried"] = select_buried
+        if select_exposed:
+            spec["select_exposed"] = select_exposed
+        if select_partially_buried:
+            spec["select_partially_buried"] = select_partially_buried
+
+        # Fixed atoms go in SPEC
+        if select_fixed_atoms:
+            spec["select_fixed_atoms"] = select_fixed_atoms
+
+        # H-bond conditioning goes in SPEC
+        if select_hbond_donor:
+            spec["select_hbond_donor"] = select_hbond_donor
+        if select_hbond_acceptor:
+            spec["select_hbond_acceptor"] = select_hbond_acceptor
+
+        # Build inference sampler config for DIFFUSION parameters ONLY
+        sampler_config: Dict[str, Any] = {}
+        if num_timesteps is not None:
+            sampler_config["num_timesteps"] = num_timesteps
+        if step_scale is not None:
+            sampler_config["step_scale"] = step_scale
+        if gamma_0 is not None:
+            sampler_config["gamma_0"] = gamma_0
+
+        # Symmetry requires special sampler kind
+        if symmetry:
+            sampler_config["kind"] = "symmetry"
+
+        # Build config kwargs - ONLY these top-level params are allowed!
         config_kwargs: Dict[str, Any] = {
             "specification": spec,
             "diffusion_batch_size": num_designs,
         }
 
-        # Quality settings
-        if num_timesteps is not None:
-            config_kwargs["num_timesteps"] = num_timesteps
-        if step_scale is not None:
-            config_kwargs["step_scale"] = step_scale
-        if gamma_0 is not None:
-            config_kwargs["gamma_0"] = gamma_0
-        if is_non_loopy is not None:
-            config_kwargs["is_non_loopy"] = is_non_loopy
+        # Add sampler config if any diffusion parameters were set
+        if sampler_config:
+            config_kwargs["inference_sampler"] = sampler_config
 
-        # Partial diffusion for refinement
-        if partial_t is not None:
-            config_kwargs["partial_t"] = partial_t
+        # High-order symmetry requires low memory mode
+        if symmetry:
+            sym_id = symmetry.get("id") if isinstance(symmetry, dict) else symmetry
+            if sym_id in ["T", "O", "I"]:
+                config_kwargs["low_memory_mode"] = True
 
-        # Hotspots for protein binder design
-        if hotspots:
-            config_kwargs["hotspots"] = hotspots
-        if infer_ori_strategy:
-            config_kwargs["infer_ori_strategy"] = infer_ori_strategy
-
-        # Origin token for nucleic acid binder
-        if ori_token:
-            config_kwargs["ori_token"] = ori_token
-
-        # RASA conditioning (select_buried, select_exposed, select_partially_buried)
-        if select_buried:
-            config_kwargs["select_buried"] = select_buried
-        if select_exposed:
-            config_kwargs["select_exposed"] = select_exposed
-        if select_partially_buried:
-            config_kwargs["select_partially_buried"] = select_partially_buried
-
-        # Fixed atoms
-        if select_fixed_atoms:
-            config_kwargs["select_fixed_atoms"] = select_fixed_atoms
-
-        # H-bond conditioning for nucleic acid binder
-        if select_hbond_donor:
-            config_kwargs["select_hbond_donor"] = select_hbond_donor
-        if select_hbond_acceptor:
-            config_kwargs["select_hbond_acceptor"] = select_hbond_acceptor
-
+        print(f"[RFD3] Spec: {json.dumps({k: str(v)[:100] for k, v in spec.items()}, indent=2)}")
         print(f"[RFD3] Config: {json.dumps({k: str(v)[:100] for k, v in config_kwargs.items()}, indent=2)}")
 
         # Handle PDB input

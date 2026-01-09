@@ -1,6 +1,7 @@
 'use client';
 
 import { useStore, TabId } from '@/lib/store';
+import { UserMenu } from './auth/UserMenu';
 
 const workflowSteps = [
   { id: 'task' as const, label: 'Design Task', step: 0 },
@@ -137,6 +138,11 @@ export function Header() {
               isConnected ? 'bg-emerald-500' : 'bg-red-500'
             }`} />
           </button>
+
+          <div className="h-4 w-px bg-slate-200 mx-1" />
+
+          {/* User menu */}
+          <UserMenu />
         </div>
       </div>
     </header>

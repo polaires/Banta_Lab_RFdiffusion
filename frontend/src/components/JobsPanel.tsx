@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
+import { getJobs as getJobsFromSupabase, deleteJob as deleteJobFromSupabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const statusConfig: Record<string, { icon: string; color: string; bg: string; label: string; animate?: boolean }> = {
   pending: { icon: 'schedule', color: 'text-amber-500', bg: 'bg-amber-50', label: 'Pending' },
@@ -17,7 +19,43 @@ const typeConfig = {
 };
 
 export function JobsPanel() {
-  const { jobs, removeJob, setSelectedPdb } = useStore();
+  const { jobs, removeJob, setSelectedPdb, addJob, updateJob } = useStore();
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // Load job history from Supabase on mount
+  useEffect(() => {
+    if (historyLoaded || !isSupabaseConfigured()) return;
+
+    const loadHistory = async () => {
+      setLoadingHistory(true);
+      try {
+        const supabaseJobs = await getJobsFromSupabase({ limit: 50 });
+
+        // Merge with existing jobs (avoid duplicates)
+        const existingIds = new Set(jobs.map(j => j.id));
+        for (const sj of supabaseJobs) {
+          if (!existingIds.has(sj.runpod_id)) {
+            addJob({
+              id: sj.runpod_id,
+              type: sj.type,
+              status: sj.status,
+              createdAt: sj.created_at,
+              completedAt: sj.completed_at || undefined,
+              result: sj.result || undefined,
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[JobsPanel] Failed to load history:', err);
+      } finally {
+        setLoadingHistory(false);
+        setHistoryLoaded(true);
+      }
+    };
+
+    loadHistory();
+  }, [historyLoaded, jobs, addJob]);
 
   const handleDelete = async (jobId: string) => {
     try {
@@ -25,6 +63,8 @@ export function JobsPanel() {
     } catch {
       // Job might not exist on backend, that's ok
     }
+    // Also delete from Supabase
+    await deleteJobFromSupabase(jobId);
     removeJob(jobId);
   };
 
@@ -35,6 +75,17 @@ export function JobsPanel() {
       setSelectedPdb(job.result.predictions[0].content);
     }
   };
+
+  if (loadingHistory) {
+    return (
+      <div className="text-center py-16">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+          <span className="material-symbols-outlined text-3xl text-slate-400 animate-spin">progress_activity</span>
+        </div>
+        <p className="text-slate-500 font-medium">Loading job history...</p>
+      </div>
+    );
+  }
 
   if (jobs.length === 0) {
     return (

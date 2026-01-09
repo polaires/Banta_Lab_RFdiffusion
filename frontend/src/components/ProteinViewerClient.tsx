@@ -7,9 +7,10 @@ interface ProteinViewerClientProps {
   className?: string;
 }
 
-// Track initialization globally to handle StrictMode
+// Global state for Molstar plugin - persists across component remounts
 let globalPlugin: any = null;
 let globalInitPromise: Promise<any> | null = null;
+let globalContainer: HTMLDivElement | null = null;
 
 export function ProteinViewerClient({ pdbContent, className = '' }: ProteinViewerClientProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -17,98 +18,99 @@ export function ProteinViewerClient({ pdbContent, className = '' }: ProteinViewe
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
 
-  // Initialize on mount
+  // Initialize Molstar on mount
   useEffect(() => {
-    let mounted = true;
+    const container = containerRef.current;
+    if (!container) return;
 
-    const initPlugin = async () => {
-      if (!containerRef.current) return;
-
-      // If already initialized, reuse the plugin
-      if (globalPlugin) {
-        console.log('[ProteinViewer] Reusing existing plugin');
-        setIsReady(true);
-        return;
-      }
-
-      // If already initializing, wait for that to complete
-      if (globalInitPromise) {
-        console.log('[ProteinViewer] Waiting for existing initialization...');
-        try {
-          await globalInitPromise;
-          if (mounted && globalPlugin) {
-            setIsReady(true);
-          }
-        } catch (err) {
-          if (mounted) {
-            setError('Failed to initialize 3D viewer');
+    // If plugin already exists and initialized, just mark ready
+    if (globalPlugin) {
+      console.log('[ProteinViewer] Reusing existing plugin');
+      // Re-attach plugin to new container if needed
+      if (globalContainer !== container) {
+        console.log('[ProteinViewer] Re-attaching to new container');
+        // Move the canvas to the new container
+        if (globalContainer && globalContainer.firstChild) {
+          container.innerHTML = '';
+          while (globalContainer.firstChild) {
+            container.appendChild(globalContainer.firstChild);
           }
         }
-        return;
+        globalContainer = container;
       }
+      setIsReady(true);
+      return;
+    }
 
-      console.log('[ProteinViewer] Starting Molstar initialization...');
-
-      globalInitPromise = (async () => {
-        try {
-          // Dynamic imports to avoid bundler issues
-          const molstarUI = await import('molstar/lib/mol-plugin-ui');
-          const molstarReact = await import('molstar/lib/mol-plugin-ui/react18');
-          const molstarSpec = await import('molstar/lib/mol-plugin-ui/spec');
-
-          if (!containerRef.current || !mounted) {
-            console.log('[ProteinViewer] Aborted - unmounted');
-            return null;
-          }
-
-          // Clear any existing content
-          containerRef.current.innerHTML = '';
-
-          console.log('[ProteinViewer] Creating plugin UI...');
-          const plugin = await molstarUI.createPluginUI({
-            target: containerRef.current,
-            render: molstarReact.renderReact18,
-            spec: {
-              ...molstarSpec.DefaultPluginUISpec(),
-              layout: {
-                initial: {
-                  isExpanded: false,
-                  showControls: false,
-                  controlsDisplay: 'reactive' as const,
-                },
-              },
-            },
-          });
-
-          console.log('[ProteinViewer] Plugin created successfully');
-          globalPlugin = plugin;
-          return plugin;
-        } catch (err) {
-          console.error('[ProteinViewer] Failed to initialize Molstar:', err);
-          throw err;
-        }
-      })();
-
-      try {
-        const plugin = await globalInitPromise;
-        if (plugin && mounted) {
+    // If already initializing, wait for completion
+    if (globalInitPromise) {
+      console.log('[ProteinViewer] Waiting for existing initialization...');
+      globalInitPromise.then(() => {
+        if (globalPlugin) {
+          globalContainer = container;
           setIsReady(true);
         }
-      } catch (err) {
-        if (mounted) {
-          setError('Failed to initialize 3D viewer');
+      }).catch(() => {
+        setError('Failed to initialize 3D viewer');
+      });
+      return;
+    }
+
+    console.log('[ProteinViewer] Starting Molstar initialization...');
+    globalContainer = container;
+
+    globalInitPromise = (async () => {
+      try {
+        // Dynamic imports
+        const molstarUI = await import('molstar/lib/mol-plugin-ui');
+        const molstarReact = await import('molstar/lib/mol-plugin-ui/react18');
+        const molstarSpec = await import('molstar/lib/mol-plugin-ui/spec');
+
+        // Use the stored global container
+        if (!globalContainer) {
+          console.log('[ProteinViewer] No container available');
+          return null;
         }
+
+        // Clear container
+        globalContainer.innerHTML = '';
+
+        console.log('[ProteinViewer] Creating plugin UI...');
+        const plugin = await molstarUI.createPluginUI({
+          target: globalContainer,
+          render: molstarReact.renderReact18,
+          spec: {
+            ...molstarSpec.DefaultPluginUISpec(),
+            layout: {
+              initial: {
+                isExpanded: false,
+                showControls: false,
+                controlsDisplay: 'reactive' as const,
+              },
+            },
+          },
+        });
+
+        console.log('[ProteinViewer] Plugin created successfully');
+        globalPlugin = plugin;
+        return plugin;
+      } catch (err) {
+        console.error('[ProteinViewer] Failed to initialize Molstar:', err);
+        globalInitPromise = null; // Allow retry
+        throw err;
       }
-    };
+    })();
 
-    initPlugin();
-
-    return () => {
-      mounted = false;
-    };
+    globalInitPromise.then((plugin) => {
+      if (plugin) {
+        setIsReady(true);
+      }
+    }).catch(() => {
+      setError('Failed to initialize 3D viewer');
+    });
   }, []);
 
-  // Load structure content when it changes
+  // Load structure when pdbContent changes
   useEffect(() => {
     if (!pdbContent || !globalPlugin || !isReady) return;
 
@@ -120,7 +122,6 @@ export function ProteinViewerClient({ pdbContent, className = '' }: ProteinViewe
         console.log('[ProteinViewer] Clearing existing structures...');
         await globalPlugin.clear();
 
-        // Detect format: CIF files start with "data_", PDB files start with HEADER/ATOM/etc
         const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
         const extension = isCif ? 'cif' : 'pdb';
@@ -152,8 +153,16 @@ export function ProteinViewerClient({ pdbContent, className = '' }: ProteinViewe
     <div className={`relative bg-gray-100 rounded-lg overflow-hidden ${className}`}>
       <div ref={containerRef} className="w-full h-full" style={{ minHeight: '300px' }} />
 
-      {/* No structure placeholder */}
-      {!pdbContent && !error && (
+      {!pdbContent && !error && !isReady && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 pointer-events-none">
+          <div className="flex items-center gap-2 text-gray-600">
+            <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+            Initializing viewer...
+          </div>
+        </div>
+      )}
+
+      {!pdbContent && !error && isReady && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100 pointer-events-none">
           <p className="text-gray-500">No structure to display</p>
         </div>
@@ -180,8 +189,7 @@ export function ProteinViewerClient({ pdbContent, className = '' }: ProteinViewe
         </div>
       )}
 
-      {/* Viewer controls hint */}
-      {pdbContent && !error && (
+      {pdbContent && !error && isReady && (
         <div className="absolute bottom-2 left-2 text-xs text-gray-600 bg-white/70 px-2 py-1 rounded pointer-events-none">
           Drag to rotate • Scroll to zoom • Shift+drag to pan
         </div>

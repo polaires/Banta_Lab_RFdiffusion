@@ -89,17 +89,17 @@ export async function saveJob(job: {
   try {
     const { data, error } = await client
       .from('jobs')
-      .insert({
+      .upsert({
         runpod_id: job.runpod_id,
         type: job.type,
         status: 'pending',
         request: job.request || null,
-      })
+      }, { onConflict: 'runpod_id' })
       .select()
       .single();
 
     if (error) {
-      console.error('[Supabase] Error saving job:', error);
+      console.error('[Supabase] Error saving job:', error.message, error.code, error.details, error.hint);
       return null;
     }
 
@@ -129,7 +129,7 @@ export async function updateJob(
       .single();
 
     if (error) {
-      console.error('[Supabase] Error updating job:', error);
+      console.error('[Supabase] Error updating job:', error.message, error.code, error.details, error.hint);
       return null;
     }
 

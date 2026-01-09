@@ -1,0 +1,44 @@
+# Local Docker Testing for RFdiffusion Serverless
+#
+# Prerequisites:
+#   1. Docker Desktop with WSL2 backend
+#   2. NVIDIA GPU drivers installed
+#   3. NVIDIA Container Toolkit (nvidia-docker2)
+#
+# Usage:
+#   docker-compose -f docker-compose.local.yml up --build
+#
+# Test with:
+#   curl http://localhost:8000/runsync -X POST -H "Content-Type: application/json" \
+#     -d '{"input": {"task": "health"}}'
+
+services:
+  rfdiffusion:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount local checkpoints directory (create this folder and download checkpoints)
+      - ./checkpoints:/runpod-volume/checkpoints
+      # Mount source code for live editing (optional - comment out for production testing)
+      - ./handler.py:/app/handler.py
+      - ./inference_utils.py:/app/inference_utils.py
+    environment:
+      - CHECKPOINT_DIR=/runpod-volume/checkpoints
+      - FOUNDRY_CHECKPOINT_DIRS=/runpod-volume/checkpoints
+      - PYTHONUNBUFFERED=1
+    # Override command to start local API server
+    command: ["python", "-u", "handler.py", "--rp_serve_api", "--rp_api_host", "0.0.0.0"]
+    # GPU access - requires nvidia-docker2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # Keep container running for debugging
+    stdin_open: true
+    tty: true

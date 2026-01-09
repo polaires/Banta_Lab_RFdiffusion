@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { ContigBuilder } from './ContigBuilder';
+import { ErrorDetails } from './ErrorDetails';
 import { saveJob as saveJobToSupabase, updateJob as updateJobInSupabase } from '@/lib/supabase';
 
 const EXAMPLE_CONFIGS = {
@@ -113,7 +114,12 @@ export function RFD3Panel() {
   const [contig, setContig] = useState('100');
   const [numDesigns, setNumDesigns] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{
+    message: string;
+    errorType?: string;
+    traceback?: string;
+    context?: Record<string, any>;
+  } | null>(null);
   const [showBuilder, setShowBuilder] = useState(false);
   const [seed, setSeed] = useState<number | null>(null);
   const [useSeed, setUseSeed] = useState(false);
@@ -254,7 +260,7 @@ export function RFD3Panel() {
 
   const handleSubmit = async () => {
     if (!health) {
-      setError('Backend not connected');
+      setError({ message: 'Backend not connected' });
       return;
     }
 
@@ -336,12 +342,15 @@ export function RFD3Panel() {
       });
 
       const result = await api.waitForJob(response.job_id, (status) => {
-        // Update local store
+        // Update local store with full error details
         updateJob(response.job_id, {
           status: status.status,
           completedAt: status.completed_at,
           result: status.result,
           error: status.error,
+          errorType: status.error_type,
+          traceback: status.traceback,
+          errorContext: status.context,
         });
         // Update Supabase (async, non-blocking)
         updateJobInSupabase(response.job_id, {
@@ -382,6 +391,13 @@ export function RFD3Panel() {
           },
         });
       } else if (result.status === 'failed') {
+        // Set detailed error for display
+        setError({
+          message: result.error || 'Unknown error occurred',
+          errorType: result.error_type,
+          traceback: result.traceback,
+          context: result.context,
+        });
         addNotification({
           type: 'error',
           title: 'Design failed',
@@ -389,7 +405,7 @@ export function RFD3Panel() {
         });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit job');
+      setError({ message: err instanceof Error ? err.message : 'Failed to submit job' });
       addNotification({
         type: 'error',
         title: 'Submission failed',
@@ -1100,10 +1116,12 @@ export function RFD3Panel() {
 
       {/* Error display */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
-          <span className="material-symbols-outlined text-red-500">error</span>
-          {error}
-        </div>
+        <ErrorDetails
+          error={error.message}
+          errorType={error.errorType}
+          traceback={error.traceback}
+          context={error.context}
+        />
       )}
 
       {/* Submit button */}

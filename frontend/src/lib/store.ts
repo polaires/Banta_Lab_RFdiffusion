@@ -7,6 +7,20 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult } from './api';
 
+interface ErrorContext {
+  task?: string;
+  input_keys?: string[];
+  gpu_info?: {
+    available?: boolean;
+    name?: string;
+    memory_gb?: number;
+  };
+  gpu_memory_used_mb?: number;
+  gpu_memory_total_mb?: number;
+  foundry_available?: boolean;
+  checkpoint_dir?: string;
+}
+
 interface Job {
   id: string;
   type: 'rfd3' | 'rf3' | 'mpnn';
@@ -15,6 +29,9 @@ interface Job {
   completedAt?: string;
   result?: JobStatus['result'];
   error?: string;
+  errorType?: string;
+  traceback?: string;
+  errorContext?: ErrorContext;
 }
 
 // Notification types for workflow guidance

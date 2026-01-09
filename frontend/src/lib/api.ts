@@ -131,6 +131,20 @@ export interface DesignOutput {
   cif_content?: string;  // CIF format output
 }
 
+export interface ErrorContext {
+  task?: string;
+  input_keys?: string[];
+  gpu_info?: {
+    available?: boolean;
+    name?: string;
+    memory_gb?: number;
+  };
+  gpu_memory_used_mb?: number;
+  gpu_memory_total_mb?: number;
+  foundry_available?: boolean;
+  checkpoint_dir?: string;
+}
+
 export interface JobStatus {
   job_id: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
@@ -147,6 +161,9 @@ export interface JobStatus {
     stdout?: string;
   };
   error?: string;
+  error_type?: string;
+  traceback?: string;
+  context?: ErrorContext;
 }
 
 export interface ModelStatus {

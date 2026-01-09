@@ -142,10 +142,36 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         print(f"[Handler] Error: {e}")
         traceback.print_exc()
+
+        # Collect detailed error context
+        error_context = {
+            "task": task,
+            "input_keys": list(job_input.keys()) if job_input else [],
+            "gpu_info": GPU_INFO,
+            "foundry_available": FOUNDRY_AVAILABLE,
+            "checkpoint_dir": CHECKPOINT_DIR,
+        }
+
+        # Try to get GPU memory status
+        try:
+            import subprocess
+            mem_result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5
+            )
+            if mem_result.returncode == 0:
+                parts = mem_result.stdout.strip().split(", ")
+                error_context["gpu_memory_used_mb"] = int(parts[0]) if parts else None
+                error_context["gpu_memory_total_mb"] = int(parts[1]) if len(parts) > 1 else None
+        except Exception:
+            pass
+
         return {
             "status": "failed",
             "error": str(e),
-            "traceback": traceback.format_exc()
+            "error_type": type(e).__name__,
+            "traceback": traceback.format_exc(),
+            "context": error_context
         }
 
 

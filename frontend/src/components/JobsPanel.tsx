@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { getJobs as getJobsFromSupabase, deleteJob as deleteJobFromSupabase, isSupabaseConfigured } from '@/lib/supabase';
+import { ErrorDetails } from './ErrorDetails';
 
 const statusConfig: Record<string, { icon: string; color: string; bg: string; label: string; animate?: boolean }> = {
   pending: { icon: 'schedule', color: 'text-amber-500', bg: 'bg-amber-50', label: 'Pending' },
@@ -115,62 +116,76 @@ export function JobsPanel() {
         {jobs.map((job) => {
           const status = statusConfig[job.status];
           const type = typeConfig[job.type];
+          const hasFailed = job.status === 'failed' && job.error;
 
           return (
             <div
               key={job.id}
-              className="flex items-center gap-4 p-4 bg-slate-50 hover:bg-slate-100 rounded-xl transition-colors"
+              className={`rounded-xl transition-colors overflow-hidden ${
+                hasFailed ? 'bg-red-50 border border-red-200' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
             >
-              {/* Status Icon */}
-              <div className={`w-10 h-10 rounded-xl ${status.bg} flex items-center justify-center flex-shrink-0`}>
-                <span className={`material-symbols-outlined ${status.color} ${status.animate ? 'animate-spin' : ''}`}>
-                  {status.icon}
+              <div className="flex items-center gap-4 p-4">
+                {/* Status Icon */}
+                <div className={`w-10 h-10 rounded-xl ${status.bg} flex items-center justify-center flex-shrink-0`}>
+                  <span className={`material-symbols-outlined ${status.color} ${status.animate ? 'animate-spin' : ''}`}>
+                    {status.icon}
+                  </span>
+                </div>
+
+                {/* Type Badge */}
+                <span className={`px-2.5 py-1 text-xs font-semibold text-white rounded-lg ${type.color}`}>
+                  {type.label}
                 </span>
-              </div>
 
-              {/* Type Badge */}
-              <span className={`px-2.5 py-1 text-xs font-semibold text-white rounded-lg ${type.color}`}>
-                {type.label}
-              </span>
+                {/* ID and Time */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-mono text-slate-700 truncate" title={job.id}>
+                    {job.id.slice(0, 8)}...
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {new Date(job.createdAt).toLocaleString()}
+                  </p>
+                </div>
 
-              {/* ID and Time */}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-mono text-slate-700 truncate" title={job.id}>
-                  {job.id.slice(0, 8)}...
-                </p>
-                <p className="text-xs text-slate-500">
-                  {new Date(job.createdAt).toLocaleString()}
-                </p>
-              </div>
+                {/* Status Badge */}
+                <div className={`px-3 py-1 rounded-lg text-xs font-medium ${status.bg} ${status.color}`}>
+                  {status.label}
+                </div>
 
-              {/* Status Badge */}
-              <div className={`px-3 py-1 rounded-lg text-xs font-medium ${status.bg} ${status.color}`}>
-                {job.status === 'failed' && job.error ? (
-                  <span title={job.error}>{status.label}</span>
-                ) : (
-                  status.label
-                )}
-              </div>
-
-              {/* Actions */}
-              <div className="flex gap-1">
-                {job.status === 'completed' && job.result && (
+                {/* Actions */}
+                <div className="flex gap-1">
+                  {job.status === 'completed' && job.result && (
+                    <button
+                      onClick={() => handleView(job)}
+                      className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-blue-600"
+                      title="View result"
+                    >
+                      <span className="material-symbols-outlined text-xl">visibility</span>
+                    </button>
+                  )}
                   <button
-                    onClick={() => handleView(job)}
-                    className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-blue-600"
-                    title="View result"
+                    onClick={() => handleDelete(job.id)}
+                    className="p-2 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-red-500"
+                    title="Delete job"
                   >
-                    <span className="material-symbols-outlined text-xl">visibility</span>
+                    <span className="material-symbols-outlined text-xl">delete</span>
                   </button>
-                )}
-                <button
-                  onClick={() => handleDelete(job.id)}
-                  className="p-2 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-red-500"
-                  title="Delete job"
-                >
-                  <span className="material-symbols-outlined text-xl">delete</span>
-                </button>
+                </div>
               </div>
+
+              {/* Error Details for Failed Jobs */}
+              {hasFailed && (
+                <div className="px-4 pb-4">
+                  <ErrorDetails
+                    error={job.error || 'Unknown error'}
+                    errorType={job.errorType}
+                    traceback={job.traceback}
+                    context={job.errorContext}
+                    compact
+                  />
+                </div>
+              )}
             </div>
           );
         })}

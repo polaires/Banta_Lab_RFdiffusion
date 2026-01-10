@@ -39,6 +39,19 @@ from binding_analysis import (
     smiles_to_sdf,
     check_steric_clashes,
     validate_binding_comprehensive,
+    to_python_types,
+)
+
+# Import cleavage utilities for cleavable monomer algorithm
+from cleavage_utils import (
+    find_cleavage_sites,
+    score_cleavage_site,
+    select_best_cleavage_site,
+    cleave_protein,
+    validate_cleaved_dimer,
+    create_homo_dimer,
+    CleavageSite,
+    CleavageResult,
 )
 
 # ============== Configuration ==============
@@ -161,10 +174,13 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Binding evaluation
         elif task == "binding_eval":
             return handle_binding_eval(job_input)
+        # Cleavable monomer algorithm
+        elif task == "cleavable_monomer":
+            return handle_cleavable_monomer(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -518,6 +534,273 @@ def handle_binding_eval(job_input: Dict[str, Any]) -> Dict[str, Any]:
     # Convert numpy types to native Python types for JSON serialization
     from binding_analysis import to_python_types
     return to_python_types(result)
+
+
+# ============== Cleavable Monomer Handler ==============
+
+def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Execute the Cleavable Monomer Algorithm for interface ligand design.
+
+    This algorithm achieves stronger ligand binding at dimer interfaces by:
+    1. Designing a monomer with ligand fully BURIED in center
+    2. Finding loop regions where backbone crosses near the ligand
+    3. Cleaving at optimal site to create dimer with ligand at interface
+    4. Validating the resulting dimer (contacts, clashes, affinity)
+    5. (Optional) Creating homo-dimer via C2 symmetry
+
+    Input:
+        ligand_smiles: str (required) - SMILES string for the ligand
+        target_length: str (default: "80-100") - Chain length range for RFD3
+        num_designs: int (default: 3) - Number of monomer designs to try
+        cleavage_strategy: str (default: "balanced") - "balanced", "symmetric", "central"
+        create_homo_dimer: bool (default: False) - Apply C2 symmetry to create homo-dimer
+        min_chain_length: int (default: 25) - Minimum residues per chain after cleavage
+        min_contacts_per_chain: int (default: 3) - Minimum ligand contacts per chain
+        seed: int (optional) - Random seed for RFD3
+
+        # Advanced options
+        distance_range: [min, max] (default: [4.0, 12.0]) - Cleavage site distance range
+        contact_cutoff: float (default: 5.0) - Contact distance cutoff
+        remove_loop: bool (default: True) - Remove loop residues at cleavage site
+        loop_window: int (default: 3) - Loop residues to remove on each side
+
+    Returns:
+        {
+            "status": "completed" | "failed",
+            "result": {
+                "dimer": {
+                    "pdb_content": str,
+                    "chain_a_length": int,
+                    "chain_b_length": int,
+                    "residues_removed": int
+                },
+                "validation": {
+                    "contacts": {...},
+                    "clashes": {...},
+                    "gnina": {...}  # if available
+                },
+                "cleavage_site": {
+                    "residue_id": int,
+                    "distance_to_ligand": float,
+                    "score": float,
+                    ...
+                },
+                "monomer": {
+                    "pdb_content": str,
+                    "design_index": int
+                },
+                "homo_dimer": {...}  # if create_homo_dimer=True
+            }
+        }
+    """
+    # Extract parameters
+    ligand_smiles = job_input.get("ligand_smiles")
+    if not ligand_smiles:
+        return {"status": "failed", "error": "Missing 'ligand_smiles' parameter"}
+
+    target_length = job_input.get("target_length", "80-100")
+    num_designs = job_input.get("num_designs", 3)
+    cleavage_strategy = job_input.get("cleavage_strategy", "balanced")
+    create_homo = job_input.get("create_homo_dimer", False)
+    min_chain_length = job_input.get("min_chain_length", 25)
+    min_contacts_per_chain = job_input.get("min_contacts_per_chain", 3)
+    seed = job_input.get("seed")
+
+    # Advanced options
+    distance_range = job_input.get("distance_range", [4.0, 12.0])
+    contact_cutoff = job_input.get("contact_cutoff", 5.0)
+    remove_loop = job_input.get("remove_loop", True)
+    loop_window = job_input.get("loop_window", 3)
+
+    print(f"[CleavableMonomer] Starting with ligand_smiles={ligand_smiles[:30]}...")
+    print(f"[CleavableMonomer] target_length={target_length}, num_designs={num_designs}")
+
+    # Step 1: Generate monomers with buried ligand
+    monomer_results = []
+    best_result = None
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[CleavableMonomer] Generating monomer {design_idx + 1}/{num_designs}...")
+
+        # Call RFD3 with buried ligand
+        rfd3_input = {
+            "task": "rfd3",
+            "length": target_length,
+            "ligand_smiles": ligand_smiles,
+            "select_buried": {"UNL": "ALL"},  # Bury entire ligand
+            "seed": design_seed,
+            "num_designs": 1,
+            "is_non_loopy": False,  # Allow loops for cleavage
+        }
+
+        rfd3_result = handle_rfd3(rfd3_input)
+
+        if rfd3_result.get("status") != "completed":
+            print(f"[CleavableMonomer] Design {design_idx + 1} failed: {rfd3_result.get('error')}")
+            continue
+
+        designs = rfd3_result.get("result", {}).get("designs", [])
+        if not designs:
+            print(f"[CleavableMonomer] Design {design_idx + 1} produced no designs")
+            continue
+
+        monomer_pdb = designs[0].get("pdb_content")
+        if not monomer_pdb:
+            continue
+
+        print(f"[CleavableMonomer] Design {design_idx + 1} generated, finding cleavage sites...")
+
+        # Step 2: Find cleavage sites
+        sites = find_cleavage_sites(
+            pdb_content=monomer_pdb,
+            ligand_name="UNL",
+            min_chain_length=min_chain_length,
+            distance_range=tuple(distance_range),
+            min_contacts_per_chain=min_contacts_per_chain,
+            contact_cutoff=contact_cutoff,
+        )
+
+        if not sites:
+            print(f"[CleavableMonomer] Design {design_idx + 1}: No valid cleavage sites found")
+            monomer_results.append({
+                "design_index": design_idx,
+                "pdb_content": monomer_pdb,
+                "cleavage_sites": 0,
+                "error": "No valid cleavage sites found"
+            })
+            continue
+
+        print(f"[CleavableMonomer] Design {design_idx + 1}: Found {len(sites)} cleavage sites")
+
+        # Step 3: Score and select best site
+        for site in sites:
+            score_cleavage_site(site)
+
+        best_site = select_best_cleavage_site(sites, strategy=cleavage_strategy)
+        print(f"[CleavableMonomer] Best site: residue {best_site.residue_id}, score={best_site.score:.2f}")
+
+        # Step 4: Cleave protein
+        cleavage_result = cleave_protein(
+            pdb_content=monomer_pdb,
+            cleavage_site=best_site,
+            remove_loop=remove_loop,
+            loop_window=loop_window,
+        )
+
+        # Step 5: Validate cleaved dimer
+        validation = validate_cleaved_dimer(
+            pdb_content=cleavage_result.dimer_pdb,
+            ligand_name="UNL",
+            ligand_smiles=ligand_smiles,
+            min_contacts=min_contacts_per_chain,
+        )
+
+        result_entry = {
+            "design_index": design_idx,
+            "monomer_pdb": monomer_pdb,
+            "dimer_pdb": cleavage_result.dimer_pdb,
+            "cleavage_site": {
+                "residue_id": best_site.residue_id,
+                "residue_name": best_site.residue_name,
+                "distance_to_ligand": best_site.distance_to_ligand,
+                "secondary_structure": best_site.secondary_structure,
+                "contacts_chain_a": best_site.contacts_chain_a,
+                "contacts_chain_b": best_site.contacts_chain_b,
+                "chain_a_length": best_site.chain_a_length,
+                "chain_b_length": best_site.chain_b_length,
+                "score": best_site.score,
+            },
+            "cleavage_result": {
+                "chain_a_length": cleavage_result.chain_a_length,
+                "chain_b_length": cleavage_result.chain_b_length,
+                "loop_start": cleavage_result.loop_start,
+                "loop_end": cleavage_result.loop_end,
+                "residues_removed": cleavage_result.residues_removed,
+            },
+            "validation": validation,
+        }
+
+        # Compute overall score for ranking
+        overall_score = best_site.score
+        if validation.get("is_valid"):
+            overall_score += 10  # Bonus for valid dimer
+            if validation.get("gnina") and validation["gnina"].get("affinity"):
+                # Better (more negative) affinity = higher score
+                overall_score -= validation["gnina"]["affinity"]
+
+        result_entry["overall_score"] = overall_score
+        monomer_results.append(result_entry)
+
+        if overall_score > best_score:
+            best_score = overall_score
+            best_result = result_entry
+
+        print(f"[CleavableMonomer] Design {design_idx + 1}: overall_score={overall_score:.2f}, valid={validation.get('is_valid')}")
+
+    # Check if any design succeeded
+    if best_result is None:
+        # Return diagnostics
+        return {
+            "status": "failed",
+            "error": "No valid cleavage found in any design",
+            "diagnostics": {
+                "num_designs_tried": num_designs,
+                "results": monomer_results,
+                "suggestions": [
+                    "Try longer chains (100-140 residues)",
+                    "Set 'is_non_loopy: false' to encourage more loops",
+                    "Generate more designs (num_designs: 5-10)",
+                    "Reduce min_contacts_per_chain to 2",
+                ]
+            }
+        }
+
+    # Step 6 (Optional): Create homo-dimer
+    homo_dimer_result = None
+    if create_homo:
+        print("[CleavableMonomer] Creating homo-dimer with C2 symmetry...")
+        homo_dimer_result = create_homo_dimer(
+            pdb_content=best_result["dimer_pdb"],
+            ligand_name="UNL",
+        )
+
+    # Build final result
+    final_result = {
+        "status": "completed",
+        "result": {
+            "dimer": {
+                "pdb_content": best_result["dimer_pdb"],
+                "chain_a_length": best_result["cleavage_result"]["chain_a_length"],
+                "chain_b_length": best_result["cleavage_result"]["chain_b_length"],
+                "residues_removed": best_result["cleavage_result"]["residues_removed"],
+            },
+            "validation": best_result["validation"],
+            "cleavage_site": best_result["cleavage_site"],
+            "monomer": {
+                "pdb_content": best_result["monomer_pdb"],
+                "design_index": best_result["design_index"],
+            },
+            "all_results": [
+                {
+                    "design_index": r["design_index"],
+                    "overall_score": r.get("overall_score", 0),
+                    "cleavage_site": r.get("cleavage_site"),
+                    "validation": r.get("validation"),
+                }
+                for r in monomer_results
+                if "dimer_pdb" in r
+            ],
+        }
+    }
+
+    if homo_dimer_result:
+        final_result["result"]["homo_dimer"] = homo_dimer_result
+
+    # Convert numpy types for JSON serialization
+    return to_python_types(final_result)
 
 
 # ============== ESM3 Handlers ==============

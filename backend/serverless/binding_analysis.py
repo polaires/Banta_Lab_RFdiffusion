@@ -1141,6 +1141,157 @@ def validate_interface_ligand(
         }
 
 
+# ============== Cleavable Monomer Helpers ==============
+
+def count_ligand_contacts_by_residue(
+    pdb_content: str,
+    ligand_name: str = "UNL",
+    cutoff: float = 5.0,
+) -> Dict[int, int]:
+    """
+    Count ligand contacts for each protein residue.
+
+    Used by cleavable monomer algorithm to determine which residues
+    contact the ligand and how cleaving at different points would
+    distribute contacts between the resulting chains.
+
+    Args:
+        pdb_content: PDB file content as string
+        ligand_name: Ligand residue name (default "UNL")
+        cutoff: Contact distance cutoff in Angstroms (default 5.0)
+
+    Returns:
+        Dict mapping residue_number -> contact_count
+        Empty dict if parsing fails.
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get ligand atoms
+        ligand_mask = structure.res_name == ligand_name
+        ligand_atoms = structure[ligand_mask]
+
+        if len(ligand_atoms) == 0:
+            return {}
+
+        ligand_coords = ligand_atoms.coord
+
+        # Get protein atoms (non-HETATM)
+        protein_mask = ~structure.hetero
+        protein_atoms = structure[protein_mask]
+
+        if len(protein_atoms) == 0:
+            return {}
+
+        # Count contacts per residue
+        contacts = {}
+        for i in range(len(protein_atoms)):
+            res_id = int(protein_atoms.res_id[i])
+            pos = protein_atoms.coord[i]
+
+            # Check distance to any ligand atom
+            for lig_pos in ligand_coords:
+                dist = np.sqrt(np.sum((pos - lig_pos) ** 2))
+                if dist < cutoff:
+                    contacts[res_id] = contacts.get(res_id, 0) + 1
+                    break  # Count residue once per ligand atom contact
+
+        return contacts
+
+    except Exception as e:
+        print(f"[BindingAnalysis] Error counting contacts by residue: {e}")
+        return {}
+
+
+def get_ligand_centroid(
+    pdb_content: str,
+    ligand_name: str = "UNL"
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Get the centroid (center of mass) of the ligand.
+
+    Used by cleavable monomer algorithm to calculate distances
+    from residues to the ligand center.
+
+    Args:
+        pdb_content: PDB file content as string
+        ligand_name: Ligand residue name (default "UNL")
+
+    Returns:
+        (x, y, z) centroid coordinates, or None if ligand not found.
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get ligand atoms
+        ligand_mask = structure.res_name == ligand_name
+        ligand_atoms = structure[ligand_mask]
+
+        if len(ligand_atoms) == 0:
+            return None
+
+        # Calculate centroid
+        centroid = ligand_atoms.coord.mean(axis=0)
+        return tuple(float(x) for x in centroid)
+
+    except Exception as e:
+        print(f"[BindingAnalysis] Error getting ligand centroid: {e}")
+        return None
+
+
+def get_ca_positions(
+    pdb_content: str
+) -> List[Tuple[int, np.ndarray]]:
+    """
+    Get CA atom positions for all protein residues.
+
+    Used by cleavable monomer algorithm to calculate distances
+    from backbone to ligand.
+
+    Args:
+        pdb_content: PDB file content as string
+
+    Returns:
+        List of (residue_number, xyz_array) tuples sorted by residue number.
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get CA atoms from protein
+        ca_mask = (structure.atom_name == "CA") & (~structure.hetero)
+        ca_atoms = structure[ca_mask]
+
+        if len(ca_atoms) == 0:
+            return []
+
+        # Build list of (res_id, position)
+        positions = []
+        for i in range(len(ca_atoms)):
+            res_id = int(ca_atoms.res_id[i])
+            pos = ca_atoms.coord[i]
+            positions.append((res_id, pos))
+
+        # Sort by residue number
+        positions.sort(key=lambda x: x[0])
+        return positions
+
+    except Exception as e:
+        print(f"[BindingAnalysis] Error getting CA positions: {e}")
+        return []
+
+
 # ============== Quality Thresholds ==============
 
 BINDING_QUALITY_THRESHOLDS = {

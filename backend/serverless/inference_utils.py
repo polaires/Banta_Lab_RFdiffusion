@@ -219,6 +219,8 @@ def run_rfd3_inference(
     ligand: Optional[str] = None,
     ligand_smiles: Optional[str] = None,  # SMILES string for organic molecules
     ligand_sdf: Optional[str] = None,     # SDF content with 3D coordinates
+    ligand_center: Optional[Tuple[float, float, float]] = None,  # Center for SMILES-generated ligand
+    conformer_method: Optional[str] = None,  # "rdkit", "xtb", or "torsional"
     select_fixed_atoms: Optional[Dict[str, str]] = None,
     unindex: Optional[str] = None,
     # RASA conditioning (binding pocket design)
@@ -311,13 +313,50 @@ def run_rfd3_inference(
             spec["ligand"] = temp_ligand_path
             print(f"[RFD3] Using SDF ligand from temp file: {temp_ligand_path}")
         elif ligand_smiles:
-            # For SMILES-based ligand conditioning, we need to generate 3D coordinates
-            # and include the ligand in the input PDB, then reference by residue name
-            # Note: SMILES strings should NOT be passed directly to spec["ligand"]
-            # as RFD3 expects a residue code (e.g., "AZB", "LIG")
-            print(f"[RFD3] SMILES provided: {ligand_smiles}")
-            print(f"[RFD3] Note: Convert SMILES to 3D PDB and include in pdb_content,")
-            print(f"[RFD3]       then set 'ligand' parameter to the residue name.")
+            # Generate 3D conformer from SMILES and embed in input PDB
+            # Use L:XXX naming convention to avoid CCD conflicts (per RFD3 docs)
+            from conformer_utils import generate_conformer, ConformerMethod
+
+            # Determine conformer method
+            method = ConformerMethod.RDKIT
+            if conformer_method:
+                try:
+                    method = ConformerMethod(conformer_method.lower())
+                except ValueError:
+                    print(f"[RFD3] Unknown conformer method '{conformer_method}', using rdkit")
+
+            # Use provided center or default to origin
+            center = ligand_center or (0.0, 0.0, 0.0)
+
+            # Use L:X residue name pattern to avoid CCD conflicts
+            # RFD3 docs: "We suggest renaming all custom ligands to begin with L: to avoid all clashes with the CCD"
+            ligand_res_name = "UNL"  # "Unknown Ligand" - a valid 3-char code
+
+            print(f"[RFD3] Generating 3D structure from SMILES using {method.value} method...")
+            ligand_pdb = generate_conformer(
+                smiles=ligand_smiles,
+                method=method,
+                name=ligand_res_name,
+                center=center,
+                optimize=True,
+                fallback=True
+            )
+
+            if ligand_pdb:
+                # Embed ligand into pdb_content
+                if pdb_content:
+                    # Remove END if present, add ligand, then END
+                    pdb_content = pdb_content.replace("END\n", "").replace("END", "").rstrip()
+                    pdb_content = pdb_content + "\n" + ligand_pdb
+                else:
+                    pdb_content = ligand_pdb
+
+                # Set ligand parameter to reference the residue name
+                # Using "UNL" (Unknown Ligand) which shouldn't have CCD conflicts
+                spec["ligand"] = ligand_res_name
+                print(f"[RFD3] Embedded ligand as residue {ligand_res_name}")
+            else:
+                raise ValueError(f"Failed to generate 3D structure from SMILES: {ligand_smiles}")
         elif ligand:
             spec["ligand"] = ligand
 

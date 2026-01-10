@@ -246,6 +246,8 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     ligand = job_input.get("ligand")
     ligand_smiles = job_input.get("ligand_smiles")  # SMILES for organic molecules
     ligand_sdf = job_input.get("ligand_sdf")        # SDF content with 3D coords
+    ligand_center = job_input.get("ligand_center")  # [x, y, z] center for SMILES-generated ligand
+    conformer_method = job_input.get("conformer_method")  # "rdkit", "xtb", or "torsional"
     select_fixed_atoms = job_input.get("select_fixed_atoms")
     unindex = job_input.get("unindex")
 
@@ -286,6 +288,8 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
         ligand=ligand,
         ligand_smiles=ligand_smiles,
         ligand_sdf=ligand_sdf,
+        ligand_center=tuple(ligand_center) if ligand_center else None,
+        conformer_method=conformer_method,
         select_fixed_atoms=select_fixed_atoms,
         unindex=unindex,
         # RASA conditioning

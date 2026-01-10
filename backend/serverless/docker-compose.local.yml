@@ -20,11 +20,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Mount local checkpoints directory (create this folder and download checkpoints)
-      - ./checkpoints:/runpod-volume/checkpoints
-      # Mount source code for live editing (optional - comment out for production testing)
+      # Mount WSL checkpoints directory (adjust path as needed)
+      # Option 1: From WSL path (when running docker from WSL)
+      - /home/polaire/.foundry/checkpoints:/runpod-volume/checkpoints
+      # Option 2: If running from Windows, use: //wsl.localhost/Ubuntu/home/polaire/.foundry/checkpoints
+      # Mount source code for live editing
       - ./handler.py:/app/handler.py
       - ./inference_utils.py:/app/inference_utils.py
+      - ./binding_analysis.py:/app/binding_analysis.py
+      - ./conformer_utils.py:/app/conformer_utils.py
     environment:
       - CHECKPOINT_DIR=/runpod-volume/checkpoints
       - FOUNDRY_CHECKPOINT_DIRS=/runpod-volume/checkpoints

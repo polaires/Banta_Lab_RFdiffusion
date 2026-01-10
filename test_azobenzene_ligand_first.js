@@ -186,28 +186,27 @@ async function main() {
 
   // Step 2: Generate protein scaffold AROUND the ligand
   console.log('\nStep 2: Generating protein around ligand...');
-  console.log('   Using RFD3 with ligand-conditioned generation');
-  console.log('   The protein will be generated to AVOID the ligand, creating a pocket');
+  console.log('   Using RFD3 with SMILES-based ligand conditioning');
+  console.log('   The ligand 3D structure is generated from SMILES, then protein around it');
   console.log('');
-  console.log('   NOTE: RFD3 ligand-conditioned de novo design requires:');
-  console.log('   1. Ligand in PDB format (HETATM records)');
-  console.log('   2. "ligand" parameter set to residue name (e.g., "AZB")');
-  console.log('   3. "length" parameter for de novo design');
+  console.log('   NEW: Using SMILES input with conformer_method parameter');
+  console.log('   Available methods: rdkit (fast), xtb (quantum), torsional (ML)');
   console.log('');
 
-  // First try: Ligand-conditioned de novo design (without symmetry initially)
-  // RFD3's symmetry with ligand-only input fails because there are no protein entities
-  // So we first generate a monomer around the ligand, then apply symmetry
-  console.log('   Attempting ligand-conditioned monomer generation...');
+  // Use SMILES-based ligand conditioning (NEW approach)
+  // The conformer_utils module will generate 3D coordinates from SMILES
+  // and embed the ligand into the PDB with residue name "LIG"
+  console.log('   Generating 3D conformer from SMILES...');
 
   const designResult = await submitJob({
     task: 'rfd3',
-    pdb_content: centeredLigand,    // Ligand PDB with HETATM records (residue name: AZB)
-    ligand: 'AZB',                   // Reference the residue name in the PDB
-    length: '60-80',                 // Design 60-80 residue monomers
+    ligand_smiles: AZOBENZENE_SMILES,  // SMILES string - will be converted to 3D
+    conformer_method: 'rdkit',          // Use 'xtb' for production-quality quantum conformers
+    ligand_center: [0, 0, 0],           // Center at origin
+    length: '60-80',                    // Design 60-80 residue monomers
     // Note: No symmetry here - we'll add symmetry in a second step
     // because RFD3's symmetry handler needs protein entities
-    num_timesteps: 200,              // More steps for quality
+    num_timesteps: 200,                 // More steps for quality
     step_scale: 1.5,
     num_designs: 1,
     seed: 42
@@ -270,14 +269,33 @@ async function main() {
     console.log(`   Protein center: (${structureInfo.center.x.toFixed(2)}, ${structureInfo.center.y.toFixed(2)}, ${structureInfo.center.z.toFixed(2)})`);
   }
 
-  await runValidationPipeline(design.content, centeredLigand);
+  // Check if ligand was embedded in design (SMILES approach)
+  const hasEmbeddedLigand = design.content.includes('HETATM') && design.content.includes('LIG');
+  if (hasEmbeddedLigand) {
+    console.log('   Ligand embedded in design output (using SMILES conversion)');
+    // Use the design directly - ligand is already embedded
+    await runValidationPipeline(design.content, null, true);
+  } else {
+    // Fallback to manual ligand (for backward compatibility)
+    await runValidationPipeline(design.content, centeredLigand, false);
+  }
 }
 
-async function runValidationPipeline(proteinPdb, ligandPdb) {
-  // Step 3: Combine protein and ligand
-  console.log('\nStep 3: Combining protein with ligand...');
-  const combinedPdb = proteinPdb.trim() + '\n' + ligandPdb;
-  console.log(`   Combined structure: ${combinedPdb.split('\\n').length} lines`);
+async function runValidationPipeline(proteinPdb, ligandPdb, ligandEmbedded = false) {
+  // Step 3: Combine protein and ligand (or use as-is if already combined)
+  console.log('\nStep 3: Preparing structure for validation...');
+
+  let combinedPdb;
+  if (ligandEmbedded) {
+    // Ligand was embedded via SMILES conversion - use as-is
+    combinedPdb = proteinPdb;
+    console.log('   Ligand already embedded in structure');
+  } else {
+    // Manual ligand - combine with protein
+    combinedPdb = proteinPdb.trim() + '\n' + ligandPdb;
+    console.log('   Combined protein with separate ligand PDB');
+  }
+  console.log(`   Structure: ${combinedPdb.split('\\n').length} lines`);
 
   // Step 4: Check for steric clashes (CRITICAL VALIDATION)
   console.log('\nStep 4: Checking for steric clashes...');

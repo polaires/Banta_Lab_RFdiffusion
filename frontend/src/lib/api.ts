@@ -93,6 +93,7 @@ export interface RF3Request {
   sequence: string;
   name?: string;
   pdb_content?: string;  // For structure-based input
+  msa_content?: string;  // MSA file content (.a3m or .fasta format)
   config?: Record<string, unknown>;
 }
 
@@ -208,6 +209,51 @@ export interface RMSDResult {
   num_atoms_compared: number;
 }
 
+// Structure Analysis Types
+export interface LigandInfo {
+  name: string;
+  chain: string;
+  res_id: number;
+  num_atoms: number;
+  center: number[];
+  atom_names: string[];
+}
+
+export interface CoordinatingResidue {
+  chain: string;
+  res_id: number;
+  res_name: string;
+  atoms: Array<{ name: string; distance: number }>;
+  min_distance: number;
+}
+
+export interface BindingSite {
+  ligand: LigandInfo;
+  coordinating_residues: CoordinatingResidue[];
+  likely_coordinators: string[];
+  coordination_number: number;
+}
+
+export interface DesignSuggestion {
+  type: string;
+  description: string;
+  rfd3_params: {
+    ligand?: string;
+    partial_t?: number;
+    unindex?: string;
+    is_non_loopy?: boolean;
+    num_timesteps?: number;
+  };
+  notes: string[];
+}
+
+export interface AnalysisResult {
+  num_residues: number;
+  ligands: LigandInfo[];
+  binding_sites: BindingSite[];
+  suggestions: DesignSuggestion[];
+}
+
 export interface ExportResult {
   filename: string;
   content: string;
@@ -220,6 +266,206 @@ export interface StoredStructure {
   cif?: string;
   type: 'rfd3' | 'rf3' | 'mpnn';
   confidences?: ConfidenceMetrics;
+}
+
+// ============== AI Assistant Types ==============
+
+export interface FetchPdbRequest {
+  pdb_id: string;
+}
+
+export interface FetchPdbResponse {
+  success: boolean;
+  content: string;
+  source: string;
+  pdb_id: string;
+  info?: {
+    title: string;
+    chains: string[];
+    num_atoms: number;
+    num_residues: number;
+    metals: Array<{
+      element: string;
+      chain: string;
+      residue: string;
+      res_num: string;
+    }>;
+  };
+  error?: string;
+}
+
+export interface MetalBindingAnalysisRequest {
+  pdb_content?: string;
+  pdb_id?: string;
+  metal_chain?: string;
+  metal_residue: string;
+  metal_resnum: number;
+  distance_cutoff?: number;
+}
+
+export interface CoordinatingAtom {
+  chain: string;
+  residue: string;
+  residue_number: number;
+  atom: string;
+  element: string;
+  distance: number;
+  donor_type: string;
+}
+
+export interface MetalBindingAnalysis {
+  success: boolean;
+  metal: {
+    element: string;
+    chain: string;
+    residue: string;
+    resnum: number;
+    position: number[];
+  };
+  coordination: {
+    number: number;
+    geometry: string;
+    geometry_rmsd: number;
+    coordinating_atoms: CoordinatingAtom[];
+  };
+  donor_analysis: {
+    types: Record<string, number>;
+    dominant_type: string;
+    lanthanide_compatible: boolean;
+  };
+  bond_analysis: {
+    average_distance: number;
+    min_distance: number;
+    max_distance: number;
+    distances: number[];
+  };
+  suggestions?: string[];
+  error?: string;
+}
+
+export interface ParameterRecommendationRequest {
+  pdb_content?: string;
+  pdb_id?: string;
+  metal_chain?: string;
+  metal_residue?: string;
+  metal_resnum?: number;
+  target_metal: string;
+  user_description?: string;
+}
+
+export interface ParameterRecommendation {
+  success: boolean;
+  strategy: string;
+  reasoning: string[];
+  coordination_analysis: {
+    current_coordination: number;
+    target_coordination_range: number[];
+    delta: number;
+    recommendation: string;
+  };
+  parameters: {
+    ligand: string;
+    partial_t: number;
+    unindex?: string;
+    select_fixed_atoms?: Record<string, string>;
+    num_designs: number;
+    num_timesteps: number;
+    step_scale: number;
+    gamma_0: number;
+  };
+  evaluation_criteria: {
+    target_coordination: number[];
+    target_distance_range: number[];
+    preferred_geometry: string;
+    preferred_donors: string[];
+  };
+  error?: string;
+}
+
+export interface EvaluateDesignRequest {
+  pdb_content: string;
+  target_metal: string;
+  metal_chain?: string;
+  metal_resnum?: number;
+  expected_coordination?: number[];
+  expected_donors?: string[];
+}
+
+export interface DesignEvaluation {
+  success: boolean;
+  coordination_number: number;
+  avg_bond_distance: number;
+  geometry_type: string;
+  geometry_rmsd: number;
+  oxygen_donors: number;
+  nitrogen_donors: number;
+  sulfur_donors: number;
+  criteria_passed: number;
+  criteria_total: number;
+  overall_pass: boolean;
+  suggestions?: string[];
+  error?: string;
+}
+
+// User preferences from interview mode
+export interface UserPreferences {
+  targetMetal: string;
+  targetMetalLabel: string;
+  designAggressiveness: 'conservative' | 'moderate' | 'aggressive';
+  aggressivenessLabel: string;
+  coordinationPreference: 'tetrahedral' | 'octahedral' | 'high' | 'auto';
+  coordinationLabel: string;
+  numDesigns: number;
+  priority: 'stability' | 'binding' | 'expression' | 'balanced';
+  priorityLabel: string;
+}
+
+// ============== ESM3 Types ==============
+
+export interface ESM3ScoreRequest {
+  sequences: string[];
+}
+
+export interface ESM3ScoreResult {
+  scores: Array<{
+    sequence: string;
+    length: number;
+    perplexity: number;
+    score: number;
+    error?: string;
+  }>;
+}
+
+export interface ESM3GenerateRequest {
+  prompt?: string;
+  functions?: string[];  // e.g., ["zinc-binding", "hydrolase"]
+  num_sequences?: number;
+  temperature?: number;
+  max_length?: number;
+}
+
+export interface ESM3GenerateResult {
+  sequences: string[];
+  num_generated: number;
+  temperature: number;
+  max_length: number;
+  function_keywords?: string[];
+}
+
+export interface ESM3EmbedRequest {
+  sequences: string[];
+}
+
+export interface ESM3EmbedResult {
+  embeddings: Array<{
+    sequence: string;
+    length: number;
+    embedding_dim: number;
+    per_residue: number[][];
+    global: number[];
+    error?: string;
+  }>;
+  num_processed: number;
 }
 
 // ============== API Client ==============
@@ -262,54 +508,101 @@ class FoundryAPI {
 
   // Health check
   async checkHealth(): Promise<HealthResponse> {
-    const endpoint = this.mode === 'serverless'
-      ? '/api/runpod/health'
-      : `${this.baseUrl}/health`;
-
-    const response = await fetch(endpoint);
-    if (!response.ok) {
-      throw new Error('Backend not available');
+    if (this.mode === 'serverless') {
+      // Serverless mode uses the Next.js API route
+      const response = await fetch('/api/runpod/health');
+      if (!response.ok) {
+        throw new Error('Backend not available');
+      }
+      return response.json();
+    } else {
+      // Traditional mode uses Next.js proxy to avoid CORS issues
+      const response = await fetch(`/api/traditional/health?url=${encodeURIComponent(this.baseUrl)}`);
+      if (!response.ok) {
+        throw new Error('Backend not available');
+      }
+      return response.json();
     }
-    return response.json();
   }
 
   // RFD3 Design
-  async submitRFD3Design(request: RFD3Request): Promise<JobResponse> {
-    const endpoint = this.getEndpoint('api/rfd3/design');
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to submit RFD3 job: ${response.statusText}`);
-    }
-    const result = await response.json();
-
-    // Save to Supabase in serverless mode
-    if (this.mode === 'serverless' && isSupabaseConfigured()) {
-      await supabaseSaveJob({
-        runpod_id: result.job_id,
-        type: 'rfd3',
-        request: {
-          contig: request.contig,
-          length: request.length,
-          num_designs: request.num_designs,
-          seed: request.seed,
-          num_timesteps: request.num_timesteps,
-          step_scale: request.step_scale,
-          gamma_0: request.gamma_0,
-          is_non_loopy: request.is_non_loopy,
-          partial_t: request.partial_t,
-          symmetry: request.symmetry,
-          hotspots: request.hotspots,
-          ligand: request.ligand,
-          unindex: request.unindex,
-        },
+  async submitRFD3Design(request: RFD3Request): Promise<JobResponse & { result?: any; error?: string; syncCompleted?: boolean }> {
+    if (this.mode === 'serverless') {
+      // Serverless mode uses the Next.js API route
+      const endpoint = this.getEndpoint('api/rfd3/design');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
       });
-    }
+      if (!response.ok) {
+        throw new Error(`Failed to submit RFD3 job: ${response.statusText}`);
+      }
+      const result = await response.json();
 
-    return result;
+      // Save to Supabase in serverless mode
+      if (isSupabaseConfigured()) {
+        await supabaseSaveJob({
+          runpod_id: result.job_id,
+          type: 'rfd3',
+          request: {
+            contig: request.contig,
+            length: request.length,
+            num_designs: request.num_designs,
+            seed: request.seed,
+            num_timesteps: request.num_timesteps,
+            step_scale: request.step_scale,
+            gamma_0: request.gamma_0,
+            is_non_loopy: request.is_non_loopy,
+            partial_t: request.partial_t,
+            symmetry: request.symmetry,
+            hotspots: request.hotspots,
+            ligand: request.ligand,
+            unindex: request.unindex,
+          },
+        });
+      }
+
+      return result;
+    } else {
+      // Traditional mode uses Next.js proxy to avoid CORS issues
+      // runsync is SYNCHRONOUS - result comes back in same request
+      const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+      console.log('[API] Submitting RFD3 design via traditional mode:', proxyUrl);
+
+      let response: Response;
+      try {
+        response = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: { task: 'rfd3', ...request } }),
+        });
+      } catch (fetchError) {
+        console.error('[API] Fetch error:', fetchError);
+        throw new Error(`Network error connecting to backend. Check if backend is running at ${this.baseUrl}`);
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => 'No error details');
+        console.error('[API] Backend error:', response.status, errorText);
+        throw new Error(`Backend error (${response.status}): ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('[API] RFD3 result:', result.status, result.id);
+
+      // RunPod runsync returns result directly in output
+      // Format: { id, status, output: { status, result: {...} } }
+      // Mark as syncCompleted so caller knows not to poll
+      return {
+        job_id: result.id || 'sync-' + Date.now(),
+        status: result.status === 'COMPLETED' ? 'completed' : 'failed',
+        message: result.status === 'COMPLETED' ? 'Design completed' : 'Design failed',
+        result: result.output?.result || result.output,
+        error: result.output?.error,
+        syncCompleted: true,  // Signal that result is already available
+      };
+    }
   }
 
   // RF3 Prediction
@@ -381,6 +674,39 @@ class FoundryAPI {
     return response.json();
   }
 
+  // Structure Analysis - AI-assisted binding site analysis
+  async analyzeStructure(pdbContent: string, targetLigands?: string[]): Promise<AnalysisResult> {
+    if (this.mode === 'serverless') {
+      // Serverless mode - not yet implemented
+      throw new Error('Structure analysis not yet available in serverless mode');
+    }
+
+    // Traditional mode uses Next.js proxy
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'analyze',
+          pdb_content: pdbContent,
+          target_ligands: targetLigands,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to analyze structure: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Analysis failed');
+    }
+
+    return result.output?.result || result.output;
+  }
+
   // Structure Export (not available in serverless mode)
   async exportStructure(request: ExportRequest): Promise<ExportResult> {
     if (this.mode === 'serverless') {
@@ -417,6 +743,180 @@ class FoundryAPI {
       throw new Error('Structure not found');
     }
     return response.json();
+  }
+
+  // ============== AI Assistant Methods ==============
+
+  // Fetch PDB from RCSB via backend or directly from RCSB
+  async fetchPdb(pdbId: string): Promise<FetchPdbResponse> {
+    // Try to fetch directly from RCSB (works in browser)
+    const pdbIdUpper = pdbId.toUpperCase();
+    const rcsbUrl = `https://files.rcsb.org/download/${pdbIdUpper}.pdb`;
+
+    try {
+      const response = await fetch(rcsbUrl);
+      if (!response.ok) {
+        throw new Error(`PDB ${pdbIdUpper} not found`);
+      }
+
+      const content = await response.text();
+
+      // Parse basic info from PDB content
+      const info = this.parsePdbInfo(content);
+
+      return {
+        success: true,
+        content,
+        source: 'RCSB PDB',
+        pdb_id: pdbIdUpper,
+        info,
+      };
+    } catch (error) {
+      throw new Error(`Failed to fetch PDB ${pdbIdUpper}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // Parse basic info from PDB content
+  private parsePdbInfo(pdbContent: string): FetchPdbResponse['info'] {
+    const lines = pdbContent.split('\n');
+    let title = '';
+    const chains = new Set<string>();
+    const metals: Array<{ element: string; chain: string; residue: string; res_num: string }> = [];
+    let numAtoms = 0;
+    const residues = new Set<string>();
+
+    // Common metal elements
+    const metalElements = ['FE', 'ZN', 'CA', 'MG', 'MN', 'CU', 'CO', 'NI', 'TB', 'GD', 'EU', 'LA', 'CE', 'ND'];
+
+    for (const line of lines) {
+      // Get title
+      if (line.startsWith('TITLE')) {
+        title += line.slice(10).trim() + ' ';
+      }
+
+      // Get atoms
+      if (line.startsWith('ATOM') || line.startsWith('HETATM')) {
+        numAtoms++;
+        const chain = line.slice(21, 22).trim() || 'A';
+        chains.add(chain);
+
+        const resName = line.slice(17, 20).trim();
+        const resNum = line.slice(22, 26).trim();
+        residues.add(`${chain}:${resNum}`);
+
+        // Check for metals
+        if (line.startsWith('HETATM')) {
+          const element = line.slice(76, 78).trim() || resName.slice(0, 2);
+          if (metalElements.includes(element.toUpperCase()) || metalElements.includes(resName.toUpperCase())) {
+            // Avoid duplicates
+            const metalKey = `${chain}:${resName}:${resNum}`;
+            if (!metals.find(m => `${m.chain}:${m.residue}:${m.res_num}` === metalKey)) {
+              metals.push({
+                element: element.toUpperCase() || resName.toUpperCase(),
+                chain,
+                residue: resName,
+                res_num: resNum,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      title: title.trim(),
+      chains: Array.from(chains),
+      num_atoms: numAtoms,
+      num_residues: residues.size,
+      metals,
+    };
+  }
+
+  // Analyze metal binding site
+  async analyzeMetalBinding(request: MetalBindingAnalysisRequest): Promise<MetalBindingAnalysis> {
+    if (this.mode === 'serverless') {
+      throw new Error('Metal binding analysis not available in serverless mode');
+    }
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'analyze_metal_binding',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to analyze metal binding: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Metal binding analysis failed');
+    }
+
+    return result.output?.result || result.output;
+  }
+
+  // Get AI parameter recommendation
+  async getParameterRecommendation(request: ParameterRecommendationRequest): Promise<ParameterRecommendation> {
+    if (this.mode === 'serverless') {
+      throw new Error('Parameter recommendation not available in serverless mode');
+    }
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'recommend_parameters',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get recommendations: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Parameter recommendation failed');
+    }
+
+    return result.output?.result || result.output;
+  }
+
+  // Evaluate design output
+  async evaluateDesign(request: EvaluateDesignRequest): Promise<DesignEvaluation> {
+    if (this.mode === 'serverless') {
+      throw new Error('Design evaluation not available in serverless mode');
+    }
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'evaluate_design',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to evaluate design: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Design evaluation failed');
+    }
+
+    return result.output?.result || result.output;
   }
 
   // Job Management
@@ -498,6 +998,214 @@ class FoundryAPI {
 
       await new Promise(resolve => setTimeout(resolve, pollInterval));
     }
+  }
+
+  // ============== ESM3 Methods ==============
+
+  /**
+   * Score protein sequences using ESM3 perplexity.
+   * Lower perplexity = higher quality/more natural sequence.
+   */
+  async esm3ScoreSequences(sequences: string[]): Promise<ESM3ScoreResult> {
+    if (this.mode === 'serverless') {
+      const response = await fetch('/api/runpod/esm3/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequences }),
+      });
+      if (!response.ok) {
+        throw new Error(`ESM3 scoring failed: ${response.statusText}`);
+      }
+      const result = await response.json();
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'ESM3 scoring failed');
+      }
+      return result.result;
+    }
+
+    // Traditional mode
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'esm3_score', sequences }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`ESM3 scoring failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'ESM3 scoring failed');
+    }
+    return result.output?.result || result.output;
+  }
+
+  /**
+   * Generate protein sequences using ESM3 with optional function conditioning.
+   */
+  async esm3GenerateSequence(params: ESM3GenerateRequest): Promise<ESM3GenerateResult> {
+    if (this.mode === 'serverless') {
+      const response = await fetch('/api/runpod/esm3/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      if (!response.ok) {
+        throw new Error(`ESM3 generation failed: ${response.statusText}`);
+      }
+      const result = await response.json();
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'ESM3 generation failed');
+      }
+      return result.result;
+    }
+
+    // Traditional mode
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'esm3_generate', ...params }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`ESM3 generation failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'ESM3 generation failed');
+    }
+    return result.output?.result || result.output;
+  }
+
+  /**
+   * Get ESM3 embeddings for protein sequences.
+   * Useful for sequence similarity and clustering.
+   */
+  async esm3GetEmbeddings(sequences: string[]): Promise<ESM3EmbedResult> {
+    if (this.mode === 'serverless') {
+      const response = await fetch('/api/runpod/esm3/embed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequences }),
+      });
+      if (!response.ok) {
+        throw new Error(`ESM3 embedding failed: ${response.statusText}`);
+      }
+      const result = await response.json();
+      if (result.status === 'failed') {
+        throw new Error(result.error || 'ESM3 embedding failed');
+      }
+      return result.result;
+    }
+
+    // Traditional mode
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'esm3_embed', sequences }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`ESM3 embedding failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'ESM3 embedding failed');
+    }
+    return result.output?.result || result.output;
+  }
+
+  // ============== AI-Driven Analysis ==============
+
+  /**
+   * Analyze user request with AI to determine task type and parameters.
+   * Uses hybrid handbook + LLM approach.
+   */
+  async aiAnalyze(request: {
+    user_input: string;
+    pdb_content?: string;
+    pdb_id?: string;
+    structure_info?: {
+      chains: string[];
+      num_residues: number;
+      num_atoms?: number;
+    };
+    conversation_history?: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+    }>;
+  }): Promise<{
+    success: boolean;
+    task_type: string;
+    params: Record<string, unknown>;
+    reasoning: string;
+    confidence: number;
+    clarifying_questions: string[];
+    form_config: Array<{
+      id: string;
+      label: string;
+      type: string;
+      required: boolean;
+      suggested_value?: unknown;
+      options?: Array<{ value: string; label: string }>;
+      range_config?: { min: number; max: number; step: number };
+      help_text: string;
+      ai_reasoning?: string;
+    }>;
+    error?: string;
+  }> {
+    console.log('[API] AI analyze request:', request.user_input);
+
+    const response = await fetch(`${this.baseUrl}/api/ai/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`AI analysis failed: ${error}`);
+    }
+
+    const result = await response.json();
+    console.log('[API] AI analyze result:', result);
+    return result;
+  }
+
+  /**
+   * Refine AI-suggested parameters based on user feedback.
+   */
+  async aiRefine(request: {
+    current_params: Record<string, unknown>;
+    user_feedback: string;
+    task_type: string;
+  }): Promise<{
+    success: boolean;
+    params: Record<string, unknown>;
+    reasoning: string;
+    confidence: number;
+  }> {
+    const response = await fetch(`${this.baseUrl}/api/ai/refine`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`AI refinement failed: ${error}`);
+    }
+
+    return response.json();
   }
 }
 

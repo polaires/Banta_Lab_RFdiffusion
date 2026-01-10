@@ -33,6 +33,10 @@ RUN uv pip install --upgrade pip runpod
 # Install Foundry and dependencies (requires Python 3.12)
 RUN uv pip install "rc-foundry[all]" biotite
 
+# Install ESM3 for sequence scoring and generation
+# Note: User must set HF_TOKEN env var and accept ESM3 license on HuggingFace
+RUN uv pip install esm
+
 # Copy handler code
 COPY handler.py /app/
 COPY inference_utils.py /app/
@@ -42,6 +46,11 @@ COPY inference_utils.py /app/
 ENV CHECKPOINT_DIR=/runpod-volume/checkpoints
 ENV FOUNDRY_CHECKPOINT_DIRS=/runpod-volume/checkpoints
 ENV PYTHONUNBUFFERED=1
+
+# HuggingFace cache for ESM3 model weights (stored on network volume for persistence)
+ENV HF_HOME=/runpod-volume/hf_cache
+ENV TRANSFORMERS_CACHE=/runpod-volume/hf_cache
+ENV HF_HUB_CACHE=/runpod-volume/hf_cache
 
 # Create workspace directory (for CLI tools that need it)
 RUN mkdir -p /workspace && touch /workspace/.project-root

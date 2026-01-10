@@ -21,8 +21,13 @@ from inference_utils import (
     run_rf3_inference,
     run_mpnn_inference,
     calculate_rmsd,
+    analyze_structure,
     get_gpu_info,
     check_foundry_available,
+    # ESM3 functions
+    esm3_score_sequences,
+    esm3_generate_sequence,
+    esm3_get_embeddings,
 )
 
 # ============== Configuration ==============
@@ -133,10 +138,19 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             return handle_download_checkpoints(job_input)
         elif task == "delete_file":
             return handle_delete_file(job_input)
+        elif task == "analyze":
+            return handle_analyze(job_input)
+        # ESM3 tasks
+        elif task == "esm3_score":
+            return handle_esm3_score(job_input)
+        elif task == "esm3_generate":
+            return handle_esm3_generate(job_input)
+        elif task == "esm3_embed":
+            return handle_esm3_embed(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -195,9 +209,10 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     # Core parameters
     contig = job_input.get("contig") or job_input.get("contigs")
     length = job_input.get("length")
+    partial_t = job_input.get("partial_t")
 
-    # Either contig or length is required
-    if not contig and not length:
+    # Either contig or length is required (unless using partial diffusion with pdb_content)
+    if not contig and not length and not partial_t:
         return {"status": "failed", "error": "Missing 'contig' or 'length' parameter"}
 
     num_designs = job_input.get("num_designs", 1)
@@ -209,9 +224,6 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     step_scale = job_input.get("step_scale")
     gamma_0 = job_input.get("gamma_0")
     is_non_loopy = job_input.get("is_non_loopy")
-
-    # Partial diffusion (refinement)
-    partial_t = job_input.get("partial_t")
 
     # Symmetry
     symmetry = job_input.get("symmetry")
@@ -235,6 +247,9 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     ori_token = job_input.get("ori_token")
     select_hbond_donor = job_input.get("select_hbond_donor")
     select_hbond_acceptor = job_input.get("select_hbond_acceptor")
+
+    # Covalent modifications (enzyme design)
+    covalent_bonds = job_input.get("covalent_bonds")
 
     result = run_rfd3_inference(
         contig=contig,
@@ -267,6 +282,8 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
         ori_token=ori_token,
         select_hbond_donor=select_hbond_donor,
         select_hbond_acceptor=select_hbond_acceptor,
+        # Covalent modifications
+        covalent_bonds=covalent_bonds,
         # Mock mode
         use_mock=not FOUNDRY_AVAILABLE
     )
@@ -282,11 +299,13 @@ def handle_rf3(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     name = job_input.get("name", "prediction")
     pdb_content = job_input.get("pdb_content")
+    msa_content = job_input.get("msa_content")  # Optional MSA file content
 
     result = run_rf3_inference(
         sequence=sequence,
         name=name,
         pdb_content=pdb_content,
+        msa_content=msa_content,
         use_mock=not FOUNDRY_AVAILABLE
     )
 
@@ -332,6 +351,95 @@ def handle_rmsd(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "failed", "error": result["error"]}
 
     return {"status": "completed", "result": result}
+
+
+def handle_analyze(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze a PDB structure to identify binding sites and suggest RFdiffusion parameters.
+
+    This is an AI-assisted tool for understanding protein structures before design.
+
+    Input:
+        pdb_content: PDB file content as string
+        target_ligands: Optional list of specific ligand codes to analyze (e.g., ["CA", "ZN"])
+
+    Returns:
+        Analysis including:
+        - Identified ligands/metals
+        - Coordinating residues and distances
+        - Suggested RFdiffusion parameters for redesign
+    """
+    pdb_content = job_input.get("pdb_content")
+    if not pdb_content:
+        return {"status": "failed", "error": "Missing 'pdb_content' parameter"}
+
+    target_ligands = job_input.get("target_ligands")
+
+    result = analyze_structure(pdb_content, target_ligands)
+
+    return result
+
+
+# ============== ESM3 Handlers ==============
+
+def handle_esm3_score(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Score protein sequences using ESM3 perplexity.
+
+    Input:
+        sequences: list[str] - List of amino acid sequences to score
+
+    Returns:
+        scores: list of {sequence, perplexity, score}
+        Lower perplexity = better sequence quality
+    """
+    sequences = job_input.get("sequences")
+    if not sequences:
+        return {"status": "failed", "error": "Missing 'sequences' parameter"}
+
+    if not isinstance(sequences, list):
+        return {"status": "failed", "error": "'sequences' must be a list of strings"}
+
+    return esm3_score_sequences(job_input)
+
+
+def handle_esm3_generate(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generate protein sequences using ESM3 with optional function conditioning.
+
+    Input:
+        prompt: str (optional) - Partial sequence to complete
+        functions: list[str] (optional) - Function keywords like ["zinc-binding", "hydrolase"]
+        num_sequences: int (default: 4) - Number of sequences to generate
+        temperature: float (default: 0.7) - Sampling temperature
+        max_length: int (default: 200) - Maximum sequence length
+
+    Returns:
+        sequences: list[str] - Generated protein sequences
+    """
+    return esm3_generate_sequence(job_input)
+
+
+def handle_esm3_embed(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get ESM3 embeddings for protein sequences.
+
+    Input:
+        sequences: list[str] - List of amino acid sequences
+
+    Returns:
+        embeddings: list of {sequence, per_residue, global}
+        per_residue: [seq_len, hidden_dim] per-position embeddings
+        global: [hidden_dim] mean-pooled sequence embedding
+    """
+    sequences = job_input.get("sequences")
+    if not sequences:
+        return {"status": "failed", "error": "Missing 'sequences' parameter"}
+
+    if not isinstance(sequences, list):
+        return {"status": "failed", "error": "'sequences' must be a list of strings"}
+
+    return esm3_get_embeddings(job_input)
 
 
 def handle_download_checkpoints(job_input: Dict[str, Any]) -> Dict[str, Any]:

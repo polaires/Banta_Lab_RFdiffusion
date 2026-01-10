@@ -157,6 +157,226 @@ def pdb_to_atom_array(content: str):
         return pdb_file.get_structure(model=1)
 
 
+def _generate_seed_for_symmetry(symmetry_id: str, offset: float = 10.0) -> str:
+    """
+    Generate seed residue(s) positioned for symmetric interface design.
+
+    For C2 symmetry: Single residue at (+offset, 0, 0)
+    RFD3 will replicate it to (-offset, 0, 0) for chain B.
+
+    The seed provides protein atoms for RFD3's symmetry handler,
+    allowing native symmetry to work with ligand-only designs.
+    """
+    if symmetry_id == "C2":
+        # Single seed at +X offset
+        return _generate_seed_residue(offset=(offset, 0.0, 0.0))
+    elif symmetry_id == "C3":
+        # Seed at 120° spacing
+        return _generate_seed_residue(offset=(offset, 0.0, 0.0))
+    else:
+        # Default: single seed at offset
+        return _generate_seed_residue(offset=(offset, 0.0, 0.0))
+
+
+def _generate_seed_residue(offset: tuple = (8.0, 0.0, 0.0)) -> str:
+    """
+    Generate a minimal glycine residue at the specified offset from origin.
+
+    This seed gives RFD3's symmetry handler something to work with for de novo
+    symmetric designs with ligand.
+
+    Args:
+        offset: (x, y, z) offset from origin in Angstroms
+
+    Returns:
+        PDB string for a single glycine residue
+    """
+    x, y, z = offset
+    # Glycine backbone coordinates (relative to CA at origin)
+    # Standard geometry: N-CA=1.47Å, CA-C=1.52Å, C-O=1.23Å
+    pdb_lines = [
+        f"ATOM      1  N   GLY A   1    {x-1.47:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           N",
+        f"ATOM      2  CA  GLY A   1    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C",
+        f"ATOM      3  C   GLY A   1    {x+1.52:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C",
+        f"ATOM      4  O   GLY A   1    {x+1.52:8.3f}{y+1.23:8.3f}{z:8.3f}  1.00  0.00           O",
+    ]
+    return "\n".join(pdb_lines)
+
+
+def _apply_post_symmetry(atom_array, symmetry_id: str):
+    """
+    Apply symmetry transformation to an atom array in post-processing.
+
+    For C2 symmetry with ligand at interface:
+    1. Iteratively translate protein away from ligand center
+    2. Apply 180° rotation around Z-axis for chain B
+    3. Check for clashes - if found, increase translation
+    4. Keep ligand at center between both chains
+
+    This creates a proper dimer with ligand at the interface, not overlapping chains.
+    """
+    import numpy as np
+    from biotite.structure import AtomArray
+
+    if symmetry_id != "C2":
+        print(f"[RFD3] Warning: Post-processing symmetry only supports C2, got {symmetry_id}")
+        return atom_array
+
+    # Separate protein and ligand
+    protein_mask = atom_array.chain_id != "L"
+    ligand_mask = atom_array.chain_id == "L"
+
+    protein_atoms = atom_array[protein_mask]
+    ligand_atoms = atom_array[ligand_mask] if ligand_mask.any() else None
+
+    if len(protein_atoms) == 0:
+        print("[RFD3] Warning: No protein atoms found for symmetry")
+        return atom_array
+
+    # Get ligand center (should be near origin since we oriented it there)
+    if ligand_atoms is not None and len(ligand_atoms) > 0:
+        ligand_center = ligand_atoms.coord.mean(axis=0)
+    else:
+        ligand_center = np.array([0.0, 0.0, 0.0])
+
+    # Store original coordinates for iterative testing
+    original_coords = protein_atoms.coord.copy()
+
+    # Calculate the protein's extent in X direction
+    x_min = original_coords[:, 0].min()
+    x_max = original_coords[:, 0].max()
+    protein_x_extent = x_max - x_min
+    print(f"[RFD3] Protein X extent: {protein_x_extent:.1f}Å (from {x_min:.1f} to {x_max:.1f})")
+
+    # For interface design, we need to balance:
+    # 1. Minimize clashes between chain A and chain B
+    # 2. Maximize contacts between protein chains and ligand
+    #
+    # Strategy: Test translations and pick the one with best combined score
+    # Key insight: To avoid clashes, protein atoms after translation must not
+    # extend past origin (where chain B's atoms will be after rotation).
+
+    clash_threshold = 2.5  # Angstroms - atoms closer than this are clashing
+    contact_threshold = 5.0  # Angstroms - atoms closer than this count as contacts
+    ligand_coords = ligand_atoms.coord if ligand_atoms is not None else np.array([[0.0, 0.0, 0.0]])
+
+    # Minimum translation to clear the origin (prevent atoms from being on wrong side)
+    # After translation, we want x_min + translation > 0, so translation > -x_min
+    min_safe_translation = abs(x_min) + 2.0  # Add 2Å buffer
+    print(f"[RFD3] Minimum safe translation to clear origin: {min_safe_translation:.1f}Å")
+
+    # Test translation distances from minimum safe to larger values
+    start = max(6, int(min_safe_translation))
+    translation_distances = list(range(start, start + 16, 2))  # Test 8 distances
+
+    print(f"[RFD3] Testing translation distances from {translation_distances[0]}Å to {translation_distances[-1]}Å")
+
+    best_distance = 10.0  # Default
+    best_score = float('-inf')
+    results = []
+
+    for push_distance in translation_distances:
+        # Test this translation distance
+        test_coords = original_coords.copy()
+        test_coords[:, 0] += push_distance
+
+        # Apply C2 rotation to get chain B coordinates
+        rotated_coords = test_coords.copy()
+        rotated_coords[:, 0] = 2 * ligand_center[0] - rotated_coords[:, 0]
+        rotated_coords[:, 1] = 2 * ligand_center[1] - rotated_coords[:, 1]
+
+        # Count clashes between chain A and chain B
+        try:
+            from scipy.spatial import distance_matrix
+            clash_matrix = distance_matrix(test_coords, rotated_coords)
+            clash_count = int(np.sum(clash_matrix < clash_threshold))
+
+            # Count contacts: how many protein atoms are within contact_threshold of ligand
+            contacts_a_matrix = distance_matrix(test_coords, ligand_coords)
+            contacts_b_matrix = distance_matrix(rotated_coords, ligand_coords)
+            contacts_a = int(np.sum(contacts_a_matrix < contact_threshold))
+            contacts_b = int(np.sum(contacts_b_matrix < contact_threshold))
+        except ImportError:
+            # Fallback to manual calculation
+            clash_count = 0
+            contacts_a = 0
+            contacts_b = 0
+            for i in range(len(test_coords)):
+                # Clashes
+                diffs = rotated_coords - test_coords[i]
+                distances = np.sqrt(np.sum(diffs * diffs, axis=1))
+                clash_count += np.sum(distances < clash_threshold)
+                # Contacts with ligand
+                for lc in ligand_coords:
+                    dist_to_lig = np.sqrt(np.sum((test_coords[i] - lc)**2))
+                    if dist_to_lig < contact_threshold:
+                        contacts_a += 1
+                    dist_to_lig_b = np.sqrt(np.sum((rotated_coords[i] - lc)**2))
+                    if dist_to_lig_b < contact_threshold:
+                        contacts_b += 1
+
+        # Calculate combined score:
+        # - Penalize clashes heavily (each clash = -10)
+        # - Reward contacts (each contact = +1)
+        # - Bonus for symmetric contacts (both chains contact ligand)
+        min_contacts = min(contacts_a, contacts_b)
+        symmetry_bonus = min_contacts * 2  # Extra points for balanced contacts
+
+        # Severe penalty for clashes, but tolerate a few minor ones
+        clash_penalty = clash_count * 5 if clash_count > 10 else clash_count * 2
+
+        score = (contacts_a + contacts_b + symmetry_bonus) - clash_penalty
+
+        results.append({
+            'distance': push_distance,
+            'clashes': clash_count,
+            'contacts_a': contacts_a,
+            'contacts_b': contacts_b,
+            'score': score
+        })
+
+        if score > best_score:
+            best_score = score
+            best_distance = push_distance
+
+    # Print summary of best options
+    sorted_results = sorted(results, key=lambda x: x['score'], reverse=True)[:3]
+    print(f"[RFD3] Top translations by score:")
+    for r in sorted_results:
+        print(f"  {r['distance']}Å: score={r['score']:.0f} (clashes={r['clashes']}, contacts A={r['contacts_a']}, B={r['contacts_b']})")
+
+    # Apply the best translation distance
+    protein_atoms.coord = original_coords.copy()
+    protein_atoms.coord[:, 0] += best_distance
+    print(f"[RFD3] Applied translation +{best_distance:.0f}Å along X (score={best_score:.0f})")
+
+    # Rename protein to chain A
+    protein_atoms.chain_id[:] = "A"
+
+    # Create C2 rotated copy (180° around Z-axis through ligand center)
+    rotated_coords = protein_atoms.coord.copy()
+    rotated_coords[:, 0] = 2 * ligand_center[0] - rotated_coords[:, 0]
+    rotated_coords[:, 1] = 2 * ligand_center[1] - rotated_coords[:, 1]
+
+    # Create chain B atoms
+    chain_b = protein_atoms.copy()
+    chain_b.coord = rotated_coords
+    chain_b.chain_id[:] = "B"
+
+    # Renumber residues for chain B to avoid overlap
+    max_res_a = protein_atoms.res_id.max() if len(protein_atoms) > 0 else 0
+    chain_b.res_id = chain_b.res_id + max_res_a
+
+    # Combine: chain A + chain B + ligand (if present)
+    if ligand_atoms is not None and len(ligand_atoms) > 0:
+        result = protein_atoms + chain_b + ligand_atoms
+    else:
+        result = protein_atoms + chain_b
+
+    print(f"[RFD3] Applied C2 symmetry: chain A ({len(protein_atoms)} atoms) + chain B")
+    return result
+
+
 # ============== Mock Implementations ==============
 
 def generate_mock_pdb(length: int = 100) -> str:
@@ -221,6 +441,7 @@ def run_rfd3_inference(
     ligand_sdf: Optional[str] = None,     # SDF content with 3D coordinates
     ligand_center: Optional[Tuple[float, float, float]] = None,  # Center for SMILES-generated ligand
     conformer_method: Optional[str] = None,  # "rdkit", "xtb", or "torsional"
+    interface_ligand: bool = False,  # Place ligand at symmetric interface (requires symmetry)
     select_fixed_atoms: Optional[Dict[str, str]] = None,
     unindex: Optional[str] = None,
     # RASA conditioning (binding pocket design)
@@ -305,6 +526,8 @@ def run_rfd3_inference(
         # Ligand for small molecule / enzyme design
         # Priority: ligand_sdf > ligand_smiles > ligand (code)
         temp_ligand_path = None
+        apply_symmetry_post = None  # For post-processing symmetry (deprecated - use native symmetry)
+        force_symmetry_cli = False  # Force symmetry CLI flag for interface designs
         if ligand_sdf:
             # Write SDF to temp file for RFD3
             with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False, mode='w') as f:
@@ -315,7 +538,7 @@ def run_rfd3_inference(
         elif ligand_smiles:
             # Generate 3D conformer from SMILES and embed in input PDB
             # Use L:XXX naming convention to avoid CCD conflicts (per RFD3 docs)
-            from conformer_utils import generate_conformer, ConformerMethod
+            from conformer_utils import generate_conformer, generate_conformer_oriented, ConformerMethod
 
             # Determine conformer method
             method = ConformerMethod.RDKIT
@@ -332,29 +555,121 @@ def run_rfd3_inference(
             # RFD3 docs: "We suggest renaming all custom ligands to begin with L: to avoid all clashes with the CCD"
             ligand_res_name = "UNL"  # "Unknown Ligand" - a valid 3-char code
 
-            print(f"[RFD3] Generating 3D structure from SMILES using {method.value} method...")
-            ligand_pdb = generate_conformer(
-                smiles=ligand_smiles,
-                method=method,
-                name=ligand_res_name,
-                center=center,
-                optimize=True,
-                fallback=True
-            )
+            # Check if interface_ligand mode is requested with symmetry
+            sym_id = None
+            if symmetry:
+                sym_id = symmetry.get("id") if isinstance(symmetry, dict) else symmetry
+
+            if interface_ligand and sym_id:
+                # Interface ligand mode: Orient ligand for symmetric interface
+                print(f"[RFD3] Interface ligand mode: orienting for {sym_id} symmetry...")
+                ligand_pdb = generate_conformer_oriented(
+                    smiles=ligand_smiles,
+                    method=method,
+                    name=ligand_res_name,
+                    center=center,
+                    symmetry=sym_id,
+                    axis_atoms=None,  # Auto-detect (N=N for azo, or longest axis)
+                    optimize=True,
+                    fallback=True
+                )
+
+                # Add RASA conditioning to keep ligand at interface (partially buried)
+                # BUT only if we have an existing input structure - for de novo design,
+                # there are no residues to select from, so we rely on ligand orientation only
+                if pdb_content:
+                    if select_partially_buried is None:
+                        select_partially_buried = {}
+                    # L1 = ligand residue 1 in chain L
+                    select_partially_buried["L1"] = "ALL"
+                    print(f"[RFD3] Added RASA conditioning: select_partially_buried={{L1: ALL}}")
+                else:
+                    print(f"[RFD3] De novo design: using ligand orientation only (no RASA for de novo)")
+            else:
+                # Standard mode: Generate conformer without orientation
+                print(f"[RFD3] Generating 3D structure from SMILES using {method.value} method...")
+                ligand_pdb = generate_conformer(
+                    smiles=ligand_smiles,
+                    method=method,
+                    name=ligand_res_name,
+                    center=center,
+                    optimize=True,
+                    fallback=True
+                )
 
             if ligand_pdb:
-                # Embed ligand into pdb_content
                 if pdb_content:
-                    # Remove END if present, add ligand, then END
+                    # Existing structure - embed ligand into it
                     pdb_content = pdb_content.replace("END\n", "").replace("END", "").rstrip()
                     pdb_content = pdb_content + "\n" + ligand_pdb
-                else:
-                    pdb_content = ligand_pdb
+                    spec["ligand"] = ligand_res_name
+                    print(f"[RFD3] Embedded ligand as residue {ligand_res_name}")
+                elif interface_ligand and symmetry:
+                    # De novo symmetric design with ligand at interface
+                    #
+                    # Check if binder mode is requested (uses hotspots + H-bond conditioning)
+                    # interface_ligand can be True (default) or "binder" for binder mode
+                    binder_mode = interface_ligand == "binder" if isinstance(interface_ligand, str) else False
 
-                # Set ligand parameter to reference the residue name
-                # Using "UNL" (Unknown Ligand) which shouldn't have CCD conflicts
-                spec["ligand"] = ligand_res_name
-                print(f"[RFD3] Embedded ligand as residue {ligand_res_name}")
+                    sym_id = symmetry.get("id") if isinstance(symmetry, dict) else symmetry
+
+                    # Ligand becomes the input structure
+                    pdb_content = ligand_pdb
+                    spec["ligand"] = ligand_res_name
+
+                    # Center on ligand for proper geometry
+                    spec["ori_token"] = [0.0, 0.0, 0.0]
+
+                    if binder_mode:
+                        # BINDER MODE: Use H-bond and burial conditioning for stronger binding
+                        #
+                        # Strategy:
+                        # 1. Mark azo nitrogens (N7, N8) as H-bond acceptors
+                        #    This forces the designed protein to have H-bond donors nearby
+                        # 2. Mark central atoms as partially buried (at interface)
+                        # 3. Use hotspots if ligand atoms can be specified
+                        #
+                        # This creates explicit binding interactions rather than just proximity
+
+                        # H-bond conditioning: azo nitrogens are good H-bond acceptors
+                        # Design protein with H-bond donors (Arg, Lys, Asn, Gln, Ser, Thr, Trp, His)
+                        spec["select_hbond_acceptor"] = {ligand_res_name: "N7,N8"}
+
+                        # Burial: bury the central azo bridge (at the interface)
+                        spec["select_buried"] = {ligand_res_name: "N7,N8"}
+
+                        # Also partially bury the adjacent carbons for shape complementarity
+                        spec["select_partially_buried"] = {ligand_res_name: "C4,C9"}
+
+                        print(f"[RFD3] Interface ligand mode: BINDER (H-bond + burial conditioning)")
+                        print(f"[RFD3] H-bond acceptors: N7,N8 (azo nitrogens)")
+                        print(f"[RFD3] Buried: N7,N8; Partially buried: C4,C9")
+                        print(f"[RFD3] Will apply post-processing {sym_id} symmetry")
+                    else:
+                        # NATURAL MODE: Let design happen naturally with post-processing symmetry
+                        #
+                        # Key insight: The ligand is oriented with N=N along Z-axis (C2 axis).
+                        # One phenyl ring faces +Y, the other faces -Y.
+                        # The monomer will naturally design around the ligand.
+                        # Post-processing C2 rotation creates the second chain.
+                        #
+                        # NOTE: We deliberately don't use RASA conditioning here because:
+                        # 1. For de novo design, there are no existing residues to constrain
+                        # 2. select_exposed on one side prevents binding to that side by BOTH chains
+                        # 3. The natural design + post-processing approach gives better symmetry
+
+                        print(f"[RFD3] Interface ligand mode: Natural design + post-processing {sym_id}")
+                        print(f"[RFD3] Ligand at origin, oriented along Z-axis")
+                        print(f"[RFD3] Will apply post-processing {sym_id} symmetry with translation optimization")
+
+                    # Set up post-processing symmetry (NOT native symmetry)
+                    apply_symmetry_post = sym_id
+                    force_symmetry_cli = False  # Don't use native symmetry
+                else:
+                    # Standard de novo design - ligand becomes input structure
+                    pdb_content = ligand_pdb
+                    spec["ligand"] = ligand_res_name
+                    print(f"[RFD3] Embedded ligand as residue {ligand_res_name}")
             else:
                 raise ValueError(f"Failed to generate 3D structure from SMILES: {ligand_smiles}")
         elif ligand:
@@ -365,7 +680,8 @@ def run_rfd3_inference(
             spec["unindex"] = unindex
 
         # Symmetry configuration - RFD3 expects SymmetryConfig dict with id, is_unsym_motif, is_symmetric_motif
-        if symmetry:
+        # Skip if using post-processing symmetry (apply_symmetry_post is set)
+        if symmetry and apply_symmetry_post is None:
             sym_id = symmetry.get("id") if isinstance(symmetry, dict) else symmetry
             if sym_id:
                 # Build SymmetryConfig dict with all fields
@@ -376,6 +692,8 @@ def run_rfd3_inference(
                     if symmetry.get("is_unsym_motif"):
                         sym_config["is_unsym_motif"] = symmetry["is_unsym_motif"]
                 spec["symmetry"] = sym_config
+        elif apply_symmetry_post:
+            print(f"[RFD3] Skipping native symmetry - will apply {apply_symmetry_post} in post-processing")
 
         # is_non_loopy goes in SPEC (not top-level)
         if is_non_loopy is not None:
@@ -444,8 +762,12 @@ def run_rfd3_inference(
             sampler_config["gamma_0"] = gamma_0
 
         # Symmetry requires special sampler kind
-        if symmetry:
+        # But NOT when using post-processing symmetry (apply_symmetry_post is set)
+        if (symmetry or force_symmetry_cli) and apply_symmetry_post is None:
             sampler_config["kind"] = "symmetry"
+            print(f"[RFD3] Using symmetry sampler (kind=symmetry)")
+        elif apply_symmetry_post:
+            print(f"[RFD3] Using standard sampler (post-processing {apply_symmetry_post} symmetry)")
 
         # Build config kwargs - ONLY these top-level params are allowed!
         config_kwargs: Dict[str, Any] = {
@@ -457,8 +779,8 @@ def run_rfd3_inference(
         if sampler_config:
             config_kwargs["inference_sampler"] = sampler_config
 
-        # High-order symmetry requires low memory mode
-        if symmetry:
+        # High-order symmetry requires low memory mode (only for native symmetry)
+        if symmetry and apply_symmetry_post is None:
             sym_id = symmetry.get("id") if isinstance(symmetry, dict) else symmetry
             if sym_id in ["T", "O", "I"]:
                 config_kwargs["low_memory_mode"] = True
@@ -492,13 +814,20 @@ def run_rfd3_inference(
                 for idx, item in enumerate(items):
                     if hasattr(item, 'atom_array'):
                         try:
-                            output_pdb = atom_array_to_pdb(item.atom_array)
+                            atom_array = item.atom_array
+
+                            # Apply post-processing symmetry if needed
+                            if apply_symmetry_post:
+                                atom_array = _apply_post_symmetry(atom_array, apply_symmetry_post)
+                                print(f"[RFD3] Applied {apply_symmetry_post} symmetry in post-processing")
+
+                            output_pdb = atom_array_to_pdb(atom_array)
                             filename = f"{key}_{idx}.pdb" if len(items) > 1 else f"{key}.pdb"
 
                             design: Dict[str, Any] = {"filename": filename, "content": output_pdb}
 
                             try:
-                                design["cif_content"] = atom_array_to_cif(item.atom_array)
+                                design["cif_content"] = atom_array_to_cif(atom_array)
                             except Exception:
                                 pass
 

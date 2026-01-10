@@ -248,6 +248,7 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     ligand_sdf = job_input.get("ligand_sdf")        # SDF content with 3D coords
     ligand_center = job_input.get("ligand_center")  # [x, y, z] center for SMILES-generated ligand
     conformer_method = job_input.get("conformer_method")  # "rdkit", "xtb", or "torsional"
+    interface_ligand = job_input.get("interface_ligand", False)  # Place ligand at symmetric interface
     select_fixed_atoms = job_input.get("select_fixed_atoms")
     unindex = job_input.get("unindex")
 
@@ -290,6 +291,7 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
         ligand_sdf=ligand_sdf,
         ligand_center=tuple(ligand_center) if ligand_center else None,
         conformer_method=conformer_method,
+        interface_ligand=interface_ligand,
         select_fixed_atoms=select_fixed_atoms,
         unindex=unindex,
         # RASA conditioning
@@ -513,7 +515,9 @@ def handle_binding_eval(job_input: Dict[str, Any]) -> Dict[str, Any]:
     else:
         result["summary"]["binding_pocket_valid"] = True
 
-    return result
+    # Convert numpy types to native Python types for JSON serialization
+    from binding_analysis import to_python_types
+    return to_python_types(result)
 
 
 # ============== ESM3 Handlers ==============

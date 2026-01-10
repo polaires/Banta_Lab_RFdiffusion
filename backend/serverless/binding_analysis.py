@@ -23,10 +23,12 @@ def to_python_types(obj: Any) -> Any:
     """Recursively convert numpy types to native Python types for JSON serialization."""
     if isinstance(obj, np.ndarray):
         return obj.tolist()
-    elif isinstance(obj, (np.float32, np.float64)):
+    elif isinstance(obj, (np.float32, np.float64, np.floating)):
         return float(obj)
-    elif isinstance(obj, (np.int32, np.int64)):
+    elif isinstance(obj, (np.int32, np.int64, np.integer)):
         return int(obj)
+    elif isinstance(obj, (np.bool_, np.bool)):
+        return bool(obj)
     elif isinstance(obj, np.str_):
         return str(obj)
     elif isinstance(obj, dict):
@@ -1003,6 +1005,140 @@ def validate_binding_comprehensive(
         results["recommendation"] = "Design passes basic validation. Proceed to experimental testing."
 
     return to_python_types(results)
+
+
+def validate_interface_ligand(
+    pdb_content: str,
+    ligand_chain: str = "L",
+    min_contacts_per_chain: int = 3,
+    contact_cutoff: float = 4.0,
+) -> Dict[str, Any]:
+    """
+    Validate that a ligand is at the symmetric interface of a dimer.
+
+    For symmetric dimer designs with ligand at the interface, the ligand
+    should contact BOTH protein chains approximately equally.
+
+    Args:
+        pdb_content: PDB content with protein chains and ligand
+        ligand_chain: Chain ID for the ligand (default: "L")
+        min_contacts_per_chain: Minimum contacts required per chain (default: 3)
+        contact_cutoff: Distance cutoff for contacts in Angstroms (default: 4.0)
+
+    Returns:
+        Dict with:
+            valid: bool - True if ligand contacts both chains adequately
+            contacts_A: int - Number of contacts with chain A
+            contacts_B: int - Number of contacts with chain B
+            symmetry_score: float - How symmetric the contacts are (0-1)
+            recommendation: str - Suggested action
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        # Parse PDB
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get ligand atoms - try chain ID first, then HETATM
+        ligand_mask = structure.chain_id == ligand_chain
+        if not np.any(ligand_mask):
+            # Try HETATM records
+            ligand_mask = structure.hetero
+        ligand_atoms = structure[ligand_mask]
+
+        if len(ligand_atoms) == 0:
+            return {
+                "status": "error",
+                "error": f"No ligand found in chain {ligand_chain} or HETATM records",
+                "valid": False
+            }
+
+        # Get protein chain A and B atoms
+        chain_a_mask = (structure.chain_id == "A") & ~structure.hetero
+        chain_b_mask = (structure.chain_id == "B") & ~structure.hetero
+        chain_a_atoms = structure[chain_a_mask]
+        chain_b_atoms = structure[chain_b_mask]
+
+        if len(chain_a_atoms) == 0:
+            return {
+                "status": "error",
+                "error": "No atoms found for chain A",
+                "valid": False
+            }
+
+        # For monomers, just check overall contacts
+        is_dimer = len(chain_b_atoms) > 0
+
+        # Count contacts (within cutoff distance)
+        def count_contacts(atoms1, atoms2, cutoff):
+            """Count atomic contacts between two atom sets."""
+            contacts = 0
+            for i in range(len(atoms1)):
+                pos1 = atoms1.coord[i]
+                for j in range(len(atoms2)):
+                    pos2 = atoms2.coord[j]
+                    dist = np.sqrt(np.sum((pos1 - pos2) ** 2))
+                    if dist < cutoff:
+                        contacts += 1
+            return contacts
+
+        contacts_a = count_contacts(ligand_atoms, chain_a_atoms, contact_cutoff)
+
+        if is_dimer:
+            contacts_b = count_contacts(ligand_atoms, chain_b_atoms, contact_cutoff)
+        else:
+            contacts_b = 0
+
+        # Validate
+        if is_dimer:
+            valid = contacts_a >= min_contacts_per_chain and contacts_b >= min_contacts_per_chain
+        else:
+            valid = contacts_a >= min_contacts_per_chain
+
+        # Symmetry score: 1.0 = perfectly symmetric, 0.0 = all contacts with one chain
+        total = contacts_a + contacts_b
+        if total > 0 and is_dimer:
+            symmetry_score = 1.0 - abs(contacts_a - contacts_b) / total
+        else:
+            symmetry_score = 1.0 if not is_dimer else 0.0
+
+        # Generate recommendation
+        if valid:
+            recommendation = "Valid interface design - ligand contacts both chains"
+        elif not is_dimer:
+            if contacts_a >= min_contacts_per_chain:
+                recommendation = "Monomer design - ligand has adequate contacts"
+            else:
+                recommendation = "Ligand has insufficient contacts with protein"
+        elif contacts_a < min_contacts_per_chain and contacts_b < min_contacts_per_chain:
+            recommendation = "Ligand is exposed - not bound to either chain. Redesign needed."
+        elif contacts_a < min_contacts_per_chain:
+            recommendation = "Ligand buried in chain B only - not at interface. Use interface_ligand=True"
+        elif contacts_b < min_contacts_per_chain:
+            recommendation = "Ligand buried in chain A only - not at interface. Use interface_ligand=True"
+        else:
+            recommendation = "Ligand not at interface - redesign with interface_ligand=True"
+
+        return to_python_types({
+            "status": "completed",
+            "valid": valid,
+            "is_dimer": is_dimer,
+            "contacts_A": contacts_a,
+            "contacts_B": contacts_b,
+            "total_contacts": total,
+            "symmetry_score": symmetry_score,
+            "min_contacts_required": min_contacts_per_chain,
+            "recommendation": recommendation
+        })
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "valid": False
+        }
 
 
 # ============== Quality Thresholds ==============

@@ -129,7 +129,8 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
     const request: RFD3Request = {
       pdb_content: finalPdbContent || undefined,
       ligand: finalLigandCode,
-      length: proteinLength,
+      // Don't send length during partial diffusion - it comes from the input structure
+      ...(useTemplateRefinement ? {} : { length: proteinLength }),
       num_designs: numDesigns,
       is_non_loopy: isNonLoopy,
       num_timesteps: preset.num_timesteps,
@@ -164,7 +165,8 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
 
   const isValid =
     pdbContent !== null &&
-    proteinLength.trim() !== '' &&
+    // Length is only required when NOT using template refinement
+    (useTemplateRefinement || proteinLength.trim() !== '') &&
     (replaceLigand
       ? sourceLigand.trim() !== '' && targetLigand.trim() !== ''
       : ligandCode.trim() !== '');
@@ -373,13 +375,19 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
       <FormSection title="Design Parameters" required>
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <FormField label="Length" hint="e.g., 100 or 80-120">
+            <FormField
+              label="Length"
+              hint={useTemplateRefinement ? "From input structure" : "e.g., 100 or 80-120"}
+            >
               <input
                 type="text"
-                value={proteinLength}
+                value={useTemplateRefinement ? '(from template)' : proteinLength}
                 onChange={(e) => setProteinLength(e.target.value)}
                 placeholder="100"
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none transition-all"
+                disabled={useTemplateRefinement}
+                className={`w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-slate-400 focus:ring-1 focus:ring-slate-200 outline-none transition-all ${
+                  useTemplateRefinement ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''
+                }`}
               />
             </FormField>
             <FormField label="# Designs">

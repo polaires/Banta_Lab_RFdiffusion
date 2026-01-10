@@ -1,0 +1,297 @@
+'use client';
+
+import { useState } from 'react';
+import {
+  Atom,
+  Pill,
+  Palette,
+  RotateCcw,
+  Layers,
+  ChevronDown,
+  Activity,
+  GitCompare,
+  Search
+} from 'lucide-react';
+import type { ViewerMode, RepresentationStyle, ColorScheme } from '@/lib/store';
+
+interface ViewerControlsProps {
+  viewerMode: ViewerMode;
+  representationStyle: RepresentationStyle;
+  colorScheme: ColorScheme;
+  onViewerModeChange: (mode: ViewerMode) => void;
+  onRepresentationChange: (style: RepresentationStyle) => void;
+  onColorSchemeChange: (scheme: ColorScheme) => void;
+  onResetView: () => void;
+  onRunAnalysis: () => void;
+  onFocusFirstMetal: () => void;
+  onFocusFirstLigand: () => void;
+  hasStructure: boolean;
+  hasConfidences: boolean;
+  hasComparison: boolean;
+  hasMetals: boolean;
+  hasLigands: boolean;
+  analysisLoading?: boolean;
+}
+
+// Representation options
+const REPRESENTATIONS: { value: RepresentationStyle; label: string }[] = [
+  { value: 'cartoon', label: 'Cartoon' },
+  { value: 'ball-and-stick', label: 'Ball & Stick' },
+  { value: 'spacefill', label: 'Spacefill' },
+  { value: 'surface', label: 'Surface' }
+];
+
+// Color scheme options
+const COLOR_SCHEMES: { value: ColorScheme; label: string; requiresConfidence?: boolean }[] = [
+  { value: 'default', label: 'Default' },
+  { value: 'chain', label: 'By Chain' },
+  { value: 'residue-type', label: 'Residue Type' },
+  { value: 'secondary-structure', label: 'Secondary Structure' },
+  { value: 'confidence', label: 'Confidence (pLDDT)', requiresConfidence: true },
+  { value: 'hydrophobicity', label: 'Hydrophobicity' }
+];
+
+export function ViewerControls({
+  viewerMode,
+  representationStyle,
+  colorScheme,
+  onViewerModeChange,
+  onRepresentationChange,
+  onColorSchemeChange,
+  onResetView,
+  onRunAnalysis,
+  onFocusFirstMetal,
+  onFocusFirstLigand,
+  hasStructure,
+  hasConfidences,
+  hasComparison,
+  hasMetals,
+  hasLigands,
+  analysisLoading = false
+}: ViewerControlsProps) {
+  const [showRepDropdown, setShowRepDropdown] = useState(false);
+  const [showColorDropdown, setShowColorDropdown] = useState(false);
+
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 bg-slate-100/80 border-b border-slate-200">
+      {/* Analysis mode buttons */}
+      <div className="flex items-center gap-1 border-r border-slate-300 pr-3 mr-1">
+        <button
+          onClick={() => {
+            if (viewerMode === 'metal') {
+              // Already in metal mode, reset view
+              onResetView();
+              onViewerModeChange('default');
+            } else if (hasMetals) {
+              // Focus on first metal
+              onFocusFirstMetal();
+              onViewerModeChange('metal');
+            } else {
+              // No metals, just toggle mode (will run analysis if needed)
+              onViewerModeChange('metal');
+            }
+          }}
+          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+            viewerMode === 'metal'
+              ? 'bg-purple-100 text-purple-700 border border-purple-300'
+              : 'hover:bg-slate-200 text-slate-600'
+          }`}
+          disabled={!hasStructure}
+          title={hasMetals ? "Focus on metal binding site" : "Show metal coordination"}
+        >
+          <Atom className="w-4 h-4" />
+          <span>Metals</span>
+          {hasMetals && viewerMode !== 'metal' && (
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+          )}
+        </button>
+
+        <button
+          onClick={() => {
+            if (viewerMode === 'ligand') {
+              // Already in ligand mode, reset view
+              onResetView();
+              onViewerModeChange('default');
+            } else if (hasLigands) {
+              // Focus on first ligand
+              onFocusFirstLigand();
+              onViewerModeChange('ligand');
+            } else {
+              // No ligands, just toggle mode
+              onViewerModeChange('ligand');
+            }
+          }}
+          className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+            viewerMode === 'ligand'
+              ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+              : 'hover:bg-slate-200 text-slate-600'
+          }`}
+          disabled={!hasStructure}
+          title={hasLigands ? "Focus on ligand binding site" : "Show ligand contacts"}
+        >
+          <Pill className="w-4 h-4" />
+          <span>Ligands</span>
+          {hasLigands && viewerMode !== 'ligand' && (
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          )}
+        </button>
+
+        {hasConfidences && (
+          <button
+            onClick={() => onViewerModeChange(viewerMode === 'confidence' ? 'default' : 'confidence')}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              viewerMode === 'confidence'
+                ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                : 'hover:bg-slate-200 text-slate-600'
+            }`}
+            title="Color by pLDDT confidence"
+          >
+            <Activity className="w-4 h-4" />
+            <span>Confidence</span>
+          </button>
+        )}
+
+        {hasComparison && (
+          <button
+            onClick={() => onViewerModeChange(viewerMode === 'comparison' ? 'default' : 'comparison')}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              viewerMode === 'comparison'
+                ? 'bg-amber-100 text-amber-700 border border-amber-300'
+                : 'hover:bg-slate-200 text-slate-600'
+            }`}
+            title="Compare structures"
+          >
+            <GitCompare className="w-4 h-4" />
+            <span>Compare</span>
+          </button>
+        )}
+      </div>
+
+      {/* Run analysis button */}
+      <button
+        onClick={onRunAnalysis}
+        disabled={!hasStructure || analysisLoading}
+        className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+          analysisLoading
+            ? 'bg-slate-200 text-slate-400 cursor-wait'
+            : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200'
+        }`}
+        title="Run binding site analysis"
+      >
+        {analysisLoading ? (
+          <div className="w-4 h-4 border-2 border-blue-300 border-t-transparent rounded-full animate-spin" />
+        ) : (
+          <Search className="w-4 h-4" />
+        )}
+        <span>Analyze</span>
+      </button>
+
+      {/* Spacer */}
+      <div className="flex-1" />
+
+      {/* Representation dropdown */}
+      <div className="relative">
+        <button
+          onClick={() => {
+            setShowRepDropdown(!showRepDropdown);
+            setShowColorDropdown(false);
+          }}
+          className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-slate-200 text-slate-600 transition-colors"
+          disabled={!hasStructure}
+        >
+          <Layers className="w-4 h-4" />
+          <span className="hidden md:inline">{REPRESENTATIONS.find(r => r.value === representationStyle)?.label}</span>
+          <ChevronDown className="w-3 h-3" />
+        </button>
+
+        {showRepDropdown && (
+          <div className="absolute right-0 mt-1 w-40 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+            {REPRESENTATIONS.map((rep) => (
+              <button
+                key={rep.value}
+                onClick={() => {
+                  onRepresentationChange(rep.value);
+                  setShowRepDropdown(false);
+                }}
+                className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg ${
+                  representationStyle === rep.value ? 'text-blue-600 bg-blue-50 font-medium' : 'text-slate-700'
+                }`}
+              >
+                {rep.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Color scheme dropdown */}
+      <div className="relative">
+        <button
+          onClick={() => {
+            setShowColorDropdown(!showColorDropdown);
+            setShowRepDropdown(false);
+          }}
+          className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-slate-200 text-slate-600 transition-colors"
+          disabled={!hasStructure}
+        >
+          <Palette className="w-4 h-4" />
+          <span className="hidden md:inline">{COLOR_SCHEMES.find(c => c.value === colorScheme)?.label}</span>
+          <ChevronDown className="w-3 h-3" />
+        </button>
+
+        {showColorDropdown && (
+          <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+            {COLOR_SCHEMES.map((scheme) => {
+              const disabled = scheme.requiresConfidence && !hasConfidences;
+              return (
+                <button
+                  key={scheme.value}
+                  onClick={() => {
+                    if (!disabled) {
+                      onColorSchemeChange(scheme.value);
+                      setShowColorDropdown(false);
+                    }
+                  }}
+                  disabled={disabled}
+                  className={`w-full px-3 py-2 text-left text-sm first:rounded-t-lg last:rounded-b-lg ${
+                    disabled
+                      ? 'text-slate-300 cursor-not-allowed'
+                      : colorScheme === scheme.value
+                        ? 'text-blue-600 bg-blue-50 font-medium'
+                        : 'text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {scheme.label}
+                  {disabled && <span className="text-xs text-slate-400 ml-1">(no data)</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Reset view button */}
+      <button
+        onClick={onResetView}
+        className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+        disabled={!hasStructure}
+        title="Reset view"
+      >
+        <RotateCcw className="w-4 h-4" />
+      </button>
+
+      {/* Click outside handler */}
+      {(showRepDropdown || showColorDropdown) && (
+        <div
+          className="fixed inset-0 z-0"
+          onClick={() => {
+            setShowRepDropdown(false);
+            setShowColorDropdown(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export default ViewerControls;

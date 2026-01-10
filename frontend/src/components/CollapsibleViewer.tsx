@@ -1,15 +1,18 @@
 'use client';
 
+import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useStore } from '@/lib/store';
+import { findMetalCoordinationFromPDB } from '@/lib/metalAnalysis';
+import { findLigandContactsFromPDB } from '@/lib/ligandAnalysis';
 
-// Dynamic import for Molstar viewer (SSR incompatible)
+// Dynamic imports for components that use Molstar (SSR incompatible)
 const ProteinViewer = dynamic(
   () => import('@/components/ProteinViewer').then((mod) => mod.ProteinViewer),
   {
     ssr: false,
     loading: () => (
-      <div className="h-80 flex items-center justify-center bg-slate-900 rounded-xl">
+      <div className="h-[520px] flex items-center justify-center bg-slate-900 rounded-xl">
         <div className="flex items-center gap-3 text-slate-400">
           <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-medium">Loading 3D viewer...</span>
@@ -19,8 +22,121 @@ const ProteinViewer = dynamic(
   }
 );
 
+const ViewerControls = dynamic(
+  () => import('@/components/viewer/ViewerControls').then((mod) => mod.ViewerControls),
+  { ssr: false }
+);
+
+const BindingSitePanel = dynamic(
+  () => import('@/components/viewer/BindingSitePanel').then((mod) => mod.BindingSitePanel),
+  { ssr: false }
+);
+
 export function CollapsibleViewer() {
-  const { selectedPdb, viewerCollapsed, setViewerCollapsed } = useStore();
+  const {
+    selectedPdb,
+    viewerCollapsed,
+    setViewerCollapsed,
+    viewerMode,
+    setViewerMode,
+    representationStyle,
+    setRepresentationStyle,
+    colorScheme,
+    setColorScheme,
+    metalCoordination,
+    setMetalCoordination,
+    ligandData,
+    setLigandData,
+    focusedMetalIndex,
+    setFocusedMetalIndex,
+    focusedLigandIndex,
+    setFocusedLigandIndex,
+    analysisLoading,
+    setAnalysisLoading,
+    latestConfidences,
+    latestRfd3Design,
+    latestRf3Prediction,
+    comparisonEnabled,
+  } = useStore();
+
+  // Track if analysis has been run for current structure
+  const [analyzedPdb, setAnalyzedPdb] = useState<string | null>(null);
+
+  // Show binding site panel when there's analysis data
+  const showBindingSitePanel = (metalCoordination && metalCoordination.length > 0) ||
+    (ligandData && ligandData.ligandCount > 0);
+
+  // Run structure analysis
+  const runAnalysis = useCallback(async () => {
+    if (!selectedPdb || analysisLoading) return;
+
+    setAnalysisLoading(true);
+
+    try {
+      // Run metal coordination analysis
+      const metals = findMetalCoordinationFromPDB(selectedPdb, 3.0);
+      setMetalCoordination(metals);
+
+      // Run ligand contact analysis
+      const ligands = findLigandContactsFromPDB(selectedPdb, 4.0);
+      setLigandData(ligands);
+
+      setAnalyzedPdb(selectedPdb);
+
+      // Auto-switch to metal mode if metals found
+      if (metals.length > 0) {
+        setViewerMode('metal');
+      } else if (ligands.ligandCount > 0) {
+        setViewerMode('ligand');
+      }
+    } catch (error) {
+      console.error('Analysis failed:', error);
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [selectedPdb, analysisLoading, setAnalysisLoading, setMetalCoordination, setLigandData, setViewerMode]);
+
+  // Clear analysis when structure changes
+  useEffect(() => {
+    if (selectedPdb !== analyzedPdb) {
+      // Structure changed, clear old analysis
+      setMetalCoordination(null);
+      setLigandData(null);
+      setFocusedMetalIndex(null);
+      setFocusedLigandIndex(null);
+      setViewerMode('default');
+    }
+  }, [selectedPdb, analyzedPdb, setMetalCoordination, setLigandData, setFocusedMetalIndex, setFocusedLigandIndex, setViewerMode]);
+
+  // Reset view handler
+  const handleResetView = useCallback(() => {
+    setFocusedMetalIndex(null);
+    setFocusedLigandIndex(null);
+    // The viewer will reset camera on focus change
+  }, [setFocusedMetalIndex, setFocusedLigandIndex]);
+
+  // Focus on first metal handler
+  const handleFocusFirstMetal = useCallback(() => {
+    if (metalCoordination && metalCoordination.length > 0) {
+      setFocusedLigandIndex(null); // Clear ligand focus
+      setFocusedMetalIndex(0);
+    }
+  }, [metalCoordination, setFocusedMetalIndex, setFocusedLigandIndex]);
+
+  // Focus on first ligand handler
+  const handleFocusFirstLigand = useCallback(() => {
+    if (ligandData && ligandData.ligandCount > 0) {
+      setFocusedMetalIndex(null); // Clear metal focus
+      setFocusedLigandIndex(0);
+    }
+  }, [ligandData, setFocusedMetalIndex, setFocusedLigandIndex]);
+
+  // Check if we have comparison structures
+  const hasComparison = !!latestRfd3Design && !!latestRf3Prediction;
+
+  // Check if we have metals/ligands
+  const hasMetals = !!(metalCoordination && metalCoordination.length > 0);
+  const hasLigands = !!(ligandData && ligandData.ligandCount > 0);
 
   return (
     <section className="bg-white rounded-2xl shadow-card overflow-hidden mt-8">
@@ -41,6 +157,16 @@ export function CollapsibleViewer() {
               No structure
             </span>
           )}
+          {metalCoordination && metalCoordination.length > 0 && (
+            <span className="text-[10px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+              {metalCoordination.length} metal{metalCoordination.length !== 1 ? 's' : ''}
+            </span>
+          )}
+          {ligandData && ligandData.ligandCount > 0 && (
+            <span className="text-[10px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
+              {ligandData.ligandCount} ligand{ligandData.ligandCount !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
         <span className="material-symbols-outlined text-slate-400 hover:text-slate-600 transition-colors">
           {viewerCollapsed ? 'expand_more' : 'expand_less'}
@@ -49,15 +175,63 @@ export function CollapsibleViewer() {
 
       {/* Viewer content */}
       {!viewerCollapsed && (
-        <div className="p-6">
-          {selectedPdb ? (
-            <ProteinViewer pdbContent={selectedPdb} className="h-96 rounded-xl overflow-hidden" />
-          ) : (
-            <div className="h-64 flex flex-col items-center justify-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
-              <span className="material-symbols-outlined text-4xl text-slate-300 mb-3">view_in_ar</span>
-              <p className="text-sm font-medium text-slate-500">No structure to display</p>
-              <p className="text-xs text-slate-400 mt-1">Run a design job to visualize structures</p>
+        <div className="flex">
+          {/* Main viewer area */}
+          <div className="flex-1">
+            {/* Controls toolbar */}
+            {selectedPdb && (
+              <ViewerControls
+                viewerMode={viewerMode}
+                representationStyle={representationStyle}
+                colorScheme={colorScheme}
+                onViewerModeChange={setViewerMode}
+                onRepresentationChange={setRepresentationStyle}
+                onColorSchemeChange={setColorScheme}
+                onResetView={handleResetView}
+                onRunAnalysis={runAnalysis}
+                onFocusFirstMetal={handleFocusFirstMetal}
+                onFocusFirstLigand={handleFocusFirstLigand}
+                hasStructure={!!selectedPdb}
+                hasConfidences={!!latestConfidences?.per_residue_plddt}
+                hasComparison={hasComparison}
+                hasMetals={hasMetals}
+                hasLigands={hasLigands}
+                analysisLoading={analysisLoading}
+              />
+            )}
+
+            {/* Viewer */}
+            <div className="p-4">
+              {selectedPdb ? (
+                <ProteinViewer
+                  pdbContent={selectedPdb}
+                  className="h-[520px] rounded-xl overflow-hidden"
+                  focusedMetalIndex={focusedMetalIndex}
+                  focusedLigandIndex={focusedLigandIndex}
+                  metalCoordination={metalCoordination}
+                  ligandData={ligandData}
+                />
+              ) : (
+                <div className="h-[520px] flex flex-col items-center justify-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+                  <span className="material-symbols-outlined text-4xl text-slate-300 mb-3">view_in_ar</span>
+                  <p className="text-sm font-medium text-slate-500">No structure to display</p>
+                  <p className="text-xs text-slate-400 mt-1">Run a design job to visualize structures</p>
+                </div>
+              )}
             </div>
+          </div>
+
+          {/* Binding site analysis panel */}
+          {showBindingSitePanel && (
+            <BindingSitePanel
+              metalCoordination={metalCoordination}
+              ligandData={ligandData}
+              focusedMetalIndex={focusedMetalIndex}
+              focusedLigandIndex={focusedLigandIndex}
+              onFocusMetal={setFocusedMetalIndex}
+              onFocusLigand={setFocusedLigandIndex}
+              loading={analysisLoading}
+            />
           )}
         </div>
       )}

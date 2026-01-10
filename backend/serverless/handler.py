@@ -30,6 +30,17 @@ from inference_utils import (
     esm3_get_embeddings,
 )
 
+# Import binding analysis functions
+from binding_analysis import (
+    evaluate_binding,
+    analyze_interface,
+    run_gnina_scoring,
+    check_gnina_available,
+    smiles_to_sdf,
+    check_steric_clashes,
+    validate_binding_comprehensive,
+)
+
 # ============== Configuration ==============
 
 CHECKPOINT_DIR = os.environ.get(
@@ -147,10 +158,13 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             return handle_esm3_generate(job_input)
         elif task == "esm3_embed":
             return handle_esm3_embed(job_input)
+        # Binding evaluation
+        elif task == "binding_eval":
+            return handle_binding_eval(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -230,6 +244,8 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     # Small molecule / enzyme design
     ligand = job_input.get("ligand")
+    ligand_smiles = job_input.get("ligand_smiles")  # SMILES for organic molecules
+    ligand_sdf = job_input.get("ligand_sdf")        # SDF content with 3D coords
     select_fixed_atoms = job_input.get("select_fixed_atoms")
     unindex = job_input.get("unindex")
 
@@ -268,6 +284,8 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
         symmetry=symmetry,
         # Small molecule / enzyme
         ligand=ligand,
+        ligand_smiles=ligand_smiles,
+        ligand_sdf=ligand_sdf,
         select_fixed_atoms=select_fixed_atoms,
         unindex=unindex,
         # RASA conditioning
@@ -292,7 +310,18 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_rf3(job_input: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle RF3 prediction request"""
+    """Handle RF3 prediction request
+
+    Supports:
+    - Single chain prediction (sequence only)
+    - Multi-chain/dimer prediction (sequence + sequences list)
+    - Protein-ligand prediction (sequence + ligand_smiles)
+    - Combined dimer + ligand (all parameters)
+
+    For binding evaluation, ipTM is calculated for:
+    - Protein-protein interfaces (when sequences provided)
+    - Protein-ligand interfaces (when ligand_smiles provided)
+    """
     sequence = job_input.get("sequence")
     if not sequence:
         return {"status": "failed", "error": "Missing 'sequence' parameter"}
@@ -301,11 +330,19 @@ def handle_rf3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     pdb_content = job_input.get("pdb_content")
     msa_content = job_input.get("msa_content")  # Optional MSA file content
 
+    # Multi-chain support for dimer/oligomer evaluation
+    sequences = job_input.get("sequences")  # List of additional chain sequences
+
+    # Ligand support for protein-ligand binding evaluation
+    ligand_smiles = job_input.get("ligand_smiles")  # SMILES string
+
     result = run_rf3_inference(
         sequence=sequence,
         name=name,
         pdb_content=pdb_content,
         msa_content=msa_content,
+        sequences=sequences,
+        ligand_smiles=ligand_smiles,
         use_mock=not FOUNDRY_AVAILABLE
     )
 
@@ -313,7 +350,13 @@ def handle_rf3(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_mpnn(job_input: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle MPNN sequence design request"""
+    """Handle MPNN sequence design request.
+
+    For ligand-aware design:
+    - Include HETATM records in pdb_content
+    - Use model_type='ligand_mpnn' (default)
+    - Optionally fix binding site residues with fixed_positions
+    """
     pdb_content = job_input.get("pdb_content")
     if not pdb_content:
         return {"status": "failed", "error": "Missing 'pdb_content' parameter"}
@@ -322,6 +365,7 @@ def handle_mpnn(job_input: Dict[str, Any]) -> Dict[str, Any]:
     temperature = job_input.get("temperature", 0.1)
     model_type = job_input.get("model_type", "ligand_mpnn")
     remove_waters = job_input.get("remove_waters", True)
+    fixed_positions = job_input.get("fixed_positions")  # e.g., ["A35", "A36", "B35"]
 
     result = run_mpnn_inference(
         pdb_content=pdb_content,
@@ -329,6 +373,7 @@ def handle_mpnn(job_input: Dict[str, Any]) -> Dict[str, Any]:
         temperature=temperature,
         model_type=model_type,
         remove_waters=remove_waters,
+        fixed_positions=fixed_positions,
         use_mock=not FOUNDRY_AVAILABLE
     )
 
@@ -376,6 +421,93 @@ def handle_analyze(job_input: Dict[str, Any]) -> Dict[str, Any]:
     target_ligands = job_input.get("target_ligands")
 
     result = analyze_structure(pdb_content, target_ligands)
+
+    return result
+
+
+# ============== Binding Evaluation Handler ==============
+
+def handle_binding_eval(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Evaluate protein-protein or protein-ligand binding quality.
+
+    This combines multiple analysis methods:
+    1. Steric Clash Check - CRITICAL first validation
+    2. Interface Analyzer - contacts, H-bonds, buried surface area
+    3. GNINA Scoring - CNN-based affinity prediction (if available)
+
+    Input:
+        pdb_content: PDB file content (protein complex or protein-ligand)
+        chain_a: First chain for interface analysis (default: "A")
+        chain_b: Second chain (default: "B", or "HETATM" for ligand)
+        ligand_smiles: SMILES string for GNINA docking (optional)
+        ligand_sdf: SDF content for GNINA docking (optional)
+        run_gnina: Whether to run GNINA scoring (default: True if ligand provided)
+        check_clashes: Whether to run steric clash check (default: True)
+
+    Returns:
+        Combined evaluation with:
+        - clash_check: steric clash detection results (CRITICAL)
+        - interface_analysis: contacts, hbonds, dSASA, packstat, estimated_dG
+        - gnina_scoring: CNN affinity, poses (if GNINA available and ligand provided)
+        - summary: quality assessment based on thresholds
+    """
+    pdb_content = job_input.get("pdb_content")
+    if not pdb_content:
+        return {"status": "failed", "error": "Missing 'pdb_content' parameter"}
+
+    chain_a = job_input.get("chain_a", "A")
+    chain_b = job_input.get("chain_b", "B")
+    ligand_smiles = job_input.get("ligand_smiles")
+    ligand_sdf = job_input.get("ligand_sdf")
+    run_gnina_flag = job_input.get("run_gnina", True)
+    check_clashes_flag = job_input.get("check_clashes", True)
+
+    # Docking box parameters (for GNINA)
+    docking_center = job_input.get("docking_center")  # [x, y, z]
+    docking_box_size = job_input.get("docking_box_size", 25.0)
+    whole_protein_search = job_input.get("whole_protein_search", False)
+
+    # Check GNINA availability
+    gnina_available = check_gnina_available()
+    print(f"[Handler] GNINA available: {gnina_available}")
+
+    # Step 1: Check for steric clashes FIRST (critical validation)
+    clash_result = None
+    if check_clashes_flag:
+        print("[Handler] Running steric clash detection...")
+        clash_result = check_steric_clashes(
+            pdb_content=pdb_content,
+            ligand_smiles=ligand_smiles,
+            ligand_sdf=ligand_sdf,
+        )
+        print(f"[Handler] Clash check result: has_clashes={clash_result.get('has_clashes')}, min_dist={clash_result.get('min_distance')}")
+
+    # Step 2: Run full evaluation
+    result = evaluate_binding(
+        pdb_content=pdb_content,
+        ligand_smiles=ligand_smiles,
+        ligand_sdf=ligand_sdf,
+        chain_a=chain_a,
+        chain_b=chain_b,
+        run_gnina=run_gnina_flag and gnina_available,
+        docking_center=tuple(docking_center) if docking_center else None,
+        docking_box_size=docking_box_size,
+        whole_protein_search=whole_protein_search,
+    )
+
+    # Add clash check result
+    result["clash_check"] = clash_result
+
+    # Add GNINA availability info to result
+    result["gnina_available"] = gnina_available
+
+    # Add warning if clashes detected
+    if clash_result and clash_result.get("has_clashes"):
+        result["warning"] = "Steric clashes detected - binding pocket may not exist. Use ligand-first generation."
+        result["summary"]["binding_pocket_valid"] = False
+    else:
+        result["summary"]["binding_pocket_valid"] = True
 
     return result
 

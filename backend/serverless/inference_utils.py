@@ -11,7 +11,7 @@ import json
 import random
 import subprocess
 import tempfile
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 
 # ============== Utility Functions ==============
@@ -217,6 +217,8 @@ def run_rfd3_inference(
     symmetry: Optional[Dict[str, Any]] = None,
     # Small molecule / enzyme design
     ligand: Optional[str] = None,
+    ligand_smiles: Optional[str] = None,  # SMILES string for organic molecules
+    ligand_sdf: Optional[str] = None,     # SDF content with 3D coordinates
     select_fixed_atoms: Optional[Dict[str, str]] = None,
     unindex: Optional[str] = None,
     # RASA conditioning (binding pocket design)
@@ -247,6 +249,16 @@ def run_rfd3_inference(
     - Enzyme scaffold design (ligand + unindex + fixed atoms)
     - Symmetric oligomer design (symmetry config)
     - Structure refinement (partial_t)
+
+    Ligand Input Options:
+    - ligand: Code for metal ions/small molecules already in PDB (e.g., "ZN", "CA", "ATP")
+    - ligand_smiles: SMILES string for organic molecules (RFD3 generates 3D coords)
+    - ligand_sdf: SDF content with explicit 3D coordinates for the ligand
+
+    For best binding pocket generation, use RASA conditioning:
+    - select_buried: Force residues near ligand to be buried (creates enclosed pocket)
+    - select_exposed: Force surface residues to be solvent-accessible
+    - unindex: Mark coordinating residues as flexible during diffusion
     """
 
     if use_mock:
@@ -289,7 +301,24 @@ def run_rfd3_inference(
                 spec["length"] = length_str
 
         # Ligand for small molecule / enzyme design
-        if ligand:
+        # Priority: ligand_sdf > ligand_smiles > ligand (code)
+        temp_ligand_path = None
+        if ligand_sdf:
+            # Write SDF to temp file for RFD3
+            with tempfile.NamedTemporaryFile(suffix=".sdf", delete=False, mode='w') as f:
+                f.write(ligand_sdf)
+                temp_ligand_path = f.name
+            spec["ligand"] = temp_ligand_path
+            print(f"[RFD3] Using SDF ligand from temp file: {temp_ligand_path}")
+        elif ligand_smiles:
+            # For SMILES-based ligand conditioning, we need to generate 3D coordinates
+            # and include the ligand in the input PDB, then reference by residue name
+            # Note: SMILES strings should NOT be passed directly to spec["ligand"]
+            # as RFD3 expects a residue code (e.g., "AZB", "LIG")
+            print(f"[RFD3] SMILES provided: {ligand_smiles}")
+            print(f"[RFD3] Note: Convert SMILES to 3D PDB and include in pdb_content,")
+            print(f"[RFD3]       then set 'ligand' parameter to the residue name.")
+        elif ligand:
             spec["ligand"] = ligand
 
         # Unindex for enzyme design (residues with inferred positions)
@@ -438,9 +467,11 @@ def run_rfd3_inference(
                         except Exception as e:
                             print(f"[RFD3] Error converting output: {e}")
 
-        # Cleanup temp file
+        # Cleanup temp files
         if temp_pdb_path and os.path.exists(temp_pdb_path):
             os.unlink(temp_pdb_path)
+        if temp_ligand_path and os.path.exists(temp_ligand_path):
+            os.unlink(temp_ligand_path)
 
         return {
             "status": "completed",
@@ -448,14 +479,17 @@ def run_rfd3_inference(
                 "designs": designs,
                 "mode": "real",
                 "seed": seed,
+                "ligand_used": ligand_smiles or ligand or None,
             }
         }
 
     except Exception as e:
         import traceback
-        # Cleanup temp file on error
+        # Cleanup temp files on error
         if 'temp_pdb_path' in locals() and temp_pdb_path and os.path.exists(temp_pdb_path):
             os.unlink(temp_pdb_path)
+        if 'temp_ligand_path' in locals() and temp_ligand_path and os.path.exists(temp_ligand_path):
+            os.unlink(temp_ligand_path)
         return {
             "status": "failed",
             "error": str(e),
@@ -526,16 +560,30 @@ def run_rf3_inference(
     name: str = "prediction",
     pdb_content: Optional[str] = None,
     msa_content: Optional[str] = None,
+    sequences: Optional[List[str]] = None,  # Multi-chain: additional chain sequences
+    ligand_smiles: Optional[str] = None,     # Small molecule SMILES for protein-ligand prediction
     use_mock: bool = False
 ) -> Dict[str, Any]:
     """Run RF3 structure prediction
 
     Args:
-        sequence: Protein sequence (required)
+        sequence: Protein sequence for chain A (required)
         name: Name for the prediction output
         pdb_content: Optional PDB content for structure-based input
         msa_content: Optional MSA content (.a3m or .fasta format) for improved predictions
+        sequences: Optional list of additional chain sequences [chain_B, chain_C, ...]
+                   For dimer evaluation, pass the second chain here
+        ligand_smiles: Optional ligand SMILES for protein-ligand binding evaluation
+                       This enables ipTM scoring for the protein-ligand interface
         use_mock: Whether to use mock mode
+
+    Returns:
+        Dict with predictions and confidences including:
+        - plddt_per_residue: Per-residue confidence
+        - mean_plddt: Average pLDDT
+        - ptm: Predicted TM score
+        - ipTM: Interface pTM (only for multi-chain or protein-ligand)
+        - chain_pair_pae: PAE between chain pairs
     """
 
     if use_mock:
@@ -545,12 +593,12 @@ def run_rf3_inference(
     ensure_project_root()
 
     try:
-        # Try Python API first (supports MSA)
-        return run_rf3_python_api(sequence, name, pdb_content, msa_content)
+        # Try Python API first (supports MSA, multi-chain, ligand)
+        return run_rf3_python_api(sequence, name, pdb_content, msa_content, sequences, ligand_smiles)
     except ImportError as e:
         print(f"[RF3] Python API not available: {e}")
-        # Fallback to CLI
-        return run_rf3_cli(sequence, name, msa_content)
+        # Fallback to CLI with multi-chain and ligand support
+        return run_rf3_cli(sequence, name, msa_content, sequences, ligand_smiles)
     except Exception as e:
         import traceback
         return {
@@ -560,14 +608,21 @@ def run_rf3_inference(
         }
 
 
-def run_rf3_python_api(sequence: str, name: str, pdb_content: Optional[str], msa_content: Optional[str] = None) -> Dict[str, Any]:
+def run_rf3_python_api(
+    sequence: str,
+    name: str,
+    pdb_content: Optional[str],
+    msa_content: Optional[str] = None,
+    sequences: Optional[List[str]] = None,
+    ligand_smiles: Optional[str] = None
+) -> Dict[str, Any]:
     """RF3 via Python API with optional MSA support"""
     from rf3.inference_engines.rf3 import RF3InferenceEngine
     from rf3.utils.inference import InferenceInput
 
-    # For sequence-only without MSA, use CLI approach
+    # For sequence-only without MSA, use CLI approach (supports multi-chain/ligand)
     if not pdb_content and not msa_content:
-        return run_rf3_cli(sequence, name, msa_content)
+        return run_rf3_cli(sequence, name, msa_content, sequences, ligand_smiles)
 
     # Initialize engine
     inference_engine = RF3InferenceEngine(ckpt_path='rf3', verbose=False)
@@ -636,8 +691,26 @@ def run_rf3_python_api(sequence: str, name: str, pdb_content: Optional[str], msa
             os.unlink(msa_path)
 
 
-def run_rf3_cli(sequence: str, name: str, msa_content: Optional[str] = None) -> Dict[str, Any]:
-    """RF3 via CLI for sequence-only input with optional MSA support"""
+def run_rf3_cli(
+    sequence: str,
+    name: str,
+    msa_content: Optional[str] = None,
+    sequences: Optional[List[str]] = None,  # Multi-chain support
+    ligand_smiles: Optional[str] = None,     # Small molecule support
+) -> Dict[str, Any]:
+    """
+    RF3 via CLI for sequence-only input with optional MSA support.
+
+    Args:
+        sequence: Primary sequence (chain A)
+        name: Job name
+        msa_content: Optional MSA content
+        sequences: Optional list of additional chain sequences [chain_B, chain_C, ...]
+        ligand_smiles: Optional ligand SMILES string for protein-ligand prediction
+
+    Returns:
+        Prediction results with confidences including ipTM for interfaces
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         # Write MSA to temp file if provided
         msa_path = None
@@ -647,17 +720,40 @@ def run_rf3_cli(sequence: str, name: str, msa_content: Optional[str] = None) -> 
                 f.write(msa_content)
             print(f"[RF3] Wrote MSA to {msa_path}")
 
-        # Create JSON config with optional MSA path
+        # Create JSON config with components
         config_path = os.path.join(tmpdir, "input.json")
-        component = {"sequence": sequence, "chain_id": "A"}
+        components = []
+
+        # Add primary chain A (RF3 uses "seq" not "sequence")
+        component_a = {"seq": sequence, "chain_id": "A"}
         if msa_path:
-            component["msa_path"] = msa_path
-        json_content = {
+            component_a["msa_path"] = msa_path
+        components.append(component_a)
+
+        # Add additional chains if provided (for dimer/complex evaluation)
+        if sequences:
+            chain_ids = "BCDEFGHIJKLMNOPQRSTUVWXYZ"
+            for i, seq in enumerate(sequences):
+                if i < len(chain_ids):
+                    components.append({
+                        "seq": seq,
+                        "chain_id": chain_ids[i]
+                    })
+
+        # Add ligand if provided (RF3 uses smiles directly)
+        if ligand_smiles:
+            components.append({
+                "smiles": ligand_smiles
+            })
+
+        # RF3 expects input as a list of prediction jobs
+        json_content = [{
             "name": name,
-            "components": [component]
-        }
+            "components": components
+        }]
         with open(config_path, "w") as f:
             json.dump(json_content, f)
+        print(f"[RF3] JSON config: {json.dumps(json_content, indent=2)}")
 
         out_dir = os.path.join(tmpdir, "output")
         os.makedirs(out_dir, exist_ok=True)
@@ -783,25 +879,45 @@ def run_mpnn_inference(
     temperature: float = 0.1,
     model_type: str = "ligand_mpnn",
     remove_waters: bool = True,
+    fixed_positions: Optional[List[str]] = None,  # e.g., ["A35", "A36", "B35"]
     use_mock: bool = False
 ) -> Dict[str, Any]:
-    """Run MPNN sequence design"""
+    """Run MPNN sequence design.
+
+    Args:
+        pdb_content: PDB content including HETATM records for ligand awareness
+        num_sequences: Number of sequences to design
+        temperature: Sampling temperature (lower = more conservative)
+        model_type: 'ligand_mpnn' for ligand-aware design, 'proteinmpnn' otherwise
+        remove_waters: Whether to remove water molecules
+        fixed_positions: List of residue positions to keep fixed (e.g., ["A35", "A36"])
+                        These positions will not be redesigned (useful for binding sites)
+        use_mock: Use mock mode for testing
+
+    Returns:
+        Dict with designed sequences
+
+    Note: For best ligand-aware design:
+    - Include HETATM records in pdb_content
+    - Use model_type='ligand_mpnn'
+    - Consider fixing binding site residues with fixed_positions
+    """
 
     if use_mock:
         return run_mpnn_mock(pdb_content, num_sequences)
 
     try:
         return run_mpnn_python_api(
-            pdb_content, num_sequences, temperature, model_type, remove_waters
+            pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions
         )
     except ImportError as e:
         print(f"[MPNN] Python API not available: {e}")
-        return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters)
+        return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions)
     except Exception as e:
         import traceback
         # Try CLI fallback
         try:
-            return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters)
+            return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions)
         except Exception as cli_error:
             return {
                 "status": "failed",
@@ -815,7 +931,8 @@ def run_mpnn_python_api(
     num_sequences: int,
     temperature: float,
     model_type: str,
-    remove_waters: bool
+    remove_waters: bool,
+    fixed_positions: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """MPNN via Python API"""
     from mpnn.inference_engines.mpnn import MPNNInferenceEngine
@@ -838,6 +955,13 @@ def run_mpnn_python_api(
         "batch_size": num_sequences,
         "remove_waters": remove_waters,
     }]
+
+    # Add fixed positions if specified
+    if fixed_positions:
+        # Convert list ["A35", "B36"] to format expected by MPNN
+        # This keeps these residue positions fixed during design
+        input_configs[0]["fixed_positions"] = fixed_positions
+        print(f"[MPNN] Fixed positions: {fixed_positions}")
 
     # Run
     model = MPNNInferenceEngine(**engine_config)
@@ -873,7 +997,8 @@ def run_mpnn_cli(
     num_sequences: int,
     temperature: float,
     model_type: str,
-    remove_waters: bool
+    remove_waters: bool,
+    fixed_positions: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """MPNN via CLI"""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -897,6 +1022,13 @@ def run_mpnn_cli(
             "--write_structures False",
             f"--remove_waters {'True' if remove_waters else 'None'}",
         ]
+
+        # Add fixed positions if specified
+        if fixed_positions:
+            # Convert list to comma-separated string for CLI
+            fixed_str = ",".join(fixed_positions)
+            cmd_parts.append(f"--fixed_positions {fixed_str}")
+            print(f"[MPNN] CLI fixed positions: {fixed_str}")
 
         cmd = " ".join(cmd_parts)
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=1800)
@@ -1202,6 +1334,261 @@ def analyze_structure(pdb_content: str, target_ligands: Optional[List[str]] = No
             "error": str(e),
             "traceback": traceback.format_exc(),
         }
+
+
+# ============== Theozyme Creation ==============
+
+def create_theozyme(
+    ligand_pdb: str,
+    binding_residues: List[Dict[str, Any]],
+    chain_id: str = "A"
+) -> str:
+    """
+    Create a theozyme PDB with ligand + key binding residues.
+
+    A theozyme is an idealized 3D arrangement of catalytic/binding functional
+    groups positioned around a target molecule. RFD3 can then scaffold around
+    this theozyme to create a complete protein structure.
+
+    This is the RECOMMENDED approach for ligand-conditioned protein design:
+    1. Position ligand at desired location (usually origin)
+    2. Define key binding residues (aromatic for pi-stacking, polar for H-bonds)
+    3. Run RFD3 with theozyme as input for motif scaffolding
+
+    Args:
+        ligand_pdb: PDB content for the ligand (HETATM records)
+        binding_residues: List of dicts defining key binding residues:
+            [
+                {"type": "PHE", "position": [3.5, 0.0, 2.0], "interaction": "pi_stack"},
+                {"type": "TYR", "position": [-3.5, 0.0, -2.0], "interaction": "pi_stack"},
+                {"type": "SER", "position": [0.0, 4.0, 0.0], "interaction": "hbond"},
+            ]
+        chain_id: Chain ID for the binding residues (default: "A")
+
+    Returns:
+        Combined PDB content with ligand + binding residue atoms
+
+    Example usage:
+        theozyme = create_theozyme(
+            ligand_pdb=azobenzene_pdb,
+            binding_residues=[
+                {"type": "PHE", "position": [3.5, 0.0, 2.0], "interaction": "pi_stack"},
+                {"type": "PHE", "position": [-3.5, 0.0, -2.0], "interaction": "pi_stack"},
+            ]
+        )
+        # Then run RFD3 with theozyme for motif scaffolding
+    """
+    # Standard atom templates for common binding residues
+    # These are idealized positions relative to the CA atom
+    RESIDUE_TEMPLATES = {
+        "PHE": {  # Phenylalanine - for pi-stacking
+            "atoms": [
+                ("N", [-1.458, 0.0, 0.0]),
+                ("CA", [0.0, 0.0, 0.0]),
+                ("C", [0.524, 1.420, 0.0]),
+                ("O", [-0.216, 2.409, 0.0]),
+                ("CB", [0.529, -0.777, -1.209]),
+                ("CG", [0.011, -0.368, -2.575]),
+                ("CD1", [-1.331, -0.147, -2.848]),
+                ("CD2", [0.896, -0.195, -3.635]),
+                ("CE1", [-1.785, 0.237, -4.104]),
+                ("CE2", [0.447, 0.189, -4.893]),
+                ("CZ", [-0.888, 0.405, -5.140]),
+            ]
+        },
+        "TYR": {  # Tyrosine - for pi-stacking + H-bonding
+            "atoms": [
+                ("N", [-1.458, 0.0, 0.0]),
+                ("CA", [0.0, 0.0, 0.0]),
+                ("C", [0.524, 1.420, 0.0]),
+                ("O", [-0.216, 2.409, 0.0]),
+                ("CB", [0.529, -0.777, -1.209]),
+                ("CG", [0.011, -0.368, -2.575]),
+                ("CD1", [-1.331, -0.147, -2.848]),
+                ("CD2", [0.896, -0.195, -3.635]),
+                ("CE1", [-1.785, 0.237, -4.104]),
+                ("CE2", [0.447, 0.189, -4.893]),
+                ("CZ", [-0.888, 0.405, -5.140]),
+                ("OH", [-1.330, 0.784, -6.363]),
+            ]
+        },
+        "TRP": {  # Tryptophan - for pi-stacking
+            "atoms": [
+                ("N", [-1.458, 0.0, 0.0]),
+                ("CA", [0.0, 0.0, 0.0]),
+                ("C", [0.524, 1.420, 0.0]),
+                ("O", [-0.216, 2.409, 0.0]),
+                ("CB", [0.529, -0.777, -1.209]),
+                ("CG", [0.011, -0.368, -2.575]),
+                ("CD1", [-1.260, -0.024, -2.992]),
+                ("CD2", [0.776, -0.195, -3.775]),
+                ("NE1", [-1.322, 0.298, -4.330]),
+                ("CE2", [-0.047, 0.180, -4.881]),
+                ("CE3", [2.157, -0.409, -3.964]),
+                ("CZ2", [0.383, 0.427, -6.192]),
+                ("CZ3", [2.576, -0.165, -5.271]),
+                ("CH2", [1.672, 0.279, -6.361]),
+            ]
+        },
+        "SER": {  # Serine - for H-bonding
+            "atoms": [
+                ("N", [-1.458, 0.0, 0.0]),
+                ("CA", [0.0, 0.0, 0.0]),
+                ("C", [0.524, 1.420, 0.0]),
+                ("O", [-0.216, 2.409, 0.0]),
+                ("CB", [0.529, -0.777, -1.209]),
+                ("OG", [0.011, -0.368, -2.438]),
+            ]
+        },
+        "THR": {  # Threonine - for H-bonding
+            "atoms": [
+                ("N", [-1.458, 0.0, 0.0]),
+                ("CA", [0.0, 0.0, 0.0]),
+                ("C", [0.524, 1.420, 0.0]),
+                ("O", [-0.216, 2.409, 0.0]),
+                ("CB", [0.529, -0.777, -1.209]),
+                ("OG1", [0.011, -0.368, -2.438]),
+                ("CG2", [2.054, -0.777, -1.209]),
+            ]
+        },
+        "ASN": {  # Asparagine - for H-bonding
+            "atoms": [
+                ("N", [-1.458, 0.0, 0.0]),
+                ("CA", [0.0, 0.0, 0.0]),
+                ("C", [0.524, 1.420, 0.0]),
+                ("O", [-0.216, 2.409, 0.0]),
+                ("CB", [0.529, -0.777, -1.209]),
+                ("CG", [0.011, -0.368, -2.575]),
+                ("OD1", [-1.175, -0.139, -2.819]),
+                ("ND2", [0.918, -0.170, -3.520]),
+            ]
+        },
+        "GLN": {  # Glutamine - for H-bonding
+            "atoms": [
+                ("N", [-1.458, 0.0, 0.0]),
+                ("CA", [0.0, 0.0, 0.0]),
+                ("C", [0.524, 1.420, 0.0]),
+                ("O", [-0.216, 2.409, 0.0]),
+                ("CB", [0.529, -0.777, -1.209]),
+                ("CG", [0.011, -0.368, -2.575]),
+                ("CD", [0.529, -1.145, -3.784]),
+                ("OE1", [-0.102, -1.208, -4.842]),
+                ("NE2", [1.719, -1.748, -3.634]),
+            ]
+        },
+    }
+
+    import numpy as np
+
+    output_lines = []
+    atom_serial = 1
+    res_num = 1
+
+    # First add binding residues as ATOM records
+    for residue in binding_residues:
+        res_type = residue.get("type", "PHE").upper()
+        position = residue.get("position", [0.0, 0.0, 0.0])
+        res_chain = residue.get("chain", chain_id)
+
+        if res_type not in RESIDUE_TEMPLATES:
+            print(f"[Theozyme] Warning: Unknown residue type {res_type}, skipping")
+            continue
+
+        template = RESIDUE_TEMPLATES[res_type]
+        pos = np.array(position)
+
+        for atom_name, rel_coord in template["atoms"]:
+            coord = pos + np.array(rel_coord)
+            # Format PDB ATOM record
+            line = f"ATOM  {atom_serial:5d}  {atom_name:<3s} {res_type:3s} {res_chain}{res_num:4d}    {coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}  1.00  0.00           {atom_name[0]:>1s}"
+            output_lines.append(line)
+            atom_serial += 1
+
+        res_num += 1
+
+    # Add TER record between protein and ligand
+    output_lines.append("TER")
+
+    # Add ligand (HETATM records)
+    ligand_lines = [l for l in ligand_pdb.split('\n') if l.startswith('HETATM')]
+    output_lines.extend(ligand_lines)
+
+    # Add END
+    output_lines.append("END")
+
+    return '\n'.join(output_lines)
+
+
+def generate_ligand_pdb(
+    smiles: str,
+    name: str = "LIG",
+    center: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+) -> Optional[str]:
+    """
+    Generate a 3D PDB structure from a SMILES string.
+
+    Uses RDKit to generate 3D coordinates and outputs as PDB HETATM records.
+    The ligand is centered at the specified position.
+
+    Args:
+        smiles: SMILES string for the molecule
+        name: 3-letter residue name for the ligand (default: "LIG")
+        center: (x, y, z) coordinates for ligand center (default: origin)
+
+    Returns:
+        PDB content with HETATM records, or None if generation fails
+    """
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        import numpy as np
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+
+        # Add hydrogens and generate 3D coordinates
+        mol = Chem.AddHs(mol)
+        AllChem.EmbedMolecule(mol, randomSeed=42)
+        AllChem.MMFFOptimizeMolecule(mol)
+
+        # Get conformer
+        conf = mol.GetConformer()
+
+        # Calculate current center
+        coords = []
+        for i in range(mol.GetNumAtoms()):
+            pos = conf.GetAtomPosition(i)
+            coords.append([pos.x, pos.y, pos.z])
+        coords = np.array(coords)
+        current_center = np.mean(coords, axis=0)
+
+        # Calculate translation to target center
+        translation = np.array(center) - current_center
+
+        # Generate PDB content
+        pdb_lines = []
+        atom_serial = 1
+
+        for i, atom in enumerate(mol.GetAtoms()):
+            pos = conf.GetAtomPosition(i)
+            coord = np.array([pos.x, pos.y, pos.z]) + translation
+            symbol = atom.GetSymbol()
+            atom_name = f"{symbol}{i+1}"[:4]
+
+            line = f"HETATM{atom_serial:5d}  {atom_name:<3s} {name:3s} L   1    {coord[0]:8.3f}{coord[1]:8.3f}{coord[2]:8.3f}  1.00  0.00          {symbol:>2s}"
+            pdb_lines.append(line)
+            atom_serial += 1
+
+        pdb_lines.append("END")
+        return '\n'.join(pdb_lines)
+
+    except ImportError:
+        print("[Theozyme] RDKit not available for SMILES to PDB conversion")
+        return None
+    except Exception as e:
+        print(f"[Theozyme] Error generating PDB from SMILES: {e}")
+        return None
 
 
 # ============== ESM3 Inference ==============

@@ -29,6 +29,8 @@ services:
       - ./inference_utils.py:/app/inference_utils.py
       - ./binding_analysis.py:/app/binding_analysis.py
       - ./conformer_utils.py:/app/conformer_utils.py
+      - ./cleavage_utils.py:/app/cleavage_utils.py
+      - ../utils/dssp.py:/app/dssp.py
     environment:
       - CHECKPOINT_DIR=/runpod-volume/checkpoints
       - FOUNDRY_CHECKPOINT_DIRS=/runpod-volume/checkpoints

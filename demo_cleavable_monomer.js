@@ -221,31 +221,37 @@ async function runDemo() {
 
   // Validation results
   const validation = data.validation;
+  const checks = validation.checks || validation;
   console.log('Validation:');
-  console.log(`  Valid: ${validation.is_valid ? 'YES' : 'NO'}`);
+  console.log(`  Overall Pass: ${validation.overall_pass ? 'YES' : 'NO'}`);
 
-  if (validation.chain_lengths) {
-    console.log(`  Chains OK: A=${validation.chain_lengths.chain_a_ok}, B=${validation.chain_lengths.chain_b_ok}`);
+  if (checks.chain_a_length !== undefined) {
+    console.log(`  Chain lengths: A=${checks.chain_a_length}, B=${checks.chain_b_length}`);
+    console.log(`  Length pass: ${checks.length_pass ? 'YES' : 'NO'}`);
   }
 
-  if (validation.contacts) {
-    console.log(`  Contacts: A=${validation.contacts.chain_a_contacts}, B=${validation.contacts.chain_b_contacts}`);
-    console.log(`  Symmetry: ${(validation.contacts.symmetry_score * 100).toFixed(0)}%`);
+  if (checks.contacts_a !== undefined) {
+    console.log(`  Contacts: A=${checks.contacts_a}, B=${checks.contacts_b}`);
+    console.log(`  Symmetry: ${((checks.symmetry_score || 0) * 100).toFixed(0)}%`);
   }
 
-  if (validation.clashes) {
-    console.log(`  Clashes: ${validation.clashes.has_clashes ? 'YES (bad)' : 'NO (good)'}`);
-    if (validation.clashes.min_distance) {
-      console.log(`  Min distance: ${validation.clashes.min_distance.toFixed(2)} A`);
+  if (checks.clash_check) {
+    const clash = checks.clash_check;
+    console.log(`  Clashes: ${clash.has_clashes ? 'YES (bad)' : 'NO (good)'}`);
+    if (clash.min_distance) {
+      console.log(`  Min distance: ${clash.min_distance.toFixed(2)} A`);
     }
   }
 
-  if (validation.gnina) {
-    const gnina = validation.gnina;
-    console.log(`  GNINA Affinity: ${gnina.affinity?.toFixed(2) || 'N/A'} kcal/mol`);
-    console.log(`  Binding Quality: ${getBindingQuality(gnina.affinity)}`);
-    if (gnina.cnn_score) {
-      console.log(`  CNN Score: ${gnina.cnn_score.toFixed(3)}`);
+  // GNINA affinity is nested in checks.gnina_result.result.best_affinity
+  const gninaResult = checks.gnina_result?.result;
+  if (gninaResult) {
+    const affinity = gninaResult.best_affinity;
+    const cnnScore = gninaResult.best_cnn_score;
+    console.log(`  GNINA Affinity: ${affinity?.toFixed(2) || 'N/A'} kcal/mol`);
+    console.log(`  Binding Quality: ${getBindingQuality(affinity)}`);
+    if (cnnScore) {
+      console.log(`  CNN Score: ${cnnScore.toFixed(3)}`);
     }
   }
   console.log();
@@ -278,13 +284,15 @@ async function runDemo() {
     console.log('-------|--------|-------|-------------|----------');
 
     for (const r of data.all_results) {
-      const affStr = r.validation?.gnina?.affinity
-        ? `${r.validation.gnina.affinity.toFixed(2).padStart(6)}`.padEnd(12)
+      const vChecks = r.validation?.checks || r.validation || {};
+      const gninaRes = vChecks.gnina_result?.result;
+      const affStr = gninaRes?.best_affinity !== undefined
+        ? `${gninaRes.best_affinity.toFixed(2).padStart(6)}`.padEnd(12)
         : 'N/A'.padEnd(12);
       const contacts = r.cleavage_site
         ? `A=${r.cleavage_site.contacts_chain_a}/B=${r.cleavage_site.contacts_chain_b}`
         : 'N/A';
-      const validStr = r.validation?.is_valid ? 'YES' : 'NO ';
+      const validStr = r.validation?.overall_pass ? 'YES' : 'NO ';
       console.log(
         `   ${r.design_index.toString().padStart(2)}  | ${r.overall_score.toFixed(1).padStart(6)} |  ${validStr}  | ${affStr}| ${contacts}`
       );
@@ -316,7 +324,7 @@ async function runDemo() {
   console.log('='.repeat(64));
 
   // Compare with direct symmetric design
-  const affinity = validation.gnina?.affinity;
+  const affinity = checks.gnina_result?.result?.best_affinity;
   console.log('  COMPARISON WITH DIRECT SYMMETRIC DESIGN');
   console.log('-'.repeat(64));
   console.log();

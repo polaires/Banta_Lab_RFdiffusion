@@ -647,8 +647,9 @@ def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
             print(f"[CleavableMonomer] Design {design_idx + 1} produced no designs")
             continue
 
-        monomer_pdb = designs[0].get("pdb_content")
+        monomer_pdb = designs[0].get("content") or designs[0].get("pdb_content")
         if not monomer_pdb:
+            print(f"[CleavableMonomer] Design {design_idx + 1}: No PDB content in result")
             continue
 
         print(f"[CleavableMonomer] Design {design_idx + 1} generated, finding cleavage sites...")
@@ -676,10 +677,21 @@ def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
         print(f"[CleavableMonomer] Design {design_idx + 1}: Found {len(sites)} cleavage sites")
 
         # Step 3: Score and select best site
+        # Count total residues for scoring
+        n_residues = sites[0].chain_a_length + sites[0].chain_b_length if sites else 0
         for site in sites:
-            score_cleavage_site(site)
+            score_cleavage_site(site, n_residues)
 
-        best_site = select_best_cleavage_site(sites, strategy=cleavage_strategy)
+        best_site = select_best_cleavage_site(sites, n_residues, strategy=cleavage_strategy)
+        if best_site is None:
+            print(f"[CleavableMonomer] Design {design_idx + 1}: No suitable cleavage site selected")
+            monomer_results.append({
+                "design_index": design_idx,
+                "pdb_content": monomer_pdb,
+                "cleavage_sites": len(sites),
+                "error": "No suitable cleavage site selected"
+            })
+            continue
         print(f"[CleavableMonomer] Best site: residue {best_site.residue_id}, score={best_site.score:.2f}")
 
         # Step 4: Cleave protein
@@ -695,7 +707,7 @@ def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
             pdb_content=cleavage_result.dimer_pdb,
             ligand_name="UNL",
             ligand_smiles=ligand_smiles,
-            min_contacts=min_contacts_per_chain,
+            min_contacts_per_chain=min_contacts_per_chain,
         )
 
         result_entry = {
@@ -725,11 +737,20 @@ def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
         # Compute overall score for ranking
         overall_score = best_site.score
-        if validation.get("is_valid"):
+        checks = validation.get("checks", {})
+        is_valid = validation.get("overall_pass", False)
+
+        if is_valid:
             overall_score += 10  # Bonus for valid dimer
-            if validation.get("gnina") and validation["gnina"].get("affinity"):
-                # Better (more negative) affinity = higher score
-                overall_score -= validation["gnina"]["affinity"]
+
+        # Get GNINA affinity from nested structure
+        gnina_result = checks.get("gnina_result", {}).get("result", {})
+        gnina_affinity = gnina_result.get("best_affinity")
+
+        if gnina_affinity is not None:
+            # Better (more negative) affinity = higher score
+            # Weight affinity heavily: multiply by 5 to prioritize good binding
+            overall_score -= gnina_affinity * 5
 
         result_entry["overall_score"] = overall_score
         monomer_results.append(result_entry)
@@ -738,7 +759,7 @@ def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
             best_score = overall_score
             best_result = result_entry
 
-        print(f"[CleavableMonomer] Design {design_idx + 1}: overall_score={overall_score:.2f}, valid={validation.get('is_valid')}")
+        print(f"[CleavableMonomer] Design {design_idx + 1}: overall_score={overall_score:.2f}, valid={is_valid}, affinity={gnina_affinity}")
 
     # Check if any design succeeded
     if best_result is None:

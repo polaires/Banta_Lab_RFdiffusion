@@ -4,10 +4,11 @@ import { useStore, TabId } from '@/lib/store';
 import { UserMenu } from './auth/UserMenu';
 
 const workflowSteps = [
-  { id: 'task' as const, label: 'Design Task', step: 0 },
-  { id: 'rfd3' as const, label: 'RFdiffusion3', step: 1 },
-  { id: 'mpnn' as const, label: 'MPNN', step: 2 },
-  { id: 'rf3' as const, label: 'Validate', step: 3 },
+  { id: 'ai' as const, label: 'AI Assistant', step: 0, icon: 'auto_awesome', gradient: true },
+  { id: 'task' as const, label: 'Design Task', step: 1 },
+  { id: 'rfd3' as const, label: 'RFdiffusion3', step: 2 },
+  { id: 'mpnn' as const, label: 'MPNN', step: 3 },
+  { id: 'rf3' as const, label: 'Validate', step: 4 },
 ];
 
 export function Header() {
@@ -25,8 +26,11 @@ export function Header() {
   const isConnected = health?.status === 'healthy';
   const pendingJobs = jobs.filter(j => j.status === 'pending' || j.status === 'running').length;
 
+  const aiCaseStudy = useStore((state) => state.aiCaseStudy);
+
   const getStepStatus = (stepId: string) => {
     if (activeTab === stepId) return 'active';
+    if (stepId === 'ai' && aiCaseStudy?.currentStep === 'complete') return 'completed';
     if (stepId === 'task' && selectedDesignTask) return 'completed';
     if (stepId === 'rfd3' && latestRfd3Design) return 'completed';
     if (stepId === 'mpnn' && lastCompletedJobType === 'mpnn') return 'completed';
@@ -62,19 +66,33 @@ export function Header() {
                   onClick={() => setActiveTab(step.id)}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all ${
                     isActive
-                      ? 'bg-white border border-blue-200 shadow-sm'
+                      ? step.gradient
+                        ? 'bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 shadow-sm'
+                        : 'bg-white border border-blue-200 shadow-sm'
                       : 'opacity-50 grayscale hover:opacity-75'
                   }`}
                 >
-                  <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold ${
-                    isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-200 text-slate-600'
-                  }`}>
-                    {step.step}
-                  </span>
+                  {step.icon ? (
+                    <span className={`w-5 h-5 flex items-center justify-center rounded-full ${
+                      isActive
+                        ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      <span className="material-symbols-outlined text-[12px]">{step.icon}</span>
+                    </span>
+                  ) : (
+                    <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {step.step}
+                    </span>
+                  )}
                   <span className={`text-xs font-semibold ${
-                    isActive ? 'text-blue-900' : 'text-slate-600'
+                    isActive
+                      ? step.gradient ? 'text-violet-900' : 'text-blue-900'
+                      : 'text-slate-600'
                   }`}>
                     {step.label}
                   </span>
@@ -95,11 +113,17 @@ export function Header() {
                 onClick={() => setActiveTab(step.id)}
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition ${
                   isActive
-                    ? 'bg-blue-600 text-white'
+                    ? step.gradient
+                      ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white'
+                      : 'bg-blue-600 text-white'
                     : 'bg-slate-200 text-slate-600'
                 }`}
               >
-                {step.step}
+                {step.icon ? (
+                  <span className="material-symbols-outlined text-[14px]">{step.icon}</span>
+                ) : (
+                  step.step
+                )}
               </button>
             );
           })}

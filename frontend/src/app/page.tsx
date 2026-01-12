@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import { Header } from '@/components/Header';
 import { ConnectionModal } from '@/components/ConnectionModal';
 import { CollapsibleViewer } from '@/components/CollapsibleViewer';
+import { AIDesignAssistantPanel } from '@/components/AIDesignAssistantPanel';
 import { TaskPanel } from '@/components/TaskPanel';
 import { RFD3Panel } from '@/components/RFD3Panel';
 import { RF3Panel } from '@/components/RF3Panel';
@@ -45,6 +46,7 @@ export default function Home() {
       <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8">
         {/* Active Panel */}
         <div className="bg-white rounded-2xl shadow-card p-8">
+          {activeTab === 'ai' && <AIDesignAssistantPanel />}
           {activeTab === 'task' && <TaskPanel />}
           {activeTab === 'rfd3' && <RFD3Panel />}
           {activeTab === 'mpnn' && <MPNNPanel />}

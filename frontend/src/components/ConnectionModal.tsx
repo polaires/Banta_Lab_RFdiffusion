@@ -120,34 +120,51 @@ export function ConnectionModal() {
           {/* Mode Selection */}
           <div className="space-y-3">
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Connection Mode</label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => {
+                  handleModeChange('traditional');
+                  setInputUrl('http://localhost:8000');
+                }}
+                className={`p-3 rounded-xl border-2 transition-all text-left ${
+                  connectionMode === 'traditional' && inputUrl === 'http://localhost:8000'
+                    ? 'border-amber-500 bg-amber-50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="material-symbols-outlined text-amber-600 text-lg">developer_mode</span>
+                  <span className="font-semibold text-slate-900 text-xs">Local Dev</span>
+                </div>
+                <p className="text-[10px] text-slate-500">Docker on localhost</p>
+              </button>
               <button
                 onClick={() => handleModeChange('traditional')}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${
-                  connectionMode === 'traditional'
+                className={`p-3 rounded-xl border-2 transition-all text-left ${
+                  connectionMode === 'traditional' && inputUrl !== 'http://localhost:8000'
                     ? 'border-blue-500 bg-blue-50 shadow-sm'
                     : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-1.5 mb-1">
                   <span className="material-symbols-outlined text-slate-600 text-lg">dns</span>
-                  <span className="font-semibold text-slate-900 text-sm">Traditional</span>
+                  <span className="font-semibold text-slate-900 text-xs">Traditional</span>
                 </div>
-                <p className="text-xs text-slate-500">Always-on GPU Pod</p>
+                <p className="text-[10px] text-slate-500">Always-on GPU Pod</p>
               </button>
               <button
                 onClick={() => handleModeChange('serverless')}
-                className={`p-4 rounded-xl border-2 transition-all text-left ${
+                className={`p-3 rounded-xl border-2 transition-all text-left ${
                   connectionMode === 'serverless'
                     ? 'border-blue-500 bg-blue-50 shadow-sm'
                     : 'border-slate-200 hover:border-slate-300 bg-white'
                 }`}
               >
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-1.5 mb-1">
                   <span className="material-symbols-outlined text-slate-600 text-lg">cloud</span>
-                  <span className="font-semibold text-slate-900 text-sm">Serverless</span>
+                  <span className="font-semibold text-slate-900 text-xs">Serverless</span>
                 </div>
-                <p className="text-xs text-slate-500">Pay-per-use (~95% savings)</p>
+                <p className="text-[10px] text-slate-500">Pay-per-use</p>
               </button>
             </div>
           </div>

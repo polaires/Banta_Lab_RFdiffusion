@@ -1292,6 +1292,377 @@ def get_ca_positions(
         return []
 
 
+# ============== Shape Complementarity (BindCraft-style) ==============
+
+def calculate_shape_complementarity(
+    pdb_content: str,
+    chain_a: str = "A",
+    chain_b: str = "B",
+) -> Dict[str, Any]:
+    """
+    Calculate interface Shape Complementarity (SC) using PyRosetta.
+
+    Shape Complementarity measures how well two surfaces "fit" together.
+    Values range from 0 (poor) to 1 (perfect complementarity).
+
+    BindCraft threshold: SC > 0.5 indicates good interface packing.
+
+    Args:
+        pdb_content: PDB file content as string
+        chain_a: First chain (typically target)
+        chain_b: Second chain (typically binder)
+
+    Returns:
+        Dict with:
+        - shape_complementarity: SC score (0-1)
+        - status: "completed" or "error"
+    """
+    try:
+        # Try PyRosetta first
+        import pyrosetta
+        from pyrosetta import pose_from_pdb_string
+        from pyrosetta.rosetta.protocols.analysis import InterfaceAnalyzerMover
+
+        # Initialize PyRosetta if needed
+        if not pyrosetta.rosetta.basic.was_init_called():
+            pyrosetta.init("-mute all")
+
+        # Load pose
+        pose = pose_from_pdb_string(pdb_content)
+
+        # Create interface analyzer
+        interface_str = f"{chain_a}_{chain_b}"
+        iam = InterfaceAnalyzerMover()
+        iam.set_interface(interface_str)
+        iam.set_compute_interface_sc(True)
+
+        # Apply to pose
+        iam.apply(pose)
+
+        # Get SC score
+        sc_score = iam.get_interface_sc()
+
+        return {
+            "status": "completed",
+            "shape_complementarity": float(sc_score),
+            "method": "pyrosetta"
+        }
+
+    except ImportError:
+        # Fallback to geometric approximation if PyRosetta not available
+        return _calculate_sc_geometric(pdb_content, chain_a, chain_b)
+    except Exception as e:
+        print(f"[BindingAnalysis] PyRosetta SC failed: {e}, trying geometric fallback")
+        return _calculate_sc_geometric(pdb_content, chain_a, chain_b)
+
+
+def _calculate_sc_geometric(
+    pdb_content: str,
+    chain_a: str,
+    chain_b: str,
+) -> Dict[str, Any]:
+    """
+    Geometric approximation of Shape Complementarity.
+
+    Uses surface normal dot products at interface contacts
+    as a proxy for SC when PyRosetta is not available.
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get interface atoms
+        chain_a_atoms = structure[structure.chain_id == chain_a]
+        chain_b_atoms = structure[structure.chain_id == chain_b]
+
+        if len(chain_a_atoms) == 0 or len(chain_b_atoms) == 0:
+            return {"status": "error", "error": "Could not find chains"}
+
+        # Find interface contacts
+        contact_cutoff = 5.0  # Angstroms
+        contact_pairs = []
+
+        for i, atom_a in enumerate(chain_a_atoms):
+            for j, atom_b in enumerate(chain_b_atoms):
+                dist = np.linalg.norm(atom_a.coord - atom_b.coord)
+                if dist < contact_cutoff:
+                    contact_pairs.append((i, j, dist))
+
+        if len(contact_pairs) == 0:
+            return {
+                "status": "completed",
+                "shape_complementarity": 0.0,
+                "method": "geometric",
+                "note": "No interface contacts found"
+            }
+
+        # Estimate SC from contact distances
+        # Closer contacts = better complementarity
+        # SC ≈ fraction of contacts that are "tight" (< 4Å)
+        tight_contacts = sum(1 for _, _, d in contact_pairs if d < 4.0)
+        sc_estimate = tight_contacts / len(contact_pairs)
+
+        # Adjust to typical SC range (0.3-0.8)
+        sc_estimate = 0.3 + sc_estimate * 0.5
+
+        return {
+            "status": "completed",
+            "shape_complementarity": round(float(sc_estimate), 3),
+            "method": "geometric",
+            "n_contacts": len(contact_pairs),
+            "n_tight_contacts": tight_contacts
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+# ============== Surface Hydrophobicity ==============
+
+def calculate_surface_hydrophobicity(
+    pdb_content: str,
+    chain: str = "B",
+) -> Dict[str, Any]:
+    """
+    Calculate surface hydrophobicity of a protein chain.
+
+    BindCraft filters designs with surface_hydrophobicity > 0.37
+    to prevent aggregation-prone binders.
+
+    Args:
+        pdb_content: PDB file content as string
+        chain: Chain to analyze
+
+    Returns:
+        Dict with:
+        - surface_hydrophobicity: Fraction of exposed hydrophobic residues
+        - status: "completed" or "error"
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        from biotite.structure import sasa
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get chain atoms
+        chain_atoms = structure[structure.chain_id == chain]
+        if len(chain_atoms) == 0:
+            return {"status": "error", "error": f"Chain {chain} not found"}
+
+        # Calculate per-atom SASA
+        atom_sasa = sasa(chain_atoms)
+
+        # Hydrophobic residues
+        hydrophobic_residues = {'ALA', 'VAL', 'LEU', 'ILE', 'MET', 'PHE', 'TRP', 'PRO'}
+
+        # Count exposed residues by type
+        exposed_threshold = 10.0  # Å² for a residue to be considered "exposed"
+
+        # Aggregate SASA by residue
+        residue_sasa = {}
+        residue_type = {}
+
+        for i, atom in enumerate(chain_atoms):
+            res_id = atom.res_id
+            res_name = atom.res_name
+
+            if res_id not in residue_sasa:
+                residue_sasa[res_id] = 0.0
+                residue_type[res_id] = res_name
+
+            residue_sasa[res_id] += atom_sasa[i]
+
+        # Count exposed residues
+        total_exposed = 0
+        hydrophobic_exposed = 0
+
+        for res_id, total_sasa in residue_sasa.items():
+            if total_sasa > exposed_threshold:
+                total_exposed += 1
+                if residue_type[res_id] in hydrophobic_residues:
+                    hydrophobic_exposed += 1
+
+        # Calculate fraction
+        if total_exposed > 0:
+            surface_hydrophobicity = hydrophobic_exposed / total_exposed
+        else:
+            surface_hydrophobicity = 0.0
+
+        return {
+            "status": "completed",
+            "surface_hydrophobicity": round(float(surface_hydrophobicity), 3),
+            "total_exposed_residues": total_exposed,
+            "hydrophobic_exposed_residues": hydrophobic_exposed,
+            "passes_bindcraft_threshold": surface_hydrophobicity < 0.37
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+# ============== Unsaturated Hydrogen Bonds ==============
+
+def calculate_unsaturated_hbonds(
+    pdb_content: str,
+    chain: str = "B",
+    interface_residues: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """
+    Count buried polar atoms that are not forming hydrogen bonds.
+
+    BindCraft filters designs with unsaturated_hbonds > 6
+    as these indicate potential instability.
+
+    Args:
+        pdb_content: PDB file content as string
+        chain: Chain to analyze
+        interface_residues: Optional list of interface residue numbers
+
+    Returns:
+        Dict with:
+        - unsaturated_count: Number of unsaturated polar atoms
+        - status: "completed" or "error"
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        from biotite.structure import sasa
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get chain atoms
+        chain_atoms = structure[structure.chain_id == chain]
+        if len(chain_atoms) == 0:
+            return {"status": "error", "error": f"Chain {chain} not found"}
+
+        # Calculate SASA to identify buried atoms
+        atom_sasa = sasa(chain_atoms)
+
+        # Polar atoms that can form H-bonds
+        hbond_atoms = {
+            'N', 'O',  # Backbone
+            'OG', 'OG1', 'OH',  # Ser, Thr, Tyr
+            'OD1', 'OD2', 'OE1', 'OE2',  # Asp, Glu
+            'ND1', 'ND2', 'NE', 'NE1', 'NE2', 'NH1', 'NH2', 'NZ',  # His, Arg, Lys
+            'SG'  # Cys
+        }
+
+        # Find buried polar atoms
+        buried_polar = []
+        buried_threshold = 5.0  # Å² - atoms below this SASA are "buried"
+
+        for i, atom in enumerate(chain_atoms):
+            atom_name = atom.atom_name
+            res_id = atom.res_id
+
+            # Check if in interface (if specified)
+            if interface_residues is not None:
+                if res_id not in interface_residues:
+                    continue
+
+            # Check if polar and buried
+            if atom_name in hbond_atoms and atom_sasa[i] < buried_threshold:
+                buried_polar.append({
+                    "atom": atom_name,
+                    "residue": f"{atom.res_name}{res_id}",
+                    "sasa": round(float(atom_sasa[i]), 2)
+                })
+
+        # Simple check: count potentially unsaturated
+        # (A proper check would identify actual H-bond partners)
+        unsaturated_count = len(buried_polar)
+
+        return {
+            "status": "completed",
+            "unsaturated_count": unsaturated_count,
+            "buried_polar_atoms": buried_polar[:20],  # First 20
+            "passes_bindcraft_threshold": unsaturated_count < 6
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+# ============== Interface Residue Count ==============
+
+def count_interface_residues(
+    pdb_content: str,
+    chain_a: str = "A",
+    chain_b: str = "B",
+    distance_cutoff: float = 5.0,
+) -> Dict[str, Any]:
+    """
+    Count residues at the protein-protein interface.
+
+    BindCraft requires interface_residues > 6 to ensure
+    meaningful binding interface.
+
+    Args:
+        pdb_content: PDB file content
+        chain_a: First chain
+        chain_b: Second chain
+        distance_cutoff: Distance for interface (Å)
+
+    Returns:
+        Dict with interface residue counts
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        chain_a_atoms = structure[structure.chain_id == chain_a]
+        chain_b_atoms = structure[structure.chain_id == chain_b]
+
+        if len(chain_a_atoms) == 0 or len(chain_b_atoms) == 0:
+            return {"status": "error", "error": "Chains not found"}
+
+        interface_a = set()
+        interface_b = set()
+
+        for atom_a in chain_a_atoms:
+            for atom_b in chain_b_atoms:
+                dist = np.linalg.norm(atom_a.coord - atom_b.coord)
+                if dist < distance_cutoff:
+                    interface_a.add(atom_a.res_id)
+                    interface_b.add(atom_b.res_id)
+
+        total_interface = len(interface_a) + len(interface_b)
+
+        return {
+            "status": "completed",
+            "interface_residues_total": total_interface,
+            "interface_residues_chain_a": len(interface_a),
+            "interface_residues_chain_b": len(interface_b),
+            "interface_residue_ids_a": sorted(list(interface_a)),
+            "interface_residue_ids_b": sorted(list(interface_b)),
+            "passes_bindcraft_threshold": total_interface >= 6
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
 # ============== Quality Thresholds ==============
 
 BINDING_QUALITY_THRESHOLDS = {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { ConfidenceMetricsDisplay } from './ConfidenceMetrics';
@@ -36,6 +36,45 @@ export function RF3Panel() {
   const [calculatingRmsd, setCalculatingRmsd] = useState(false);
   const [lastPrediction, setLastPrediction] = useState<string | null>(null);
 
+  // MSA support
+  const [msaContent, setMsaContent] = useState<string | null>(null);
+  const [msaFileName, setMsaFileName] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const msaInputRef = useRef<HTMLInputElement>(null);
+
+  // Handle MSA file upload
+  const handleMsaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file extension
+    const ext = file.name.toLowerCase().split('.').pop();
+    if (!['a3m', 'fasta', 'fa'].includes(ext || '')) {
+      setError('MSA file must be .a3m, .fasta, or .fa format');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setMsaContent(content);
+      setMsaFileName(file.name);
+      setError(null);
+    };
+    reader.onerror = () => {
+      setError('Failed to read MSA file');
+    };
+    reader.readAsText(file);
+  };
+
+  const clearMsa = () => {
+    setMsaContent(null);
+    setMsaFileName(null);
+    if (msaInputRef.current) {
+      msaInputRef.current.value = '';
+    }
+  };
+
   const handleSubmit = async () => {
     if (!health) {
       setError('Backend not connected');
@@ -55,7 +94,10 @@ export function RF3Panel() {
     setRmsdResult(null);
 
     try {
-      const response = await api.submitRF3Prediction({ sequence: cleanSeq });
+      const response = await api.submitRF3Prediction({
+        sequence: cleanSeq,
+        msa_content: msaContent || undefined,
+      });
 
       // Add to local store (UI state)
       addJob({
@@ -112,13 +154,14 @@ export function RF3Panel() {
         });
 
         // Notify user with next step suggestion
+        const hasRfd3ForComparison = !!latestRfd3Design?.pdbContent;
         addNotification({
           type: 'success',
           title: 'Structure predicted!',
           message: result.result.confidences
-            ? `pLDDT: ${(result.result.confidences.summary_confidences?.overall_plddt || 0 * 100).toFixed(1)}. Design sequences with MPNN.`
-            : 'Fold validated. Design sequences with MPNN or redesign with RFD3.',
-          action: {
+            ? `pLDDT: ${(result.result.confidences.summary_confidences?.overall_plddt || 0 * 100).toFixed(1)}${hasRfd3ForComparison ? '. Compare structures in viewer below.' : '. Design sequences with MPNN.'}`
+            : `Fold validated.${hasRfd3ForComparison ? ' Compare structures in viewer below.' : ' Design sequences with MPNN or redesign with RFD3.'}`,
+          action: hasRfd3ForComparison ? undefined : {
             label: 'Design Sequences',
             tab: 'mpnn',
           },
@@ -260,6 +303,84 @@ export function RF3Panel() {
           </span>
         </div>
       </div>
+
+      {/* Advanced Options Toggle */}
+      <button
+        onClick={() => setShowAdvanced(!showAdvanced)}
+        className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+      >
+        <span className="material-symbols-outlined text-lg">
+          {showAdvanced ? 'expand_less' : 'expand_more'}
+        </span>
+        Advanced Options
+      </button>
+
+      {/* Advanced Options (MSA Upload) */}
+      {showAdvanced && (
+        <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+          {/* MSA Upload */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+              <span className="material-symbols-outlined text-base">library_books</span>
+              Multiple Sequence Alignment (Optional)
+            </label>
+            <p className="text-xs text-slate-500">
+              Upload an .a3m or .fasta MSA file to improve prediction quality for natural proteins.
+            </p>
+
+            {msaFileName ? (
+              <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-emerald-200">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-emerald-600">check_circle</span>
+                  <div>
+                    <p className="text-sm font-medium text-slate-700">{msaFileName}</p>
+                    <p className="text-xs text-slate-500">
+                      {msaContent ? `${msaContent.split('\n').filter(l => l.startsWith('>')).length} sequences` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={clearMsa}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-lg">close</span>
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  ref={msaInputRef}
+                  type="file"
+                  accept=".a3m,.fasta,.fa"
+                  onChange={handleMsaUpload}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+                <div className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-emerald-400 hover:bg-emerald-50 transition-colors cursor-pointer">
+                  <span className="material-symbols-outlined text-slate-400">upload_file</span>
+                  <span className="text-sm text-slate-600">Upload MSA file (.a3m, .fasta)</span>
+                </div>
+              </div>
+            )}
+
+            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-start gap-2">
+                <span className="material-symbols-outlined text-blue-500 text-base mt-0.5">info</span>
+                <div className="text-xs text-blue-700">
+                  <p className="font-medium">When to use MSA:</p>
+                  <ul className="mt-1 space-y-0.5 text-blue-600">
+                    <li>• Predicting natural protein structures</li>
+                    <li>• Improving pLDDT confidence scores</li>
+                    <li>• Getting more accurate PAE matrices</li>
+                  </ul>
+                  <p className="mt-2 text-blue-600">
+                    For de novo designed proteins, MSA is typically not needed.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error Display */}
       {error && (

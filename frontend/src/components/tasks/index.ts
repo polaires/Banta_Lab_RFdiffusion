@@ -6,6 +6,7 @@ export { NucleicAcidForm } from './NucleicAcidForm';
 export { EnzymeForm } from './EnzymeForm';
 export { SymmetricForm } from './SymmetricForm';
 export { RefinementForm } from './RefinementForm';
+export { InterfaceLigandForm } from './InterfaceLigandForm';
 
 // Shared components
 export { FormSection, FormField, FormRow } from './shared/FormSection';

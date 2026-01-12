@@ -7,7 +7,8 @@ export type DesignTask =
   | 'nucleic_acid'
   | 'enzyme'
   | 'symmetric'
-  | 'refinement';
+  | 'refinement'
+  | 'interface_ligand';
 
 interface TaskConfig {
   id: DesignTask;
@@ -66,6 +67,13 @@ const TASKS: TaskConfig[] = [
     description: 'Refine an existing structure with partial diffusion',
     icon: 'tune',
     requirements: ['Input PDB', 'Noise level'],
+  },
+  {
+    id: 'interface_ligand',
+    name: 'Interface Ligand Dimer',
+    description: 'Design separable protein dimers with ligand at the interface',
+    icon: 'link',
+    requirements: ['Ligand SMILES', 'Approach'],
   },
 ];
 

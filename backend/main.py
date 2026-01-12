@@ -267,6 +267,36 @@ class ExportRequest(BaseModel):
     confidences: Optional[Dict[str, Any]] = None
 
 
+class FetchPDBRequest(BaseModel):
+    """Request to fetch PDB from RCSB"""
+    pdb_id: str
+    format: Literal["pdb", "cif"] = "pdb"
+    use_cache: bool = True
+
+
+class MetalBindingAnalysisRequest(BaseModel):
+    """Request to analyze metal binding site"""
+    pdb_content: Optional[str] = None
+    pdb_id: Optional[str] = None  # Alternative: fetch from RCSB
+    metal_chain: str = "A"
+    metal_residue: str  # e.g., "FE", "ZN", "CA"
+    metal_resnum: int
+    distance_cutoff: float = Field(default=3.0, ge=2.0, le=5.0)
+
+
+class AIRecommendRequest(BaseModel):
+    """Request for AI-assisted parameter recommendation"""
+    pdb_content: Optional[str] = None
+    pdb_id: Optional[str] = None
+    metal_chain: str = "A"
+    metal_residue: str  # Current metal (e.g., "FE")
+    metal_resnum: int
+    target_metal: str  # Target metal (e.g., "TB")
+    user_description: Optional[str] = None  # Natural language goal
+    include_sasa: bool = True
+    include_secondary_structure: bool = True
+
+
 class JobResponse(BaseModel):
     job_id: str
     status: str
@@ -1342,6 +1372,558 @@ async def delete_job(job_id: str):
     if job_id in stored_structures:
         del stored_structures[job_id]
     return {"status": "deleted"}
+
+
+# ============== AI Protein Engineering Endpoints ==============
+
+@app.post("/api/fetch/pdb")
+async def fetch_pdb_from_rcsb(request: FetchPDBRequest):
+    """
+    Fetch PDB file from RCSB Protein Data Bank.
+
+    Supports both PDB and mmCIF formats with local caching.
+    """
+    try:
+        from utils.pdb_fetch import fetch_pdb, fetch_cif, parse_pdb_content
+
+        if request.format == "cif":
+            result = fetch_cif(request.pdb_id, use_cache=request.use_cache)
+        else:
+            result = fetch_pdb(request.pdb_id, use_cache=request.use_cache)
+
+        if not result["success"]:
+            raise HTTPException(status_code=404, detail=result["error"])
+
+        # Parse basic info from content
+        if request.format == "pdb":
+            info = parse_pdb_content(result["content"])
+        else:
+            info = {"format": "cif"}
+
+        return {
+            "pdb_id": result["pdb_id"],
+            "content": result["content"],
+            "source": result["source"],
+            "format": request.format,
+            "info": info,
+        }
+
+    except ImportError:
+        raise HTTPException(
+            status_code=501,
+            detail="PDB fetch module not available. Install required dependencies."
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/analyze/metal-binding")
+async def analyze_metal_binding(request: MetalBindingAnalysisRequest):
+    """
+    Analyze metal binding site in a protein structure.
+
+    Returns comprehensive analysis including:
+    - Coordination number and geometry
+    - Coordinating residues and atoms
+    - Donor type classification
+    - Bond distances and angles
+    - Suggestions for optimization
+    """
+    try:
+        from utils.coordination import analyze_coordination_geometry, suggest_lanthanide_conversion
+        from utils.pdb_fetch import fetch_pdb
+
+        # Get PDB content
+        pdb_content = request.pdb_content
+        if pdb_content is None and request.pdb_id:
+            result = fetch_pdb(request.pdb_id)
+            if not result["success"]:
+                raise HTTPException(status_code=404, detail=result["error"])
+            pdb_content = result["content"]
+
+        if pdb_content is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Either pdb_content or pdb_id must be provided"
+            )
+
+        # Analyze coordination geometry
+        analysis = analyze_coordination_geometry(
+            pdb_content,
+            request.metal_chain,
+            request.metal_residue,
+            request.metal_resnum,
+            request.distance_cutoff
+        )
+
+        if not analysis.get("success"):
+            raise HTTPException(status_code=400, detail=analysis.get("error"))
+
+        return analysis
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=501,
+            detail=f"Analysis module not available: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ai/recommend-parameters")
+async def recommend_rfd3_parameters(request: AIRecommendRequest):
+    """
+    AI-assisted RFD3 parameter recommendation.
+
+    Uses enhanced hybrid approach:
+    1. Chemistry rules from research/literature
+    2. Optional LLM refinement for edge cases
+
+    Returns:
+    - Recommended RFD3 parameters
+    - Design strategy and reasoning
+    - Evaluation criteria for output assessment
+    """
+    try:
+        from utils.coordination import analyze_coordination_geometry
+        from utils.pdb_fetch import fetch_pdb
+        from ai.recommender import generate_rfd3_parameters, AIRecommender
+
+        # Get PDB content
+        pdb_content = request.pdb_content
+        if pdb_content is None and request.pdb_id:
+            result = fetch_pdb(request.pdb_id)
+            if not result["success"]:
+                raise HTTPException(status_code=404, detail=result["error"])
+            pdb_content = result["content"]
+
+        if pdb_content is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Either pdb_content or pdb_id must be provided"
+            )
+
+        # Analyze current metal binding site
+        analysis = analyze_coordination_geometry(
+            pdb_content,
+            request.metal_chain,
+            request.metal_residue,
+            request.metal_resnum,
+        )
+
+        if not analysis.get("success"):
+            raise HTTPException(status_code=400, detail=analysis.get("error"))
+
+        # Generate RFD3 parameters using AI recommender
+        recommendation = generate_rfd3_parameters(
+            current_analysis=analysis,
+            target_metal=request.target_metal,
+            user_description=request.user_description,
+        )
+
+        if not recommendation.get("success"):
+            raise HTTPException(status_code=400, detail=recommendation.get("error"))
+
+        # Add optional SASA analysis
+        if request.include_sasa:
+            try:
+                from utils.sasa import calculate_sasa, get_binding_pocket_sasa
+
+                coord_atoms = analysis["coordination"]["coordinating_atoms"]
+                pocket_residues = [
+                    f"{a['chain']}:{a['residue']}{a['residue_number']}"
+                    for a in coord_atoms
+                ]
+
+                sasa_result = get_binding_pocket_sasa(pdb_content, pocket_residues)
+                recommendation["sasa_analysis"] = sasa_result.get("pocket_analysis")
+            except ImportError:
+                recommendation["sasa_analysis"] = None
+                recommendation["sasa_warning"] = "SASA module not available"
+
+        # Add optional secondary structure context
+        if request.include_secondary_structure:
+            try:
+                from utils.dssp import assign_secondary_structure, get_ss_context
+
+                ss_result = assign_secondary_structure(pdb_content)
+                coord_atoms = analysis["coordination"]["coordinating_atoms"]
+                residue_ids = [
+                    f"{a['chain']}:{a['residue']}{a['residue_number']}"
+                    for a in coord_atoms
+                ]
+
+                ss_context = get_ss_context(ss_result, residue_ids)
+                recommendation["secondary_structure"] = {
+                    "content": ss_result.get("content"),
+                    "binding_site_context": ss_context.get("context"),
+                }
+            except ImportError:
+                recommendation["secondary_structure"] = None
+                recommendation["ss_warning"] = "DSSP module not available"
+
+        return {
+            "success": True,
+            "current_analysis": analysis,
+            "recommendation": recommendation,
+            "pdb_id": request.pdb_id,
+        }
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=501,
+            detail=f"Required module not available: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=500, detail=f"{str(e)}\n{traceback.format_exc()}")
+
+
+@app.post("/api/evaluate/design")
+async def evaluate_design(
+    pdb_content: str,
+    target_metal: str,
+    target_coordination: Optional[int] = None,
+    metal_chain: str = "A",
+    metal_resnum: int = 1,
+):
+    """
+    Evaluate a designed structure against target specifications.
+
+    Checks:
+    - Coordination geometry
+    - Donor types
+    - Bond distances
+    - Geometry quality
+    """
+    try:
+        from utils.coordination import analyze_coordination_geometry
+        from ai.recommender import MetalChemistryRules
+
+        # Analyze the design
+        analysis = analyze_coordination_geometry(
+            pdb_content,
+            metal_chain,
+            target_metal,
+            metal_resnum,
+        )
+
+        if not analysis.get("success"):
+            return {
+                "success": False,
+                "error": "Could not find metal in structure",
+                "suggestion": "The design may not have placed the metal. Try with higher partial_t or check output manually.",
+            }
+
+        # Get target properties
+        target_props = MetalChemistryRules.get_metal_properties(target_metal)
+
+        if target_props is None:
+            return {
+                "success": True,
+                "analysis": analysis,
+                "evaluation": "Unknown metal - cannot evaluate against target",
+            }
+
+        # Evaluate against targets
+        evaluation = {
+            "coordination": {
+                "actual": analysis["coordination"]["number"],
+                "target_range": target_props.typical_coordination,
+                "status": "PASS" if analysis["coordination"]["number"] in target_props.typical_coordination else "FAIL",
+            },
+            "geometry": {
+                "actual": analysis["coordination"]["geometry"],
+                "target": target_props.preferred_geometries,
+                "rmsd": analysis["coordination"]["geometry_rmsd"],
+                "status": "PASS" if analysis["coordination"]["geometry"] in target_props.preferred_geometries else "WARN",
+            },
+            "bond_distances": {
+                "average": analysis["bond_analysis"]["average_distance"],
+                "target_range": target_props.bond_distance_range,
+                "status": "PASS" if (
+                    target_props.bond_distance_range[0] <= analysis["bond_analysis"]["average_distance"] <= target_props.bond_distance_range[1]
+                ) else "WARN",
+            },
+            "donor_types": {
+                "actual": analysis["donor_analysis"]["types"],
+                "preferred": target_props.preferred_donors,
+                "avoid": target_props.avoid_donors,
+            },
+        }
+
+        # Calculate overall score
+        pass_count = sum(1 for v in evaluation.values() if isinstance(v, dict) and v.get("status") == "PASS")
+        total_checks = sum(1 for v in evaluation.values() if isinstance(v, dict) and "status" in v)
+        score = (pass_count / total_checks * 100) if total_checks > 0 else 0
+
+        # Generate recommendations
+        recommendations = []
+        if evaluation["coordination"]["status"] != "PASS":
+            coord_diff = min(target_props.typical_coordination) - analysis["coordination"]["number"]
+            if coord_diff > 0:
+                recommendations.append(f"Increase coordination by {coord_diff}. Try higher partial_t or add more Asp/Glu.")
+            else:
+                recommendations.append(f"Decrease coordination. Current site may be too crowded.")
+
+        if evaluation["bond_distances"]["status"] != "PASS":
+            recommendations.append("Bond distances outside optimal range. Consider refining with lower partial_t.")
+
+        return {
+            "success": True,
+            "analysis": analysis,
+            "evaluation": evaluation,
+            "score": round(score, 1),
+            "recommendations": recommendations,
+            "verdict": "ACCEPT" if score >= 70 else "NEEDS_IMPROVEMENT",
+        }
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=501,
+            detail=f"Evaluation module not available: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== AI-Driven Analysis Endpoint ==============
+
+class AIAnalyzeRequest(BaseModel):
+    """Request for AI-driven analysis of user intent."""
+    user_input: str
+    pdb_content: Optional[str] = None
+    pdb_id: Optional[str] = None
+    structure_info: Optional[Dict[str, Any]] = None
+    conversation_history: Optional[List[Dict[str, str]]] = None
+
+
+@app.post("/api/ai/analyze")
+async def ai_analyze(request: AIAnalyzeRequest):
+    """
+    AI-driven analysis of user request for any RFdiffusion task.
+
+    This endpoint uses a hybrid approach:
+    1. Handbook knowledge base for parameter guidance
+    2. Optional LLM (Claude) for natural language interpretation
+
+    Supports ALL RFdiffusion tasks:
+    - de_novo: Design new proteins from scratch
+    - binder: Design protein binders
+    - metal_redesign: Modify metal binding sites
+    - enzyme: Design enzyme active sites
+    - refinement: Improve existing structures
+    - symmetric: Design symmetric oligomers
+    - scaffold: Graft functional motifs
+
+    Returns:
+    - task_type: Detected design task
+    - params: Suggested RFD3 parameters
+    - reasoning: Plain English explanation
+    - form_config: Dynamic form fields for UI
+    - clarifying_questions: Questions if intent unclear
+    """
+    try:
+        from ai.ai_engine import analyze_user_request
+        import os
+
+        # Get PDB content if ID provided
+        pdb_content = request.pdb_content
+        if pdb_content is None and request.pdb_id:
+            try:
+                from utils.pdb_fetch import fetch_pdb
+                result = fetch_pdb(request.pdb_id)
+                if result.get("success"):
+                    pdb_content = result["content"]
+            except ImportError:
+                pass
+
+        # Get API key from environment
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+        # Run AI analysis
+        result = analyze_user_request(
+            user_input=request.user_input,
+            structure_analysis=request.structure_info,
+            pdb_content=pdb_content,
+            conversation_history=request.conversation_history,
+            anthropic_api_key=api_key,
+        )
+
+        return result
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=501,
+            detail=f"AI engine module not available: {str(e)}"
+        )
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI analysis failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+@app.post("/api/ai/refine")
+async def ai_refine(
+    current_params: Dict[str, Any],
+    user_feedback: str,
+    task_type: str = "unknown",
+):
+    """
+    Refine AI-suggested parameters based on user feedback.
+
+    Args:
+        current_params: Current parameter values
+        user_feedback: User's adjustment request (e.g., "more aggressive")
+        task_type: Current task type
+
+    Returns:
+        Updated parameters with reasoning
+    """
+    try:
+        from ai.ai_engine import AIEngine, TaskType
+        import os
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        engine = AIEngine(api_key)
+
+        # Parse task type
+        try:
+            task = TaskType(task_type)
+        except ValueError:
+            task = TaskType.UNKNOWN
+
+        result = engine.refine_parameters(
+            current_params=current_params,
+            user_feedback=user_feedback,
+            task_type=task,
+        )
+
+        return {
+            "success": result.success,
+            "params": result.params,
+            "reasoning": result.reasoning,
+            "confidence": result.confidence,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============== AI Task Planning ==============
+
+class TaskPlanRequest(BaseModel):
+    """Request for AI task planning."""
+    goal: str
+    template: Optional[str] = None
+    params: Optional[Dict[str, Any]] = None
+    custom_steps: Optional[List[Dict[str, Any]]] = None
+
+
+@app.post("/api/ai/plan")
+async def ai_plan_task(request: TaskPlanRequest):
+    """
+    Plan a complex protein engineering task.
+
+    Uses AI to break down natural language goals into
+    executable step-by-step plans.
+
+    Templates available:
+    - metal_replacement: Convert metal binding sites
+    - symmetric_binder: Design symmetric protein with ligand
+    - de_novo: Design protein from scratch
+
+    Returns:
+        TaskPlan with steps, parameters, and AI context
+    """
+    try:
+        from ai.task_planner import plan_task
+
+        result = plan_task(
+            goal=request.goal,
+            template=request.template,
+            params=request.params,
+            custom_steps=request.custom_steps,
+        )
+
+        return result
+
+    except Exception as e:
+        import traceback
+        raise HTTPException(
+            status_code=500,
+            detail=f"Task planning failed: {str(e)}\n{traceback.format_exc()}"
+        )
+
+
+@app.post("/api/ai/execute-step")
+async def ai_execute_step(
+    step_type: str,
+    params: Dict[str, Any],
+    artifacts: Optional[Dict[str, str]] = None,
+):
+    """
+    Execute a single step from a task plan.
+
+    This allows the AI to control step-by-step execution
+    and review results between steps.
+
+    Args:
+        step_type: Type of step (rfd3_design, mpnn_design, etc.)
+        params: Parameters for the step
+        artifacts: Previous artifacts (pdb_content, sequences, etc.)
+
+    Returns:
+        Step result with metrics for AI review
+    """
+    try:
+        from ai.task_planner import TaskExecutor, TaskStep, TaskStepType
+
+        executor = TaskExecutor()
+
+        # Restore artifacts from previous steps
+        if artifacts:
+            executor.artifacts = artifacts
+
+        step = TaskStep(
+            id="single-step",
+            type=TaskStepType(step_type),
+            name=f"Execute {step_type}",
+            description=f"Single step execution: {step_type}",
+            params=params,
+        )
+
+        # Create a minimal plan for single step execution
+        from ai.task_planner import TaskPlan
+        plan = TaskPlan(
+            id="single",
+            name="Single step",
+            description="Single step execution",
+            goal="Execute step",
+            steps=[step],
+        )
+
+        result = await executor._execute_step(step, plan)
+
+        return {
+            "status": "completed",
+            "result": result,
+            "artifacts": executor.artifacts,
+        }
+
+    except Exception as e:
+        import traceback
+        return {
+            "status": "failed",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
+        }
 
 
 # ============== Main ==============

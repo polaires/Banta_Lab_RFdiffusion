@@ -52,6 +52,185 @@ def check_foundry_available() -> bool:
     return False
 
 
+# Standard amino acid 3-letter codes
+STANDARD_AMINO_ACIDS = {
+    'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+    'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL',
+    # Modified/alternate names
+    'MSE', 'SEC', 'PYL',  # Selenomethionine, Selenocysteine, Pyrrolysine
+}
+
+
+def extract_protein_contig_from_pdb(pdb_content: str, ligand_code: str = None) -> str:
+    """
+    Extract a proper contig string from PDB content, excluding metals/ligands.
+
+    This is critical for partial diffusion (partial_t) because RFD3 separates
+    non-polymer residues into a different chain, causing residue number gaps.
+
+    Args:
+        pdb_content: PDB file content
+        ligand_code: Optional ligand code to exclude (e.g., "TB", "ZN")
+
+    Returns:
+        Contig string like "A1-50,A52-100" with proper gaps for non-protein residues
+    """
+    chain_residues: Dict[str, List[int]] = {}
+
+    for line in pdb_content.split('\n'):
+        if not line.startswith('ATOM'):
+            continue
+
+        try:
+            res_name = line[17:20].strip()
+            chain_id = line[21] if len(line) > 21 else 'A'
+            res_num = int(line[22:26].strip())
+
+            # Skip non-standard amino acids (metals, ligands, etc.)
+            if res_name not in STANDARD_AMINO_ACIDS:
+                continue
+
+            # Skip specified ligand code
+            if ligand_code and res_name == ligand_code:
+                continue
+
+            if chain_id not in chain_residues:
+                chain_residues[chain_id] = []
+
+            if res_num not in chain_residues[chain_id]:
+                chain_residues[chain_id].append(res_num)
+        except (ValueError, IndexError):
+            continue
+
+    # Build contig segments for each chain
+    all_contigs = []
+
+    for chain_id in sorted(chain_residues.keys()):
+        residues = sorted(chain_residues[chain_id])
+        if not residues:
+            continue
+
+        # Find contiguous segments
+        segments = []
+        start = residues[0]
+        end = residues[0]
+
+        for i in range(1, len(residues)):
+            if residues[i] == end + 1:
+                # Continue current segment
+                end = residues[i]
+            else:
+                # Gap found - save current segment and start new one
+                segments.append((start, end))
+                start = residues[i]
+                end = residues[i]
+
+        # Don't forget the last segment
+        segments.append((start, end))
+
+        # Build contig string for this chain
+        for start, end in segments:
+            if start == end:
+                all_contigs.append(f"{chain_id}{start}")
+            else:
+                all_contigs.append(f"{chain_id}{start}-{end}")
+
+    return ",".join(all_contigs)
+
+
+# Common metal ion codes (single-atom HETATM entries)
+METAL_CODES = {
+    'FE', 'ZN', 'CA', 'MG', 'MN', 'CO', 'CU', 'NI',  # Common transition metals
+    'TB', 'EU', 'GD', 'SM', 'LA', 'CE', 'PR', 'ND',  # Lanthanides
+    'NA', 'K', 'CD', 'HG', 'PB', 'AG', 'AU',          # Other metals
+}
+
+
+def detect_metal_in_pdb(pdb_content: str) -> Optional[str]:
+    """
+    Detect the first metal ion code found in PDB content.
+
+    Args:
+        pdb_content: PDB file content
+
+    Returns:
+        Metal code (e.g., "FE", "ZN") or None if no metal found
+    """
+    for line in pdb_content.split('\n'):
+        if not line.startswith('HETATM'):
+            continue
+        try:
+            res_name = line[17:20].strip()
+            if res_name in METAL_CODES:
+                return res_name
+        except (ValueError, IndexError):
+            continue
+    return None
+
+
+def replace_metal_in_pdb(pdb_content: str, target_metal: str, source_metal: str = None) -> str:
+    """
+    Replace metal ion in PDB content with a different metal.
+
+    This is needed for metal binding redesign where the original structure
+    has one metal (e.g., FE) but we want to redesign for a different metal (e.g., TB).
+
+    Args:
+        pdb_content: PDB file content
+        target_metal: Target metal code (e.g., "TB")
+        source_metal: Source metal to replace (auto-detected if None)
+
+    Returns:
+        Modified PDB content with metal replaced
+    """
+    if not source_metal:
+        source_metal = detect_metal_in_pdb(pdb_content)
+        if not source_metal:
+            print(f"[RFD3] No metal found in PDB to replace")
+            return pdb_content
+
+    if source_metal == target_metal:
+        print(f"[RFD3] Metal already matches target: {target_metal}")
+        return pdb_content
+
+    print(f"[RFD3] Replacing metal {source_metal} -> {target_metal}")
+
+    # Prepare replacement strings with proper padding
+    # PDB format: columns 17-20 for residue name (3 chars, right-padded)
+    source_res = source_metal.ljust(3)  # e.g., "FE "
+    target_res = target_metal.ljust(3)  # e.g., "TB "
+
+    # Element symbol is in columns 76-78 (2 chars, right-justified)
+    source_elem = source_metal.rjust(2)  # e.g., "FE"
+    target_elem = target_metal[:2].rjust(2)  # e.g., "TB" (max 2 chars for element)
+
+    modified_lines = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            try:
+                res_name = line[17:20]
+                if res_name.strip() == source_metal:
+                    # Replace residue name at columns 17-20
+                    line = line[:17] + target_res + line[20:]
+
+                    # Replace atom name at columns 12-16 (usually same as element for metals)
+                    atom_name = line[12:16].strip()
+                    if atom_name == source_metal:
+                        target_atom = target_metal.ljust(4)[:4]  # 4 chars, left-padded
+                        line = line[:12] + target_atom + line[16:]
+
+                    # Replace element symbol at columns 76-78 if present
+                    if len(line) >= 78:
+                        elem = line[76:78]
+                        if elem.strip() == source_metal or elem.strip() == source_metal[:2]:
+                            line = line[:76] + target_elem + line[78:]
+            except (ValueError, IndexError):
+                pass
+        modified_lines.append(line)
+
+    return '\n'.join(modified_lines)
+
+
 def atom_array_to_pdb(atom_array) -> str:
     """Convert biotite AtomArray to PDB string"""
     from biotite.structure.io.pdb import PDBFile
@@ -256,20 +435,53 @@ def _apply_post_symmetry(atom_array, symmetry_id: str):
     # Key insight: To avoid clashes, protein atoms after translation must not
     # extend past origin (where chain B's atoms will be after rotation).
 
-    clash_threshold = 2.5  # Angstroms - atoms closer than this are clashing
-    contact_threshold = 5.0  # Angstroms - atoms closer than this count as contacts
+    clash_threshold = 2.0  # Angstroms - actual steric clash (was 2.5)
+    contact_threshold = 4.5  # Angstroms - binding contacts
     ligand_coords = ligand_atoms.coord if ligand_atoms is not None else np.array([[0.0, 0.0, 0.0]])
 
-    # Minimum translation to clear the origin (prevent atoms from being on wrong side)
-    # After translation, we want x_min + translation > 0, so translation > -x_min
-    min_safe_translation = abs(x_min) + 2.0  # Add 2Å buffer
-    print(f"[RFD3] Minimum safe translation to clear origin: {min_safe_translation:.1f}Å")
+    # VERIFY ONE-SIDED BINDING before applying symmetry
+    # For azobenzene: atoms 0-5 = first phenyl (should be buried), atoms 6-13 = rest (should be exposed)
+    # Check that protein primarily contacts the first half of the ligand
+    if ligand_atoms is not None and len(ligand_atoms) > 10:
+        # Split ligand into two halves
+        half_idx = len(ligand_atoms) // 2
+        first_half_coords = ligand_atoms.coord[:half_idx]
+        second_half_coords = ligand_atoms.coord[half_idx:]
 
-    # Test translation distances from minimum safe to larger values
-    start = max(6, int(min_safe_translation))
-    translation_distances = list(range(start, start + 16, 2))  # Test 8 distances
+        # Count contacts with each half
+        from scipy.spatial import distance_matrix
+        dist_first = distance_matrix(original_coords, first_half_coords)
+        dist_second = distance_matrix(original_coords, second_half_coords)
 
-    print(f"[RFD3] Testing translation distances from {translation_distances[0]}Å to {translation_distances[-1]}Å")
+        contacts_first = int(np.sum(dist_first < contact_threshold))
+        contacts_second = int(np.sum(dist_second < contact_threshold))
+
+        print(f"[RFD3] One-sided binding check: contacts with first half={contacts_first}, second half={contacts_second}")
+
+        # Ratio check: we want > 2:1 asymmetry for good half-binding
+        if contacts_first > 0 and contacts_second > 0:
+            ratio = contacts_first / contacts_second if contacts_second > 0 else float('inf')
+            if ratio < 2.0 and ratio > 0.5:
+                print(f"[RFD3] WARNING: Monomer contacts both halves of ligand (ratio={ratio:.2f})")
+                print(f"[RFD3] This design may have clashes after C2 rotation")
+            elif ratio >= 2.0:
+                print(f"[RFD3] Good: Monomer primarily contacts first half (ratio={ratio:.2f})")
+            else:
+                print(f"[RFD3] Good: Monomer primarily contacts second half (ratio={1/ratio:.2f})")
+
+    # For interface design, we want chains CLOSE to ligand but not clashing with each other
+    # Test a range of translations starting from smaller values
+    # The key is finding the sweet spot where both chains can bind without interchain clashes
+
+    # Start from a smaller distance - chains CAN overlap slightly in space as long as
+    # they don't have severe steric clashes
+    min_translation = 6  # Start from 6Å
+    max_translation = 20  # Up to 20Å
+
+    # Test more distances with finer granularity
+    translation_distances = list(range(min_translation, max_translation + 1, 1))  # Test every 1Å
+
+    print(f"[RFD3] Testing translation distances from {min_translation}Å to {max_translation}Å")
 
     best_distance = 10.0  # Default
     best_score = float('-inf')
@@ -316,16 +528,46 @@ def _apply_post_symmetry(atom_array, symmetry_id: str):
                         contacts_b += 1
 
         # Calculate combined score:
-        # - Penalize clashes heavily (each clash = -10)
-        # - Reward contacts (each contact = +1)
-        # - Bonus for symmetric contacts (both chains contact ligand)
+        # Goal: Find BALANCE between close enough for binding and no clashes
+        #
+        # Key insights:
+        # - Too close (10Å): 40+ clashes, 200+ contacts → severe steric problems
+        # - Too far (18Å): 0 clashes, <10 contacts → weak binding
+        # - Sweet spot: ~12-14Å with moderate contacts (20-50) and few clashes (<10)
+        #
+        # Scoring strategy:
+        # - Reward contacts but CAP the benefit (diminishing returns above ~50)
+        # - SEVERE penalty for interchain clashes - these cause +60 kcal/mol affinity
+        # - Bonus for balanced contacts between chains
+
+        total_contacts = contacts_a + contacts_b
         min_contacts = min(contacts_a, contacts_b)
-        symmetry_bonus = min_contacts * 2  # Extra points for balanced contacts
 
-        # Severe penalty for clashes, but tolerate a few minor ones
-        clash_penalty = clash_count * 5 if clash_count > 10 else clash_count * 2
+        # Reward contacts with diminishing returns
+        # First 50 contacts are valuable, above that the benefit plateaus
+        if total_contacts <= 50:
+            contact_score = total_contacts * 5
+        else:
+            # Diminishing returns above 50 contacts
+            contact_score = 50 * 5 + (total_contacts - 50) * 1
 
-        score = (contacts_a + contacts_b + symmetry_bonus) - clash_penalty
+        # Symmetry bonus: reward balanced contacts between chains
+        symmetry_bonus = min_contacts * 3
+
+        # Clash penalty: SEVERE - each clash contributes to positive affinity
+        # We want ZERO clashes ideally
+        # Any clashes > 5 means chains are overlapping significantly
+        if clash_count > 20:
+            # Severe overlap - reject this translation
+            clash_penalty = 10000  # Effectively disqualify
+        elif clash_count > 5:
+            # Moderate clashing - strong penalty
+            clash_penalty = clash_count * 50
+        else:
+            # Minimal clashing - mild penalty
+            clash_penalty = clash_count * 10
+
+        score = contact_score + symmetry_bonus - clash_penalty
 
         results.append({
             'distance': push_distance,
@@ -503,18 +745,40 @@ def run_rfd3_inference(
         # Build specification dictionary
         spec: Dict[str, Any] = {}
 
-        # Length or contig
-        if contig:
-            contig_str = contig
+        # Handle contig parameter (residues to fix from input structure)
+        # For partial diffusion with metals/ligands, we need to auto-generate a proper contig
+        # because RFD3 separates non-polymer residues into a different chain
+        contig_to_use = contig
+        if partial_t is not None and pdb_content and not contig:
+            # Auto-generate contig from PDB, excluding metals/ligands
+            auto_contig = extract_protein_contig_from_pdb(pdb_content, ligand)
+            if auto_contig:
+                contig_to_use = auto_contig
+                print(f"[RFD3] Auto-generated contig for partial diffusion: {auto_contig}")
+
+        if contig_to_use:
+            contig_str = contig_to_use
             is_simple_length = contig_str.replace("-", "").isdigit()
             if is_simple_length:
+                # If contig looks like a length (e.g., "100" or "40-60"), treat as length
                 if "-" in contig_str:
                     spec["length"] = contig_str
                 else:
                     spec["length"] = int(contig_str)
             else:
+                # Real contig with chain info (e.g., "A2-52")
+                # For partial diffusion, validate that the contig doesn't have gaps from metals
+                if partial_t is not None and pdb_content:
+                    # Re-extract proper contig to handle any gaps from non-protein residues
+                    proper_contig = extract_protein_contig_from_pdb(pdb_content, ligand)
+                    if proper_contig and proper_contig != contig_str:
+                        print(f"[RFD3] Corrected contig for partial diffusion: {contig_str} -> {proper_contig}")
+                        contig_str = proper_contig
                 spec["contig"] = contig_str
-        elif length:
+
+        # Handle length parameter (de novo chain to design)
+        # Can be used TOGETHER with contig for binder design
+        if length:
             length_str = str(length)
             if "-" in length_str:
                 spec["length"] = length_str
@@ -607,6 +871,10 @@ def run_rfd3_inference(
                 elif interface_ligand and symmetry:
                     # De novo symmetric design with ligand at interface
                     #
+                    # IMPORTANT: Native RFD3 symmetry does NOT work with ligand-only input
+                    # because there are no protein entities to symmetrize.
+                    # Instead, use POST-PROCESSING symmetry: design a monomer then apply C2 rotation.
+                    #
                     # Check if binder mode is requested (uses hotspots + H-bond conditioning)
                     # interface_ligand can be True (default) or "binder" for binder mode
                     binder_mode = interface_ligand == "binder" if isinstance(interface_ligand, str) else False
@@ -620,51 +888,46 @@ def run_rfd3_inference(
                     # Center on ligand for proper geometry
                     spec["ori_token"] = [0.0, 0.0, 0.0]
 
+                    # POST-PROCESSING SYMMETRY MODE:
+                    # Design a ONE-SIDED binder, then apply C2 rotation for the other chain
+                    #
+                    # CRITICAL: The protein must only bind ONE SIDE of the ligand (180°, not 360°)
+                    # Otherwise both chains wrap around the ligand and trap it inside.
+                    #
+                    # For azobenzene oriented along Z-axis:
+                    # - C1-C6: first phenyl ring (negative Z side)
+                    # - N7,N8: azo nitrogens (center, on C2 axis)
+                    # - C9-C14: second phenyl ring (positive Z side)
+                    #
+                    # Strategy: Use select_exposed on one phenyl ring so protein only binds the other side
+                    # Then C2 rotation creates a chain that binds the exposed side
+
+                    # EXPOSE MORE than half the ligand to STRICTLY limit binding to one side
+                    # The protein can ONLY contact C1-C6 (first phenyl ring)
+                    # Everything else (N7,N8,C9-C14) must be exposed for the C2 partner
+                    #
+                    # This is critical: if we only expose C9-C14, the protein can still
+                    # approach from the "top" or "bottom" of the ligand plane and wrap around.
+                    # By also exposing N7,N8 (the azo nitrogens on the C2 axis), we ensure
+                    # the protein only approaches from ONE side of the ligand.
+                    spec["select_exposed"] = {ligand_res_name: "N7,N8,C9,C10,C11,C12,C13,C14"}
+
+                    # Bury the binding side phenyl carbons to ensure strong binding
+                    spec["select_buried"] = {ligand_res_name: "C1,C2,C3,C4,C5,C6"}
+
                     if binder_mode:
-                        # BINDER MODE: Use H-bond and burial conditioning for stronger binding
-                        #
-                        # Strategy:
-                        # 1. Mark azo nitrogens (N7, N8) as H-bond acceptors
-                        #    This forces the designed protein to have H-bond donors nearby
-                        # 2. Mark central atoms as partially buried (at interface)
-                        # 3. Use hotspots if ligand atoms can be specified
-                        #
-                        # This creates explicit binding interactions rather than just proximity
-
-                        # H-bond conditioning: azo nitrogens are good H-bond acceptors
-                        # Design protein with H-bond donors (Arg, Lys, Asn, Gln, Ser, Thr, Trp, His)
-                        spec["select_hbond_acceptor"] = {ligand_res_name: "N7,N8"}
-
-                        # Burial: bury the central azo bridge (at the interface)
-                        spec["select_buried"] = {ligand_res_name: "N7,N8"}
-
-                        # Also partially bury the adjacent carbons for shape complementarity
-                        spec["select_partially_buried"] = {ligand_res_name: "C4,C9"}
-
-                        print(f"[RFD3] Interface ligand mode: BINDER (H-bond + burial conditioning)")
-                        print(f"[RFD3] H-bond acceptors: N7,N8 (azo nitrogens)")
-                        print(f"[RFD3] Buried: N7,N8; Partially buried: C4,C9")
-                        print(f"[RFD3] Will apply post-processing {sym_id} symmetry")
+                        # BINDER MODE: Add H-bond conditioning for the azo nitrogens
+                        # After C2 rotation, the partner chain will H-bond with N7,N8
+                        # Since N7,N8 are exposed for THIS chain, H-bond goes to partner
+                        print(f"[RFD3] Interface ligand mode: STRICT HALF binder + POST-PROCESSING {sym_id}")
+                        print(f"[RFD3] Exposed: N7,N8,C9-C14 (8 atoms); Buried: C1-C6 (6 atoms)")
                     else:
-                        # NATURAL MODE: Let design happen naturally with post-processing symmetry
-                        #
-                        # Key insight: The ligand is oriented with N=N along Z-axis (C2 axis).
-                        # One phenyl ring faces +Y, the other faces -Y.
-                        # The monomer will naturally design around the ligand.
-                        # Post-processing C2 rotation creates the second chain.
-                        #
-                        # NOTE: We deliberately don't use RASA conditioning here because:
-                        # 1. For de novo design, there are no existing residues to constrain
-                        # 2. select_exposed on one side prevents binding to that side by BOTH chains
-                        # 3. The natural design + post-processing approach gives better symmetry
+                        print(f"[RFD3] Interface ligand mode: STRICT HALF binder + POST-PROCESSING {sym_id}")
+                        print(f"[RFD3] Exposed: N7,N8,C9-C14; Buried: C1-C6")
 
-                        print(f"[RFD3] Interface ligand mode: Natural design + post-processing {sym_id}")
-                        print(f"[RFD3] Ligand at origin, oriented along Z-axis")
-                        print(f"[RFD3] Will apply post-processing {sym_id} symmetry with translation optimization")
-
-                    # Set up post-processing symmetry (NOT native symmetry)
+                    # Use POST-PROCESSING symmetry - native doesn't work with ligand-only input
                     apply_symmetry_post = sym_id
-                    force_symmetry_cli = False  # Don't use native symmetry
+                    force_symmetry_cli = False
                 else:
                     # Standard de novo design - ligand becomes input structure
                     pdb_content = ligand_pdb
@@ -674,6 +937,9 @@ def run_rfd3_inference(
                 raise ValueError(f"Failed to generate 3D structure from SMILES: {ligand_smiles}")
         elif ligand:
             spec["ligand"] = ligand
+            # For metal binding redesign: replace original metal with target metal in PDB
+            if pdb_content and ligand in METAL_CODES:
+                pdb_content = replace_metal_in_pdb(pdb_content, target_metal=ligand)
 
         # Unindex for enzyme design (residues with inferred positions)
         if unindex:

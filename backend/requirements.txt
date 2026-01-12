@@ -2,3 +2,13 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 pydantic>=2.0.0
 python-multipart>=0.0.6
+
+# AI Protein Engineering Dependencies
+requests>=2.31.0        # PDB fetching from RCSB
+numpy>=1.24.0           # Numerical calculations
+anthropic>=0.30.0       # Claude API for LLM integration (optional)
+
+# Structure Analysis (optional - will use fallbacks if not available)
+# freesasa>=2.0.0       # SASA calculation (needs C compiler)
+# mdtraj>=1.9.0         # DSSP secondary structure
+# biotite>=0.37.0       # Structure manipulation (included in foundry)

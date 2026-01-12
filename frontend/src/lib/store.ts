@@ -1,11 +1,22 @@
 /**
- * Zustand store for application state (v2.0)
- * Supports cross-panel data flow and confidence metrics
+ * Zustand store for application state (v2.1)
+ * Supports cross-panel data flow, confidence metrics, and enhanced viewer state
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult } from './api';
+import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult, MetalBindingAnalysis, UserPreferences, DesignEvaluation } from './api';
+import type { MetalCoordination } from './metalAnalysis';
+import type { LigandAnalysisResult } from './ligandAnalysis';
+
+// Viewer mode for different visualization states
+export type ViewerMode = 'default' | 'metal' | 'ligand' | 'confidence' | 'comparison';
+
+// Viewer representation styles
+export type RepresentationStyle = 'cartoon' | 'ball-and-stick' | 'spacefill' | 'surface';
+
+// Viewer color schemes
+export type ColorScheme = 'default' | 'chain' | 'residue-type' | 'secondary-structure' | 'confidence' | 'hydrophobicity';
 
 interface ErrorContext {
   task?: string;
@@ -35,7 +46,48 @@ interface Job {
 }
 
 // Tab type for navigation
-export type TabId = 'task' | 'rfd3' | 'rf3' | 'mpnn' | 'jobs';
+export type TabId = 'ai' | 'task' | 'rfd3' | 'rf3' | 'mpnn' | 'jobs';
+
+// AI Design Assistant state for case study demo
+export interface AIConversationMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+  data?: {
+    type: 'analysis' | 'recommendation' | 'evaluation' | 'pdb_info';
+    payload: Record<string, unknown>;
+  };
+}
+
+// Workflow phase for interview mode
+export type WorkflowPhase =
+  | 'idle'
+  | 'structure_input'
+  | 'fetching'
+  | 'analyzing'
+  | 'interview'
+  | 'confirming'
+  | 'running'
+  | 'evaluating'
+  | 'complete'
+  | 'error';
+
+export interface AICaseStudyState {
+  pdbId: string | null;
+  pdbContent: string | null;
+  targetMetal: string | null;
+  analysisResult: MetalBindingAnalysis | null;
+  recommendation: Record<string, unknown> | null;
+  conversation: AIConversationMessage[];
+  isProcessing: boolean;
+  currentStep: 'idle' | 'fetching' | 'analyzing' | 'recommending' | 'complete';
+  // Interview mode state
+  workflowPhase: WorkflowPhase;
+  userPreferences: UserPreferences | null;
+  pendingJobId: string | null;
+  evaluationResult: DesignEvaluation | null;
+  jobProgress: number;
+}
 
 // Notification types for workflow guidance
 export interface Notification {
@@ -119,6 +171,44 @@ interface AppState {
   setViewerCollapsed: (collapsed: boolean) => void;
   connectionModalOpen: boolean;
   setConnectionModalOpen: (open: boolean) => void;
+
+  // Enhanced viewer state (v2.1)
+  viewerMode: ViewerMode;
+  setViewerMode: (mode: ViewerMode) => void;
+  representationStyle: RepresentationStyle;
+  setRepresentationStyle: (style: RepresentationStyle) => void;
+  colorScheme: ColorScheme;
+  setColorScheme: (scheme: ColorScheme) => void;
+
+  // Metal coordination analysis results
+  metalCoordination: MetalCoordination[] | null;
+  setMetalCoordination: (data: MetalCoordination[] | null) => void;
+
+  // Ligand analysis results
+  ligandData: LigandAnalysisResult | null;
+  setLigandData: (data: LigandAnalysisResult | null) => void;
+
+  // Structure comparison state
+  comparisonEnabled: boolean;
+  setComparisonEnabled: (enabled: boolean) => void;
+  referenceStructure: { pdb: string; label: string; source: 'rfd3' | 'rf3' | 'upload' } | null;
+  setReferenceStructure: (struct: { pdb: string; label: string; source: 'rfd3' | 'rf3' | 'upload' } | null) => void;
+
+  // Focused binding site indices
+  focusedMetalIndex: number | null;
+  setFocusedMetalIndex: (index: number | null) => void;
+  focusedLigandIndex: number | null;
+  setFocusedLigandIndex: (index: number | null) => void;
+
+  // Analysis loading state
+  analysisLoading: boolean;
+  setAnalysisLoading: (loading: boolean) => void;
+
+  // AI Design Assistant state
+  aiCaseStudy: AICaseStudyState;
+  setAiCaseStudy: (state: Partial<AICaseStudyState>) => void;
+  addAiMessage: (message: Omit<AIConversationMessage, 'timestamp'>) => void;
+  clearAiConversation: () => void;
 }
 
 // Helper to get initial backend URL (localStorage > env > default)
@@ -159,8 +249,8 @@ export const useStore = create<AppState>((set) => ({
   selectedPdb: null,
   setSelectedPdb: (pdb) => set({ selectedPdb: pdb }),
 
-  // Active tab - start at task selection
-  activeTab: 'task',
+  // Active tab - start at AI assistant
+  activeTab: 'ai',
   setActiveTab: (tab) => set({ activeTab: tab }),
 
   // Selected design task
@@ -209,4 +299,84 @@ export const useStore = create<AppState>((set) => ({
   setViewerCollapsed: (collapsed) => set({ viewerCollapsed: collapsed }),
   connectionModalOpen: false,
   setConnectionModalOpen: (open) => set({ connectionModalOpen: open }),
+
+  // Enhanced viewer state (v2.1)
+  viewerMode: 'default',
+  setViewerMode: (mode) => set({ viewerMode: mode }),
+  representationStyle: 'cartoon',
+  setRepresentationStyle: (style) => set({ representationStyle: style }),
+  colorScheme: 'default',
+  setColorScheme: (scheme) => set({ colorScheme: scheme }),
+
+  // Metal coordination analysis
+  metalCoordination: null,
+  setMetalCoordination: (data) => set({ metalCoordination: data }),
+
+  // Ligand analysis
+  ligandData: null,
+  setLigandData: (data) => set({ ligandData: data }),
+
+  // Structure comparison
+  comparisonEnabled: false,
+  setComparisonEnabled: (enabled) => set({ comparisonEnabled: enabled }),
+  referenceStructure: null,
+  setReferenceStructure: (struct) => set({ referenceStructure: struct }),
+
+  // Focused binding site indices
+  focusedMetalIndex: null,
+  setFocusedMetalIndex: (index) => set({ focusedMetalIndex: index }),
+  focusedLigandIndex: null,
+  setFocusedLigandIndex: (index) => set({ focusedLigandIndex: index }),
+
+  // Analysis loading state
+  analysisLoading: false,
+  setAnalysisLoading: (loading) => set({ analysisLoading: loading }),
+
+  // AI Design Assistant state
+  aiCaseStudy: {
+    pdbId: null,
+    pdbContent: null,
+    targetMetal: null,
+    analysisResult: null,
+    recommendation: null,
+    conversation: [],
+    isProcessing: false,
+    currentStep: 'idle',
+    // Interview mode state
+    workflowPhase: 'idle',
+    userPreferences: null,
+    pendingJobId: null,
+    evaluationResult: null,
+    jobProgress: 0,
+  },
+  setAiCaseStudy: (updates) => set((state) => ({
+    aiCaseStudy: { ...state.aiCaseStudy, ...updates },
+  })),
+  addAiMessage: (message) => set((state) => ({
+    aiCaseStudy: {
+      ...state.aiCaseStudy,
+      conversation: [
+        ...state.aiCaseStudy.conversation,
+        { ...message, timestamp: Date.now() },
+      ],
+    },
+  })),
+  clearAiConversation: () => set((state) => ({
+    aiCaseStudy: {
+      ...state.aiCaseStudy,
+      conversation: [],
+      pdbId: null,
+      pdbContent: null,
+      targetMetal: null,
+      analysisResult: null,
+      recommendation: null,
+      currentStep: 'idle',
+      // Reset interview state
+      workflowPhase: 'idle',
+      userPreferences: null,
+      pendingJobId: null,
+      evaluationResult: null,
+      jobProgress: 0,
+    },
+  })),
 }));

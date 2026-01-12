@@ -12,7 +12,39 @@ interface HotspotResidue {
   residue: number;
 }
 
-export function ProteinBinderForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
+// Extended props for binder form with results callback
+interface ProteinBinderFormProps extends TaskFormProps {
+  onBinderResult?: (result: BinderDesignResult) => void;
+}
+
+// Response from protein_binder_design API
+export interface BinderDesignResult {
+  status: 'completed' | 'error';
+  statistics: {
+    generated: number;
+    mpnn_designed: number;
+    esm_passed: number;
+    relaxed: number;
+    interface_analyzed: number;
+    passed_filters: number;
+    returned: number;
+  };
+  designs: Array<{
+    binder_sequence: string;
+    mpnn_score: number;
+    esm_perplexity: number;
+    esm_confidence: number;
+    interface_contacts: number;
+    interface_hbonds: number;
+    buried_sasa: number;
+    packstat: number;
+    rank: number;
+    pdb_content?: string;
+  }>;
+  error?: string;
+}
+
+export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResult }: ProteinBinderFormProps) {
   // PDB file
   const [pdbContent, setPdbContent] = useState<string | null>(null);
   const [pdbFileName, setPdbFileName] = useState<string | null>(null);
@@ -33,8 +65,11 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health }: TaskFormPr
   // Quality & options
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Binder Optimized');
   const [isNonLoopy, setIsNonLoopy] = useState(true);
-  const [numDesigns, setNumDesigns] = useState(1);
+  const [numDesigns, setNumDesigns] = useState(4);  // Default to 4 for pipeline
   const [seed, setSeed] = useState<string>('');
+
+  // Pipeline mode toggle
+  const [usePipeline, setUsePipeline] = useState(true);
 
   const addHotspot = () => {
     if (newHotspotResidue) {
@@ -58,9 +93,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health }: TaskFormPr
   const handleSubmit = async () => {
     const preset = QUALITY_PRESETS[qualityPreset];
 
-    const targetRange = targetStart && targetEnd ? `${targetStart}-${targetEnd}` : '';
-    const contig = `${binderLength},/0,${targetChain}${targetRange}`;
-
+    // Build hotspot selections
     const selectHotspots: Record<string, string> = {};
     if (hotspots.length > 0) {
       const hotspotsByChain: Record<string, number[]> = {};
@@ -73,26 +106,45 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health }: TaskFormPr
       }
     }
 
-    const request: RFD3Request = {
-      contig,
-      pdb_content: pdbContent || undefined,
-      num_designs: numDesigns,
-      is_non_loopy: isNonLoopy,
-      num_timesteps: preset.num_timesteps,
-      step_scale: preset.step_scale,
-      gamma_0: preset.gamma_0,
-      infer_ori_strategy: 'hotspots',
-    };
+    if (usePipeline) {
+      // Use the new protein_binder_design pipeline
+      const request: RFD3Request = {
+        task: 'protein_binder_design',
+        pdb_content: pdbContent || undefined,
+        // Target region
+        contig: targetStart && targetEnd
+          ? `${targetChain}${targetStart}-${targetEnd}`
+          : targetChain,
+        // Binder length
+        chain_length: binderLength,
+        num_designs: numDesigns,
+        // Optional hotspots
+        ...(Object.keys(selectHotspots).length > 0 && { select_hotspots: selectHotspots }),
+        // Seed
+        ...(seed && { seed: parseInt(seed, 10) }),
+      };
 
-    if (Object.keys(selectHotspots).length > 0) {
-      request.select_hotspots = selectHotspots;
+      await onSubmit(request);
+    } else {
+      // Legacy RFD3-only mode (for testing/comparison)
+      const targetRange = targetStart && targetEnd ? `${targetStart}-${targetEnd}` : '';
+      const contig = `${binderLength},/0,${targetChain}${targetRange}`;
+
+      const request: RFD3Request = {
+        contig,
+        pdb_content: pdbContent || undefined,
+        num_designs: numDesigns,
+        is_non_loopy: isNonLoopy,
+        num_timesteps: preset.num_timesteps,
+        step_scale: preset.step_scale,
+        gamma_0: preset.gamma_0,
+        infer_ori_strategy: 'hotspots',
+        ...(Object.keys(selectHotspots).length > 0 && { select_hotspots: selectHotspots }),
+        ...(seed && { seed: parseInt(seed, 10) }),
+      };
+
+      await onSubmit(request);
     }
-
-    if (seed) {
-      request.seed = parseInt(seed, 10);
-    }
-
-    await onSubmit(request);
   };
 
   const isValid =
@@ -264,50 +316,99 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health }: TaskFormPr
         )}
       </FormSection>
 
-      {/* Quality Settings */}
+      {/* Quality Settings (only for legacy mode) */}
+      {!usePipeline && (
+        <FormSection
+          title="Quality Settings"
+          description="Binder Optimized preset is recommended for most use cases"
+        >
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
+              <button
+                key={preset}
+                onClick={() => setQualityPreset(preset)}
+                className={`p-3 rounded-lg border text-left transition-all ${
+                  qualityPreset === preset
+                    ? 'border-blue-400 bg-white shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className={`font-medium text-sm ${qualityPreset === preset ? 'text-blue-700' : 'text-slate-800'}`}>
+                  {preset}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">
+                  {QUALITY_PRESETS[preset].description}
+                </div>
+              </button>
+            ))}
+          </div>
+        </FormSection>
+      )}
+
+      {/* Pipeline Mode */}
       <FormSection
-        title="Quality Settings"
-        description="Binder Optimized preset is recommended for most use cases"
+        title="Design Pipeline"
+        description="Choose between full pipeline with validation or quick RFD3-only mode"
       >
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setQualityPreset(preset)}
-              className={`p-3 rounded-lg border text-left transition-all ${
-                qualityPreset === preset
-                  ? 'border-blue-400 bg-white shadow-sm'
-                  : 'border-slate-200 hover:border-slate-300 bg-white'
-              }`}
-            >
-              <div className={`font-medium text-sm ${qualityPreset === preset ? 'text-blue-700' : 'text-slate-800'}`}>
-                {preset}
+        <div className="space-y-2">
+          <label className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${
+            usePipeline ? 'bg-green-50 border-2 border-green-300' : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+          }`}>
+            <input
+              type="radio"
+              checked={usePipeline}
+              onChange={() => setUsePipeline(true)}
+              className="w-4 h-4 text-green-600 focus:ring-green-500"
+            />
+            <div className="flex-1">
+              <div className="font-medium text-sm text-slate-800 flex items-center gap-2">
+                Full Pipeline
+                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Recommended</span>
               </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {QUALITY_PRESETS[preset].description}
+              <div className="text-xs text-slate-500">
+                RFD3 + MPNN sequence design + ESM-3 validation + interface analysis
               </div>
-            </button>
-          ))}
+            </div>
+          </label>
+
+          <label className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${
+            !usePipeline ? 'bg-blue-50 border-2 border-blue-300' : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+          }`}>
+            <input
+              type="radio"
+              checked={!usePipeline}
+              onChange={() => setUsePipeline(false)}
+              className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+            />
+            <div className="flex-1">
+              <div className="font-medium text-sm text-slate-800">RFD3 Only (Quick)</div>
+              <div className="text-xs text-slate-500">
+                Fast backbone generation without sequence/validation (for testing)
+              </div>
+            </div>
+          </label>
         </div>
       </FormSection>
 
-      {/* Structure Options */}
-      <FormSection title="Structure Options">
-        <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
-          <input
-            type="checkbox"
-            checked={isNonLoopy}
-            onChange={(e) => setIsNonLoopy(e.target.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-          />
-          <div>
-            <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
-            <div className="text-xs text-slate-500">
-              Produces cleaner secondary structures (recommended)
+      {/* Structure Options (only for legacy mode) */}
+      {!usePipeline && (
+        <FormSection title="Structure Options">
+          <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={isNonLoopy}
+              onChange={(e) => setIsNonLoopy(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div>
+              <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
+              <div className="text-xs text-slate-500">
+                Produces cleaner secondary structures (recommended)
+              </div>
             </div>
-          </div>
-        </label>
-      </FormSection>
+          </label>
+        </FormSection>
+      )}
 
       {/* Advanced Options */}
       <FormSection title="Advanced" description="Additional options for fine-tuning">
@@ -338,12 +439,15 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health }: TaskFormPr
           {isSubmitting ? (
             <>
               <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
-              Submitting...
+              {usePipeline ? 'Running Pipeline...' : 'Submitting...'}
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined text-lg">play_circle</span>
-              Design {numDesigns} Binder{numDesigns > 1 ? 's' : ''}
+              <span className="material-symbols-outlined text-lg">{usePipeline ? 'hub' : 'play_circle'}</span>
+              {usePipeline
+                ? `Design & Validate ${numDesigns} Binder${numDesigns > 1 ? 's' : ''}`
+                : `Design ${numDesigns} Binder${numDesigns > 1 ? 's' : ''}`
+              }
             </>
           )}
         </button>

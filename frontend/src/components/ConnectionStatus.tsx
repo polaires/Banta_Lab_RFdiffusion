@@ -6,10 +6,15 @@ import api from '@/lib/api';
 import { Wifi, WifiOff, Cpu, Check, X, AlertCircle, Sparkles, HelpCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 
 export function ConnectionStatus() {
-  const { backendUrl, setBackendUrl, health, setHealth } = useStore();
+  const { backendUrl, setBackendUrl, health, setHealth, aiCaseStudy } = useStore();
   const [inputUrl, setInputUrl] = useState(backendUrl);
   const [checking, setChecking] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  // Check if a design job is currently running (either by job ID or workflow phase)
+  const isJobRunning =
+    (aiCaseStudy?.pendingJobId !== null && aiCaseStudy?.pendingJobId !== undefined) ||
+    aiCaseStudy?.workflowPhase === 'running';
 
   const checkConnection = async () => {
     setChecking(true);
@@ -19,7 +24,12 @@ export function ConnectionStatus() {
       setHealth(healthResponse);
       setBackendUrl(inputUrl);
     } catch {
-      setHealth(null);
+      // Don't mark as disconnected if a job is running - backend may just be busy
+      // Only set health to null if no job is running
+      if (!isJobRunning) {
+        setHealth(null);
+      }
+      // If job is running, keep previous health status (assume still connected)
     } finally {
       setChecking(false);
     }

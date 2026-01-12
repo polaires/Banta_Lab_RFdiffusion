@@ -40,7 +40,24 @@ from binding_analysis import (
     check_steric_clashes,
     validate_binding_comprehensive,
     to_python_types,
+    calculate_shape_complementarity,
+    calculate_surface_hydrophobicity,
+    calculate_unsaturated_hbonds,
+    count_interface_residues,
 )
+
+# Import ESMFold validation for structure prediction
+try:
+    from esmfold_utils import (
+        validate_structure_esmfold,
+        is_esmfold_available,
+        ESMFOLD_THRESHOLDS,
+    )
+    ESMFOLD_AVAILABLE = is_esmfold_available()
+except ImportError:
+    ESMFOLD_AVAILABLE = False
+    validate_structure_esmfold = None
+    ESMFOLD_THRESHOLDS = {}
 
 # Import cleavage utilities for cleavable monomer algorithm
 from cleavage_utils import (
@@ -52,6 +69,23 @@ from cleavage_utils import (
     create_homo_dimer,
     CleavageSite,
     CleavageResult,
+)
+
+# Import Rosetta utilities for structure refinement
+from rosetta_utils import (
+    fastrelax_with_ligand,
+    check_pyrosetta_available,
+    calculate_clash_score,
+    score_interface as rosetta_score_interface,
+)
+
+# Import hotspot detection for auto-detecting binding sites
+from hotspot_detection import (
+    detect_hotspots_sasa,
+    calculate_radius_of_gyration,
+    calculate_binding_angle_spread,
+    filter_wrap_around_designs,
+    format_hotspots_for_rfd3,
 )
 
 # ============== Configuration ==============
@@ -177,10 +211,22 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Cleavable monomer algorithm
         elif task == "cleavable_monomer":
             return handle_cleavable_monomer(job_input)
+        # Interface ligand design (separable dimer)
+        elif task == "interface_ligand_design":
+            return handle_interface_ligand_design(job_input)
+        # FastRelax for structure refinement
+        elif task == "fastrelax":
+            return handle_fastrelax(job_input)
+        # Full protein binder design pipeline
+        elif task == "protein_binder_design":
+            return handle_protein_binder_design(job_input)
+        # Hotspot detection for binder design
+        elif task == "detect_hotspots":
+            return handle_detect_hotspots(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, fastrelax, protein_binder_design, detect_hotspots, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -536,6 +582,1310 @@ def handle_binding_eval(job_input: Dict[str, Any]) -> Dict[str, Any]:
     return to_python_types(result)
 
 
+# ============== FastRelax Handler ==============
+
+def handle_fastrelax(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run Rosetta FastRelax to refine protein-ligand complexes and resolve clashes.
+
+    This is adapted from BindCraft's relaxation workflow with key modification:
+    - Ligand is kept FIXED while protein moves around it
+    - Useful for resolving minor clashes in RFD3-generated designs
+
+    Input:
+        pdb_content: str - PDB file content with protein and ligand
+        ligand_smiles: str - SMILES string for GNINA scoring (optional)
+        max_iter: int - Maximum minimization iterations (default: 200)
+        interface_only: bool - Only relax interface residues (default: True, faster)
+        interface_distance: float - Distance cutoff for interface (default: 8.0 Å)
+        constrain_coords: bool - Constrain backbone to starting coords (default: True)
+        run_gnina_before: bool - Score with GNINA before relaxation (default: True)
+        run_gnina_after: bool - Score with GNINA after relaxation (default: True)
+
+    Returns:
+        status: "completed" or "error"
+        relaxed_pdb: Relaxed PDB content
+        energy_before: Rosetta energy before relaxation
+        energy_after: Rosetta energy after relaxation
+        energy_change: Energy difference (negative = improved)
+        gnina_before: GNINA results before relaxation (if requested)
+        gnina_after: GNINA results after relaxation (if requested)
+        improvement: Summary of improvements
+    """
+    pdb_content = job_input.get("pdb_content")
+    if not pdb_content:
+        return {"status": "error", "error": "Missing 'pdb_content' parameter"}
+
+    ligand_smiles = job_input.get("ligand_smiles")
+    max_iter = job_input.get("max_iter", 200)
+    interface_only = job_input.get("interface_only", True)
+    interface_distance = job_input.get("interface_distance", 8.0)
+    constrain_coords = job_input.get("constrain_coords", True)
+    run_gnina_before = job_input.get("run_gnina_before", True)
+    run_gnina_after = job_input.get("run_gnina_after", True)
+
+    # Check PyRosetta availability
+    pyrosetta_available = check_pyrosetta_available()
+    if not pyrosetta_available:
+        return {
+            "status": "error",
+            "error": "PyRosetta not available. Install with: pip install pyrosetta-installer && python -c 'import pyrosetta_installer; pyrosetta_installer.install_pyrosetta()'"
+        }
+
+    print(f"[Handler] Running FastRelax with max_iter={max_iter}, interface_only={interface_only}")
+
+    # Score BEFORE with GNINA (if ligand provided)
+    gnina_before = None
+    if run_gnina_before and ligand_smiles and check_gnina_available():
+        print("[Handler] Running GNINA scoring BEFORE relaxation...")
+        eval_result = evaluate_binding(
+            pdb_content=pdb_content,
+            ligand_smiles=ligand_smiles,
+            run_gnina=True,
+            whole_protein_search=True,
+        )
+        if eval_result.get("gnina_scoring", {}).get("status") == "completed":
+            gnina_before = eval_result["gnina_scoring"].get("result", {})
+            print(f"[Handler] GNINA before: affinity={gnina_before.get('best_affinity')}, "
+                  f"CNN={gnina_before.get('best_cnn_score')}")
+
+    # Run FastRelax (requires ligand_smiles for parameterization)
+    if not ligand_smiles:
+        return {
+            "status": "error",
+            "error": "ligand_smiles is required for FastRelax to parameterize the ligand"
+        }
+
+    relax_result = fastrelax_with_ligand(
+        pdb_content=pdb_content,
+        ligand_smiles=ligand_smiles,
+        max_iter=max_iter,
+        constrain_coords=constrain_coords,
+        interface_only=interface_only,
+        interface_distance=interface_distance,
+    )
+
+    if relax_result.get("status") != "completed":
+        return relax_result
+
+    print(f"[Handler] FastRelax complete: E_before={relax_result.get('energy_before'):.1f}, "
+          f"E_after={relax_result.get('energy_after'):.1f}")
+
+    # Score AFTER with GNINA (if ligand provided)
+    gnina_after = None
+    if run_gnina_after and ligand_smiles and check_gnina_available():
+        print("[Handler] Running GNINA scoring AFTER relaxation...")
+        eval_result = evaluate_binding(
+            pdb_content=relax_result["relaxed_pdb"],
+            ligand_smiles=ligand_smiles,
+            run_gnina=True,
+            whole_protein_search=True,
+        )
+        if eval_result.get("gnina_scoring", {}).get("status") == "completed":
+            gnina_after = eval_result["gnina_scoring"].get("result", {})
+            print(f"[Handler] GNINA after: affinity={gnina_after.get('best_affinity')}, "
+                  f"CNN={gnina_after.get('best_cnn_score')}")
+
+    # Build response
+    response = {
+        "status": "completed",
+        "relaxed_pdb": relax_result["relaxed_pdb"],
+        "energy_before": relax_result["energy_before"],
+        "energy_after": relax_result["energy_after"],
+        "energy_change": relax_result["energy_change"],
+        "ligand_residues": relax_result.get("ligand_residues"),
+    }
+
+    if interface_only:
+        response["interface_residues"] = relax_result.get("interface_residues")
+
+    # Add GNINA results
+    response["gnina_before"] = gnina_before
+    response["gnina_after"] = gnina_after
+
+    # Calculate improvement summary
+    improvement = {
+        "rosetta_improved": relax_result["energy_change"] < 0,
+        "rosetta_delta": relax_result["energy_change"],
+    }
+
+    if gnina_before and gnina_after:
+        before_aff = gnina_before.get("best_affinity")
+        after_aff = gnina_after.get("best_affinity")
+        if before_aff is not None and after_aff is not None:
+            improvement["gnina_improved"] = after_aff < before_aff
+            improvement["gnina_delta"] = after_aff - before_aff
+            improvement["affinity_before"] = before_aff
+            improvement["affinity_after"] = after_aff
+
+        before_cnn = gnina_before.get("best_cnn_score")
+        after_cnn = gnina_after.get("best_cnn_score")
+        if before_cnn is not None and after_cnn is not None:
+            improvement["cnn_improved"] = after_cnn > before_cnn
+            improvement["cnn_delta"] = after_cnn - before_cnn
+
+    response["improvement"] = improvement
+
+    # Convert numpy types
+    return to_python_types(response)
+
+
+# ============== Hotspot Detection Handler ==============
+
+def handle_detect_hotspots(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Auto-detect binding hotspots for protein binder design.
+
+    Uses SASA (Solvent Accessible Surface Area) analysis combined with
+    spatial clustering to identify surface patches suitable for binder attachment.
+
+    Input:
+        target_pdb: str (required) - Target protein PDB content
+        target_chain: str (default: "A") - Chain to analyze
+        method: str (default: "exposed_clustered") - Detection method:
+            - "exposed": All exposed residues
+            - "exposed_clustered": Exposed residues clustered spatially
+            - "patch": Largest contiguous surface patch
+            - "interface_like": Mixed hydrophobic/polar residues
+        max_hotspots: int (default: 3) - Maximum hotspots to return (BindCraft recommends 3-5)
+        prefer_hydrophobic: bool (default: True) - Prioritize hydrophobic residues
+
+    Returns:
+        {
+            "status": "completed",
+            "hotspots": ["A25", "A30", "A35"],
+            "method": "exposed_clustered",
+            "cluster_center": {"x": 10.5, "y": 20.3, "z": 15.7},
+            "residue_details": [
+                {"residue": "A25", "restype": "LEU", "relative_sasa": 0.65, "property": "hydrophobic"},
+                ...
+            ],
+            "total_exposed": 42
+        }
+    """
+    target_pdb = job_input.get("target_pdb")
+    if not target_pdb:
+        return {"status": "error", "error": "Missing 'target_pdb' parameter"}
+
+    target_chain = job_input.get("target_chain", "A")
+    method = job_input.get("method", "exposed_clustered")
+    max_hotspots = job_input.get("max_hotspots", 3)
+    prefer_hydrophobic = job_input.get("prefer_hydrophobic", True)
+
+    print(f"[DetectHotspots] Detecting hotspots on chain {target_chain}")
+    print(f"[DetectHotspots] Method: {method}, Max: {max_hotspots}")
+
+    result = detect_hotspots_sasa(
+        pdb_content=target_pdb,
+        target_chain=target_chain,
+        method=method,
+        max_hotspots=max_hotspots,
+        prefer_hydrophobic=prefer_hydrophobic,
+    )
+
+    if result.get("status") == "completed":
+        print(f"[DetectHotspots] Found {len(result.get('hotspots', []))} hotspots: {result.get('hotspots')}")
+    else:
+        print(f"[DetectHotspots] Detection failed: {result.get('error', 'Unknown error')}")
+
+    return to_python_types(result)
+
+
+# ============== Protein Binder Design Handler ==============
+
+def handle_protein_binder_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Complete protein-protein binder design pipeline with multi-stage validation.
+
+    Designs a NEW protein that binds to a TARGET protein (BindCraft-style workflow):
+    0. Hotspot Detection (auto) - Find optimal binding site if not provided
+    1. Structure Generation (RFD3) - Generate binder backbones using hotspots
+    1b. Rg Filtering - Remove elongated/wrap-around binders
+    2. Sequence Design (ProteinMPNN) - Optimize binder sequence
+    3. Sequence Scoring (ESM-3) - Score sequence naturalness
+    4. Structure Refinement (FastRelax) - Resolve clashes
+    5. Interface Analysis - Score binding interface quality
+    6. Quality Filtering - Apply thresholds
+    7. Ranking - Composite score ranking
+
+    Input:
+        target_pdb: str (required) - PDB content of target protein to bind
+        hotspots: list[str] (optional) - Target residues to contact, e.g. ["A25", "A45", "A65"]
+        auto_hotspots: bool (default: True) - Auto-detect hotspots if none provided
+        hotspot_method: str (default: "exposed_clustered") - Method for auto-detection:
+            - "exposed": All exposed residues
+            - "exposed_clustered": Spatially clustered exposed residues
+            - "patch": Largest contiguous surface patch
+            - "interface_like": Mixed hydrophobic/polar residues
+        max_hotspots: int (default: 3) - Maximum hotspots for auto-detection (BindCraft recommends 3-5)
+        binder_length: str (default: "60-80") - Binder chain length range
+        num_designs: int (default: 10) - Number of designs to return
+        quality_threshold: str (default: "standard") - "relaxed", "standard", "strict"
+        filter_wrap_around: bool (default: True) - Filter elongated binders using Rg
+        max_rg_ratio: float (default: 1.5) - Max Rg/expected_Rg for compact binders
+        run_mpnn: bool (default: True) - Run ProteinMPNN sequence design
+        run_esm_scoring: bool (default: True) - Score sequences with ESM-3
+        run_fastrelax: bool (default: True) - Refine structures with FastRelax
+        seed: int (optional) - Random seed
+
+    Returns:
+        {
+            "status": "completed",
+            "designs": [
+                {
+                    "pdb_content": str,
+                    "binder_sequence": str,
+                    "interface_contacts": int,
+                    "interface_hbonds": int,
+                    "buried_sasa": float,
+                    "esm_perplexity": float,
+                    "esm_confidence": float,
+                    "rosetta_energy": float,
+                    "rg_ratio": float,
+                    "rank": int
+                }
+            ],
+            "statistics": {
+                "generated": int,
+                "rg_filtered": int,
+                "mpnn_designed": int,
+                "passed_filters": int,
+                "returned": int
+            },
+            "hotspots_used": ["A25", "A30", ...],
+            "hotspots_auto_detected": bool
+        }
+    """
+    # Extract parameters
+    target_pdb = job_input.get("target_pdb")
+    if not target_pdb:
+        return {"status": "error", "error": "Missing 'target_pdb' parameter - provide the target protein PDB content"}
+
+    # Clean the target PDB to remove non-standard residues (chromophores, ligands, etc.)
+    # This prevents RFD3 parsing issues like with GFP's chromophore (CRO)
+    target_pdb = _strip_nonstandard_residues(target_pdb)
+    if not target_pdb.strip():
+        return {"status": "error", "error": "Target PDB contains no standard amino acids after cleaning"}
+
+    hotspots = job_input.get("hotspots", [])  # e.g., ["A25", "A45", "A65"]
+    auto_hotspots = job_input.get("auto_hotspots", True)
+    hotspot_method = job_input.get("hotspot_method", "exposed_clustered")
+    max_hotspots = job_input.get("max_hotspots", 3)  # BindCraft recommends 3-5 hotspots
+    binder_length = job_input.get("binder_length", "60-80")
+    num_designs = job_input.get("num_designs", 10)
+    quality_threshold = job_input.get("quality_threshold", "standard")
+    filter_wrap_around = job_input.get("filter_wrap_around", True)
+    max_rg_ratio = job_input.get("max_rg_ratio", 1.3)  # Stricter: 1.3 instead of 1.5
+    run_mpnn = job_input.get("run_mpnn", True)
+    run_esm_scoring = job_input.get("run_esm_scoring", True)
+    run_fastrelax = job_input.get("run_fastrelax", True)
+    run_esmfold_validation = job_input.get("run_esmfold_validation", False)  # Optional ESMFold validation
+    seed = job_input.get("seed")
+
+    # Protocol presets (BindCraft-style configurations for different target types)
+    protocol = job_input.get("protocol")  # Optional protocol preset
+    PROTOCOL_PRESETS = {
+        "miniprotein_default": {
+            "binder_length": "60-100",
+            "generation_multiplier": 2,
+            "max_hotspots": 5,
+            "quality_threshold": "standard",
+        },
+        "miniprotein_hardtarget": {
+            "binder_length": "80-120",
+            "generation_multiplier": 4,  # More sampling for difficult targets
+            "max_hotspots": 7,
+            "quality_threshold": "relaxed",  # Start relaxed
+        },
+        "peptide_default": {
+            "binder_length": "15-30",
+            "generation_multiplier": 5,  # Peptides need more sampling
+            "max_hotspots": 3,
+            "quality_threshold": "standard",
+        },
+        "peptide_helical": {
+            "binder_length": "15-25",
+            "generation_multiplier": 5,
+            "max_hotspots": 3,
+            "quality_threshold": "standard",
+        },
+        "large_binder": {
+            "binder_length": "100-150",
+            "generation_multiplier": 3,
+            "max_hotspots": 7,
+            "quality_threshold": "standard",
+        },
+    }
+
+    # Apply protocol preset if specified
+    if protocol and protocol in PROTOCOL_PRESETS:
+        preset = PROTOCOL_PRESETS[protocol]
+        print(f"[ProteinBinder] Using protocol preset: {protocol}")
+        # Only override if not explicitly provided
+        if "binder_length" not in job_input:
+            binder_length = preset["binder_length"]
+        if "max_hotspots" not in job_input:
+            max_hotspots = preset["max_hotspots"]
+        if "quality_threshold" not in job_input:
+            quality_threshold = preset["quality_threshold"]
+        # Use preset's generation multiplier
+        generation_multiplier = preset.get("generation_multiplier", 2)
+    else:
+        generation_multiplier = 2  # Default: generate 2x for filtering headroom
+
+    # Track whether hotspots were auto-detected
+    hotspots_auto_detected = False
+
+    print(f"[ProteinBinder] Starting protein-protein binder pipeline")
+    print(f"[ProteinBinder] Binder length: {binder_length}, Hotspots: {hotspots}")
+    print(f"[ProteinBinder] Designs requested: {num_designs}, Threshold: {quality_threshold}")
+    print(f"[ProteinBinder] Rg filtering: {filter_wrap_around}, max_ratio: {max_rg_ratio}")
+    if run_esmfold_validation:
+        print(f"[ProteinBinder] ESMFold validation: enabled")
+
+    # Quality thresholds for protein-protein binding (BindCraft-inspired)
+    QUALITY_THRESHOLDS = {
+        "relaxed": {
+            "interface_contacts_min": 5,
+            "interface_hbonds_min": 0,
+            "esm_perplexity_max": 12.0,
+            "shape_complementarity_min": 0.4,
+            "surface_hydrophobicity_max": 0.45,
+            "esmfold_plddt_min": 0.6,
+            "esmfold_rmsd_max": 3.0,
+        },
+        "standard": {
+            "interface_contacts_min": 10,
+            "interface_hbonds_min": 2,
+            "esm_perplexity_max": 8.0,
+            "shape_complementarity_min": 0.5,
+            "surface_hydrophobicity_max": 0.37,
+            "esmfold_plddt_min": 0.7,
+            "esmfold_rmsd_max": 2.0,
+        },
+        "strict": {
+            "interface_contacts_min": 15,
+            "interface_hbonds_min": 4,
+            "esm_perplexity_max": 5.0,
+            "shape_complementarity_min": 0.6,
+            "surface_hydrophobicity_max": 0.30,
+            "esmfold_plddt_min": 0.8,
+            "esmfold_rmsd_max": 1.5,
+        },
+    }
+
+    thresholds = QUALITY_THRESHOLDS.get(quality_threshold, QUALITY_THRESHOLDS["standard"])
+
+    # Statistics tracking
+    stats = {
+        "generated": 0,
+        "rg_filtered": 0,
+        "mpnn_designed": 0,
+        "esm_passed": 0,
+        "relaxed": 0,
+        "interface_analyzed": 0,
+        "passed_filters": 0,
+        "returned": 0,
+    }
+
+    # Determine target chain early (needed for hotspot detection)
+    target_chain = "A"
+    first_res, last_res, target_length = _get_residue_range_in_pdb(target_pdb, chain=target_chain)
+    if target_length == 0:
+        # Try to find any chain
+        for chain in ["B", "C", "D"]:
+            first_res, last_res, target_length = _get_residue_range_in_pdb(target_pdb, chain=chain)
+            if target_length > 0:
+                target_chain = chain
+                break
+
+    if target_length == 0:
+        return {"status": "error", "error": "Could not determine target protein residue range from PDB"}
+
+    # ============== Stage 0: Auto-Hotspot Detection ==============
+    if not hotspots and auto_hotspots:
+        print(f"[ProteinBinder] Stage 0: Auto-detecting hotspots on chain {target_chain}...")
+
+        hotspot_result = detect_hotspots_sasa(
+            pdb_content=target_pdb,
+            target_chain=target_chain,
+            method=hotspot_method,
+            max_hotspots=max_hotspots,
+            prefer_hydrophobic=True,
+        )
+
+        if hotspot_result.get("status") == "completed":
+            hotspots = hotspot_result.get("hotspots", [])
+            hotspots_auto_detected = True
+            print(f"[ProteinBinder] Stage 0: Auto-detected {len(hotspots)} hotspots: {hotspots}")
+            if hotspot_result.get("residue_details"):
+                for detail in hotspot_result["residue_details"]:
+                    print(f"  - {detail['residue']}: {detail.get('restype', 'UNK')} ({detail.get('property', 'unknown')}, SASA={detail.get('relative_sasa', 0.0):.2f})")
+        else:
+            print(f"[ProteinBinder] Stage 0: Hotspot detection failed: {hotspot_result.get('error')}")
+            print("[ProteinBinder] Proceeding without hotspots (may result in wrap-around binding)")
+    elif hotspots:
+        print(f"[ProteinBinder] Using provided hotspots: {hotspots}")
+    else:
+        print("[ProteinBinder] No hotspots specified and auto-detection disabled")
+
+    # ============== Stage 1: Structure Generation (RFD3) ==============
+    # Generate multiplier × requested designs to account for filtering losses
+    generation_count = num_designs * generation_multiplier
+    print(f"[ProteinBinder] Stage 1: Generating {generation_count} binder backbones...")
+
+    # RFD3 contig format for binder design:
+    # "A2-52,/0,40-60" means:
+    #   - A2-52: Keep target residues 2-52 from chain A (from input)
+    #   - /0: Chain break with zero gap (creates separate chain B)
+    #   - 40-60: Design new binder with 40-60 residues
+    # Note: Use forward slash /0 with commas, NOT backslash
+    contig = f"{target_chain}{first_res}-{last_res},/0,{binder_length}"
+    print(f"[ProteinBinder] Target: {target_chain}{first_res}-{last_res} ({target_length} residues)")
+    print(f"[ProteinBinder] Binder length: {binder_length}")
+    print(f"[ProteinBinder] Full contig: {contig}")
+
+    valid_designs = []
+
+    for design_idx in range(generation_count):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[ProteinBinder] Generating design {design_idx + 1}/{generation_count}...")
+
+        # Build RFD3 request with full contig string
+        rfd3_input = {
+            "task": "rfd3",
+            "contig": contig,
+            "pdb_content": target_pdb,
+            "num_designs": 1,
+            "seed": design_seed,
+        }
+
+        # Add hotspots if provided
+        # CRITICAL: Use infer_ori_strategy="hotspots" to position binder towards hotspots
+        # This prevents wrap-around binding by guiding the binder center-of-mass
+        # towards the hotspot region rather than random positioning around target
+        if hotspots:
+            rfd3_input["hotspots"] = hotspots
+            rfd3_input["infer_ori_strategy"] = "hotspots"  # Position binder towards hotspots
+
+        result = handle_rfd3(rfd3_input)
+
+        if result.get("status") != "completed":
+            print(f"[ProteinBinder] Design {design_idx + 1} failed: {result.get('error')}")
+            continue
+
+        result_designs = result.get("result", {}).get("designs", [])
+        if not result_designs:
+            print(f"[ProteinBinder] Design {design_idx + 1} produced no output")
+            continue
+
+        pdb_content = result_designs[0].get("content") or result_designs[0].get("pdb_content")
+        if not pdb_content:
+            continue
+
+        # Check if RFD3 already output separate chains (A and B)
+        chains_in_output = set()
+        for line in pdb_content.split('\n'):
+            if line.startswith('ATOM'):
+                chains_in_output.add(line[21])
+
+        # Only relabel if chain B doesn't exist
+        if 'B' not in chains_in_output:
+            print(f"[ProteinBinder] Design {design_idx + 1}: Relabeling binder as chain B...")
+            pdb_content = _relabel_binder_chain(
+                rfd3_pdb_content=pdb_content,
+                target_residue_count=target_length,
+                target_chain="A",
+                binder_chain="B",
+            )
+            # Update chain list after relabeling
+            chains_in_output = set()
+            for line in pdb_content.split('\n'):
+                if line.startswith('ATOM'):
+                    chains_in_output.add(line[21])
+
+        print(f"[ProteinBinder] Design {design_idx + 1} chains: {sorted(chains_in_output)}")
+
+        # Extract binder sequence from chain B
+        binder_sequence = _extract_sequence_from_pdb(pdb_content, chain="B")
+        if not binder_sequence:
+            # Fallback: try to extract from any non-target chain
+            binder_sequence = _extract_sequence_from_pdb(pdb_content)
+
+        valid_designs.append({
+            "pdb_content": pdb_content,
+            "binder_sequence": binder_sequence,
+            "design_idx": design_idx,
+        })
+
+    stats["generated"] = len(valid_designs)
+    print(f"[ProteinBinder] Stage 1: Generated {len(valid_designs)} binder backbones")
+
+    if not valid_designs:
+        return {
+            "status": "error",
+            "error": "No designs were generated successfully",
+            "statistics": stats,
+            "hotspots_used": hotspots,
+            "hotspots_auto_detected": hotspots_auto_detected,
+        }
+
+    # ============== Stage 1b: Rg Filtering (Remove Wrap-Around Binders) ==============
+    if filter_wrap_around and valid_designs:
+        print(f"[ProteinBinder] Stage 1b: Filtering wrap-around binders (Rg ratio <= {max_rg_ratio}, angular < 150°)...")
+
+        designs_before_rg = len(valid_designs)
+        compact_designs = []
+        rejected_count = 0
+
+        for design in valid_designs:
+            rejection_reasons = []
+
+            # Check 1: Rg ratio (binder compactness)
+            rg_result = calculate_radius_of_gyration(
+                pdb_content=design["pdb_content"],
+                chain="B"  # Binder chain
+            )
+
+            if rg_result.get("status") == "completed":
+                rg_ratio = rg_result.get("rg_ratio", 1.0)
+                design["rg_ratio"] = rg_ratio
+                design["rg"] = rg_result.get("rg")
+                design["rg_assessment"] = rg_result.get("assessment")
+
+                if rg_ratio > max_rg_ratio:
+                    rejection_reasons.append(f"Rg ratio {rg_ratio:.2f} > {max_rg_ratio}")
+            else:
+                design["rg_ratio"] = None
+
+            # Check 2: Angular spread (binding mode - wrap-around detection)
+            angular_result = calculate_binding_angle_spread(
+                pdb_content=design["pdb_content"],
+                target_chain="A",
+                binder_chain="B"
+            )
+
+            if angular_result.get("status") == "completed":
+                angular_spread = angular_result.get("angular_spread", 0)
+                design["angular_spread"] = angular_spread
+                design["is_wrap_around"] = angular_result.get("is_wrap_around", False)
+
+                if angular_result.get("is_wrap_around", False):
+                    rejection_reasons.append(f"wrap-around binding (angular spread {angular_spread:.0f}°)")
+
+            # Accept or reject
+            if not rejection_reasons:
+                compact_designs.append(design)
+            else:
+                rejected_count += 1
+                print(f"[ProteinBinder] Rejected design {design.get('design_idx', '?')}: {'; '.join(rejection_reasons)}")
+
+        valid_designs = compact_designs
+        stats["rg_filtered"] = rejected_count
+
+        print(f"[ProteinBinder] Stage 1b: Kept {len(valid_designs)}/{designs_before_rg} compact designs "
+              f"(rejected {rejected_count} wrap-around/elongated)")
+
+    if not valid_designs:
+        return {
+            "status": "error",
+            "error": "All designs were filtered as elongated/wrap-around. Try different hotspots.",
+            "statistics": stats,
+            "hotspots_used": hotspots,
+            "hotspots_auto_detected": hotspots_auto_detected,
+        }
+
+    # ============== Stage 2: Sequence Design (ProteinMPNN) ==============
+    if run_mpnn and valid_designs:
+        print(f"[ProteinBinder] Stage 2: Running ProteinMPNN on {len(valid_designs)} designs...")
+
+        for i, design in enumerate(valid_designs):
+            try:
+                mpnn_input = {
+                    "task": "mpnn",
+                    "pdb_content": design["pdb_content"],
+                    "num_sequences": 1,
+                    "temperature": 0.1,
+                    # Only design the binder chain, fix the target
+                    "fixed_chains": ["A"],
+                }
+
+                mpnn_result = handle_mpnn(mpnn_input)
+
+                if mpnn_result.get("status") == "completed":
+                    sequences = mpnn_result.get("result", {}).get("sequences", [])
+                    if sequences:
+                        # Get the designed binder sequence
+                        best_seq = sequences[0]
+                        design["binder_sequence"] = best_seq.get("sequence", design["binder_sequence"])
+                        design["mpnn_score"] = best_seq.get("score", 0.0)
+                        stats["mpnn_designed"] += 1
+                        print(f"[ProteinBinder] MPNN design {i+1}: score={design.get('mpnn_score', 'N/A')}")
+                    else:
+                        print(f"[ProteinBinder] MPNN design {i+1}: No sequences returned")
+                else:
+                    print(f"[ProteinBinder] MPNN design {i+1} failed: {mpnn_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                print(f"[ProteinBinder] MPNN exception for design {i+1}: {e}")
+
+    print(f"[ProteinBinder] Stage 2: {stats['mpnn_designed']} sequences designed")
+
+    # ============== Stage 3: ESM-3 Sequence Scoring ==============
+    if run_esm_scoring and valid_designs:
+        print(f"[ProteinBinder] Stage 3: Running ESM-3 scoring on {len(valid_designs)} sequences...")
+        try:
+            from esm_utils import score_sequence_esm3, clear_esm3_cache
+
+            for design in valid_designs:
+                seq = design.get("binder_sequence", "")
+                if seq and len(seq) >= 10:
+                    esm_result = score_sequence_esm3(seq)
+                    if esm_result.get("status") == "completed":
+                        design["esm_perplexity"] = esm_result.get("perplexity", 99.0)
+                        design["esm_confidence"] = esm_result.get("overall_confidence", 0.0)
+                        stats["esm_passed"] += 1
+                    else:
+                        design["esm_perplexity"] = 99.0
+                        design["esm_confidence"] = 0.0
+                else:
+                    design["esm_perplexity"] = 99.0
+                    design["esm_confidence"] = 0.0
+
+            clear_esm3_cache()
+
+        except ImportError as e:
+            print(f"[ProteinBinder] ESM-3 not available: {e}")
+            for design in valid_designs:
+                design["esm_perplexity"] = None
+                design["esm_confidence"] = None
+        except Exception as e:
+            print(f"[ProteinBinder] ESM-3 scoring failed: {e}")
+            for design in valid_designs:
+                design["esm_perplexity"] = None
+                design["esm_confidence"] = None
+
+    print(f"[ProteinBinder] Stage 3: {stats['esm_passed']} sequences scored")
+
+    # ============== Stage 4: FastRelax Refinement ==============
+    if run_fastrelax and valid_designs:
+        print(f"[ProteinBinder] Stage 4: Running FastRelax on {len(valid_designs)} structures...")
+        pyrosetta_available = check_pyrosetta_available()
+
+        if pyrosetta_available:
+            for i, design in enumerate(valid_designs):
+                try:
+                    # For protein-protein, relax interface residues
+                    relax_result = fastrelax_protein_complex(
+                        pdb_content=design["pdb_content"],
+                        max_iter=200,
+                        constrain_coords=True,
+                        interface_only=True,
+                        interface_distance=8.0,
+                    )
+
+                    if relax_result.get("status") == "completed":
+                        design["pdb_content"] = relax_result["relaxed_pdb"]
+                        design["rosetta_energy"] = relax_result.get("energy_after", 0.0)
+                        stats["relaxed"] += 1
+                        print(f"[ProteinBinder] Relaxed design {i+1}: E={relax_result.get('energy_after', 0):.1f}")
+                    else:
+                        design["rosetta_energy"] = None
+                except Exception as e:
+                    print(f"[ProteinBinder] FastRelax error for design {i+1}: {e}")
+                    design["rosetta_energy"] = None
+        else:
+            print("[ProteinBinder] PyRosetta not available, skipping FastRelax")
+            for design in valid_designs:
+                design["rosetta_energy"] = None
+
+    print(f"[ProteinBinder] Stage 4: {stats['relaxed']} structures refined")
+
+    # ============== Stage 5: Interface Analysis ==============
+    print(f"[ProteinBinder] Stage 5: Analyzing interfaces...")
+
+    for i, design in enumerate(valid_designs):
+        try:
+            # Basic interface analysis
+            interface_result = analyze_interface(
+                pdb_content=design["pdb_content"],
+                chain_a="A",  # Target
+                chain_b="B",  # Binder
+                contact_distance=8.0,
+            )
+
+            if interface_result.get("status") != "error":
+                metrics = interface_result.get("metrics", {})
+                design["interface_contacts"] = metrics.get("contacts", 0)
+                design["interface_hbonds"] = metrics.get("hbonds_int", 0)
+                design["buried_sasa"] = metrics.get("dSASA_int", 0.0)
+                design["packstat"] = metrics.get("packstat", 0.0)
+                stats["interface_analyzed"] += 1
+            else:
+                design["interface_contacts"] = 0
+                design["interface_hbonds"] = 0
+                design["buried_sasa"] = 0.0
+                design["packstat"] = 0.0
+
+            # Shape Complementarity (BindCraft-style)
+            sc_result = calculate_shape_complementarity(
+                pdb_content=design["pdb_content"],
+                chain_a="A",
+                chain_b="B",
+            )
+            if sc_result.get("status") == "completed":
+                design["shape_complementarity"] = sc_result.get("shape_complementarity", 0.0)
+            else:
+                design["shape_complementarity"] = 0.0
+
+            # Surface Hydrophobicity (binder chain)
+            hydro_result = calculate_surface_hydrophobicity(
+                pdb_content=design["pdb_content"],
+                chain="B",
+            )
+            if hydro_result.get("status") == "completed":
+                design["surface_hydrophobicity"] = hydro_result.get("surface_hydrophobicity", 0.0)
+            else:
+                design["surface_hydrophobicity"] = 0.0
+
+            print(f"[ProteinBinder] Interface {i+1}: contacts={design['interface_contacts']}, "
+                  f"hbonds={design['interface_hbonds']}, SC={design['shape_complementarity']:.2f}")
+
+        except Exception as e:
+            print(f"[ProteinBinder] Interface analysis error for design {i+1}: {e}")
+            design["interface_contacts"] = 0
+            design["interface_hbonds"] = 0
+            design["buried_sasa"] = 0.0
+            design["shape_complementarity"] = 0.0
+            design["surface_hydrophobicity"] = 0.0
+
+    print(f"[ProteinBinder] Stage 5: {stats['interface_analyzed']} interfaces analyzed")
+
+    # ============== Stage 5b: ESMFold Validation (Optional) ==============
+    if run_esmfold_validation and ESMFOLD_AVAILABLE and validate_structure_esmfold:
+        print(f"[ProteinBinder] Stage 5b: Running ESMFold structure validation...")
+        stats["esmfold_validated"] = 0
+
+        for i, design in enumerate(valid_designs):
+            try:
+                sequence = design.get("binder_sequence", "")
+                if not sequence:
+                    design["esmfold_plddt"] = None
+                    design["esmfold_rmsd"] = None
+                    design["esmfold_passed"] = False
+                    continue
+
+                validation = validate_structure_esmfold(
+                    sequence=sequence,
+                    designed_pdb=design["pdb_content"],
+                    binder_chain="B",
+                    threshold=quality_threshold,
+                )
+
+                if validation.get("status") == "completed":
+                    design["esmfold_plddt"] = validation.get("esmfold_plddt", 0.0)
+                    design["esmfold_rmsd"] = validation.get("esmfold_rmsd")
+                    design["esmfold_passed"] = validation.get("validation_passed", False)
+                    stats["esmfold_validated"] += 1
+                    print(f"[ProteinBinder] ESMFold {i+1}: pLDDT={design['esmfold_plddt']:.2f}, "
+                          f"RMSD={design['esmfold_rmsd']:.2f if design['esmfold_rmsd'] else 'N/A'}Å, "
+                          f"passed={design['esmfold_passed']}")
+                else:
+                    design["esmfold_plddt"] = None
+                    design["esmfold_rmsd"] = None
+                    design["esmfold_passed"] = False
+
+            except Exception as e:
+                print(f"[ProteinBinder] ESMFold validation error for design {i+1}: {e}")
+                design["esmfold_plddt"] = None
+                design["esmfold_rmsd"] = None
+                design["esmfold_passed"] = False
+
+        print(f"[ProteinBinder] Stage 5b: {stats.get('esmfold_validated', 0)} structures validated")
+    elif run_esmfold_validation and not ESMFOLD_AVAILABLE:
+        print(f"[ProteinBinder] Stage 5b: ESMFold not available, skipping validation")
+
+    # ============== Stage 6: Quality Filtering ==============
+    print(f"[ProteinBinder] Stage 6: Applying {quality_threshold} quality filters...")
+    filtered_designs = []
+
+    for design in valid_designs:
+        # Check interface contacts
+        contacts = design.get("interface_contacts", 0)
+        if contacts < thresholds["interface_contacts_min"]:
+            continue
+
+        # Check hydrogen bonds
+        hbonds = design.get("interface_hbonds", 0)
+        if hbonds < thresholds["interface_hbonds_min"]:
+            continue
+
+        # Check ESM perplexity
+        perplexity = design.get("esm_perplexity")
+        if perplexity is not None and perplexity > thresholds["esm_perplexity_max"]:
+            continue
+
+        # Check Shape Complementarity (BindCraft filter)
+        sc = design.get("shape_complementarity", 0.0)
+        if sc < thresholds.get("shape_complementarity_min", 0.0):
+            continue
+
+        # Check Surface Hydrophobicity (BindCraft filter - prevents aggregation)
+        hydro = design.get("surface_hydrophobicity", 0.0)
+        if hydro > thresholds.get("surface_hydrophobicity_max", 1.0):
+            continue
+
+        # Check ESMFold validation (if enabled)
+        if run_esmfold_validation and ESMFOLD_AVAILABLE:
+            esmfold_plddt = design.get("esmfold_plddt")
+            esmfold_rmsd = design.get("esmfold_rmsd")
+
+            if esmfold_plddt is not None:
+                if esmfold_plddt < thresholds.get("esmfold_plddt_min", 0.0):
+                    continue
+            if esmfold_rmsd is not None:
+                if esmfold_rmsd > thresholds.get("esmfold_rmsd_max", float("inf")):
+                    continue
+
+        filtered_designs.append(design)
+
+    stats["passed_filters"] = len(filtered_designs)
+    print(f"[ProteinBinder] Stage 6: {len(filtered_designs)} designs passed filters")
+
+    # ============== Stage 7: Ranking ==============
+    print(f"[ProteinBinder] Stage 7: Ranking designs...")
+
+    def compute_composite_score(design):
+        """Compute weighted composite score (higher is better for protein-protein)."""
+        score = 0.0
+
+        # Interface contacts (weight 0.20, more is better)
+        contacts = design.get("interface_contacts", 0)
+        score += 0.20 * min(contacts / 20.0, 1.0)  # Normalize to 0-1
+
+        # H-bonds (weight 0.15, more is better)
+        hbonds = design.get("interface_hbonds", 0)
+        score += 0.15 * min(hbonds / 10.0, 1.0)  # Normalize to 0-1
+
+        # Buried SASA (weight 0.10, more is better)
+        sasa = design.get("buried_sasa", 0.0)
+        score += 0.10 * min(sasa / 2000.0, 1.0)  # Normalize to 0-1
+
+        # Shape Complementarity (weight 0.15, higher is better) - BindCraft key metric
+        sc = design.get("shape_complementarity", 0.0) or 0.0
+        score += 0.15 * sc  # Already 0-1
+
+        # ESM confidence (weight 0.15, higher is better)
+        conf = design.get("esm_confidence", 0.0) or 0.0
+        score += 0.15 * conf
+
+        # ESMFold pLDDT (weight 0.15, higher is better) - structure prediction confidence
+        esmfold_plddt = design.get("esmfold_plddt")
+        if esmfold_plddt is not None:
+            score += 0.15 * esmfold_plddt  # Already 0-1
+        else:
+            # If no ESMFold, redistribute weight to ESM confidence
+            score += 0.075 * conf
+
+        # Rosetta energy (weight 0.10, lower is better)
+        energy = design.get("rosetta_energy")
+        if energy is not None:
+            # Normalize: -100 is great, 0 is neutral, +100 is bad
+            energy_score = max(0, 1 - (energy + 100) / 200)
+            score += 0.10 * energy_score
+
+        return score
+
+    # Sort by composite score (higher is better)
+    for design in filtered_designs:
+        design["_composite_score"] = compute_composite_score(design)
+
+    ranked_designs = sorted(filtered_designs, key=lambda d: d["_composite_score"], reverse=True)
+
+    # Assign ranks and limit to requested count
+    final_designs = []
+    for i, design in enumerate(ranked_designs[:num_designs]):
+        design["rank"] = i + 1
+        # Clean up internal fields
+        design.pop("_composite_score", None)
+        design.pop("design_idx", None)
+        final_designs.append(design)
+
+    stats["returned"] = len(final_designs)
+    print(f"[ProteinBinder] Stage 7: Returning top {len(final_designs)} designs")
+
+    # ============== Build Response ==============
+    response = {
+        "status": "completed",
+        "designs": final_designs,
+        "statistics": stats,
+        "thresholds_used": thresholds,
+        "hotspots_used": hotspots,
+        "hotspots_auto_detected": hotspots_auto_detected,
+    }
+
+    # Add protocol info if used
+    if protocol and protocol in PROTOCOL_PRESETS:
+        response["protocol_used"] = protocol
+
+    # Add ESMFold availability info
+    if run_esmfold_validation:
+        response["esmfold_enabled"] = ESMFOLD_AVAILABLE
+
+    return to_python_types(response)
+
+
+def handle_protein_binder_design_with_retry(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Wrapper for protein binder design with intelligent retry logic.
+
+    If the pass rate is below target, automatically adjusts parameters and retries:
+    1. First retry: Increase generation count 2x
+    2. Second retry: Relax quality threshold by one level
+
+    This helps ensure users get usable results even for difficult targets.
+
+    Args:
+        job_input: Same as handle_protein_binder_design
+
+    Returns:
+        Same as handle_protein_binder_design, with additional retry info
+    """
+    target_pass_rate = job_input.get("target_pass_rate", 0.25)  # 25% default
+    max_retries = job_input.get("max_retries", 2)
+    enable_retry = job_input.get("enable_retry", False)  # Disabled by default
+
+    if not enable_retry:
+        return handle_protein_binder_design(job_input)
+
+    best_result = None
+    attempts = []
+
+    for attempt in range(max_retries + 1):
+        # Make a copy of input for this attempt
+        attempt_input = job_input.copy()
+
+        # Adjust parameters based on attempt number
+        if attempt == 1:
+            # First retry: double the generation count
+            current_designs = attempt_input.get("num_designs", 10)
+            attempt_input["num_designs"] = current_designs * 2
+            print(f"[ProteinBinder-Retry] Attempt {attempt + 1}: Increasing designs to {attempt_input['num_designs']}")
+
+        elif attempt == 2:
+            # Second retry: relax quality threshold
+            current_threshold = attempt_input.get("quality_threshold", "standard")
+            if current_threshold == "strict":
+                attempt_input["quality_threshold"] = "standard"
+            elif current_threshold == "standard":
+                attempt_input["quality_threshold"] = "relaxed"
+            print(f"[ProteinBinder-Retry] Attempt {attempt + 1}: Relaxing threshold to {attempt_input['quality_threshold']}")
+
+        # Run the design
+        result = handle_protein_binder_design(attempt_input)
+
+        if result.get("status") != "completed":
+            attempts.append({"attempt": attempt + 1, "status": "error", "error": result.get("error")})
+            continue
+
+        # Calculate pass rate
+        stats = result.get("statistics", {})
+        generated = stats.get("generated", 1)
+        passed = stats.get("passed_filters", 0)
+        pass_rate = passed / max(generated, 1)
+
+        attempts.append({
+            "attempt": attempt + 1,
+            "pass_rate": pass_rate,
+            "generated": generated,
+            "passed": passed,
+            "threshold": attempt_input.get("quality_threshold", "standard")
+        })
+
+        # Keep best result
+        if best_result is None or len(result.get("designs", [])) > len(best_result.get("designs", [])):
+            best_result = result
+
+        # Check if we met the target
+        if pass_rate >= target_pass_rate and len(result.get("designs", [])) >= job_input.get("num_designs", 10):
+            print(f"[ProteinBinder-Retry] Success on attempt {attempt + 1}: pass_rate={pass_rate:.1%}")
+            result["retry_attempts"] = attempts
+            return result
+
+        print(f"[ProteinBinder-Retry] Attempt {attempt + 1}: pass_rate={pass_rate:.1%} < target={target_pass_rate:.1%}")
+
+    # Return best result with retry info
+    if best_result:
+        best_result["retry_attempts"] = attempts
+        best_result["retry_note"] = f"Best result after {len(attempts)} attempts"
+        return best_result
+
+    return {
+        "status": "error",
+        "error": "All retry attempts failed",
+        "retry_attempts": attempts
+    }
+
+
+def _count_residues_in_pdb(pdb_content: str, chain: str = "A") -> int:
+    """Count residues in a specific chain of a PDB."""
+    seen_residues = set()
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            chain_id = line[21]
+            if chain_id == chain:
+                res_num = line[22:26].strip()
+                seen_residues.add(res_num)
+    return len(seen_residues)
+
+
+def _get_residue_range_in_pdb(pdb_content: str, chain: str = "A") -> tuple:
+    """
+    Get the first and last residue numbers in a specific chain of a PDB.
+
+    Returns:
+        Tuple of (first_res, last_res, count) or (None, None, 0) if chain not found.
+    """
+    residue_nums = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            chain_id = line[21]
+            if chain_id == chain:
+                try:
+                    res_num = int(line[22:26].strip())
+                    if res_num not in residue_nums:
+                        residue_nums.append(res_num)
+                except ValueError:
+                    continue
+
+    if not residue_nums:
+        return None, None, 0
+
+    residue_nums.sort()
+    return residue_nums[0], residue_nums[-1], len(residue_nums)
+
+
+def _relabel_binder_chain(
+    rfd3_pdb_content: str,
+    target_residue_count: int,
+    target_chain: str = "A",
+    binder_chain: str = "B",
+) -> str:
+    """
+    Relabel binder residues as a separate chain after RFD3 generation.
+
+    RFD3 outputs everything in chain A with continuous numbering:
+    - Target residues: 1 to target_residue_count
+    - Binder residues: target_residue_count+1 to end
+
+    This function splits them into:
+    - Chain A: target (residues 1-target_residue_count)
+    - Chain B: binder (renumbered from 1)
+
+    Args:
+        rfd3_pdb_content: PDB content from RFD3
+        target_residue_count: Number of residues in the target protein
+        target_chain: Chain label for target (default: "A")
+        binder_chain: Chain label for binder (default: "B")
+
+    Returns:
+        PDB content with binder relabeled as separate chain
+    """
+    lines = rfd3_pdb_content.split('\n')
+    output_lines = []
+    binder_residue_offset = None
+
+    for line in lines:
+        if line.startswith('ATOM') or line.startswith('HETATM'):
+            try:
+                res_num = int(line[22:26].strip())
+
+                if res_num <= target_residue_count:
+                    # Target residue - keep as chain A
+                    new_line = line[:21] + target_chain + line[22:]
+                    output_lines.append(new_line)
+                else:
+                    # Binder residue - relabel as chain B
+                    if binder_residue_offset is None:
+                        binder_residue_offset = res_num - 1
+                    new_res_num = res_num - binder_residue_offset
+                    new_line = line[:21] + binder_chain + f"{new_res_num:4d}" + line[26:]
+                    output_lines.append(new_line)
+            except ValueError:
+                output_lines.append(line)
+        elif line.startswith('TER'):
+            # Add TER for chain break
+            if output_lines:
+                last_line = output_lines[-1]
+                if last_line.startswith('ATOM'):
+                    chain = last_line[21]
+                    output_lines.append(f"TER")
+        else:
+            output_lines.append(line)
+
+    # Ensure we have proper chain termination
+    result = '\n'.join(output_lines)
+    if not result.endswith('END'):
+        result += '\nEND'
+
+    return result
+
+
+def fastrelax_protein_complex(
+    pdb_content: str,
+    max_iter: int = 200,
+    constrain_coords: bool = True,
+    interface_only: bool = True,
+    interface_distance: float = 8.0,
+) -> Dict[str, Any]:
+    """
+    Run FastRelax on a protein-protein complex.
+
+    Unlike ligand relaxation, this relaxes both chains at the interface.
+    """
+    try:
+        from rosetta_utils import init_pyrosetta
+        import pyrosetta as pr
+        from pyrosetta.rosetta.core.kinematics import MoveMap
+        from pyrosetta.rosetta.protocols.relax import FastRelax
+        import tempfile
+        import os
+
+        init_pyrosetta()
+
+        # Write temp PDB
+        with tempfile.NamedTemporaryFile(suffix='.pdb', delete=False, mode='w') as f:
+            f.write(pdb_content)
+            input_path = f.name
+
+        try:
+            pose = pr.pose_from_pdb(input_path)
+            scorefxn = pr.get_fa_scorefxn()
+
+            energy_before = scorefxn(pose)
+
+            # Create MoveMap
+            mmf = MoveMap()
+
+            if interface_only:
+                # Find interface residues between chains
+                interface_residues = set()
+                for i in range(1, pose.total_residue() + 1):
+                    res_i = pose.residue(i)
+                    if not res_i.is_protein():
+                        continue
+                    chain_i = pose.pdb_info().chain(i)
+
+                    for j in range(i + 1, pose.total_residue() + 1):
+                        res_j = pose.residue(j)
+                        if not res_j.is_protein():
+                            continue
+                        chain_j = pose.pdb_info().chain(j)
+
+                        # Only look at inter-chain contacts
+                        if chain_i == chain_j:
+                            continue
+
+                        # Check CA-CA distance
+                        ca_i = res_i.xyz("CA")
+                        ca_j = res_j.xyz("CA")
+                        dist = (ca_i - ca_j).norm()
+
+                        if dist < interface_distance:
+                            interface_residues.add(i)
+                            interface_residues.add(j)
+
+                # Set movemap
+                for res in range(1, pose.total_residue() + 1):
+                    if res in interface_residues:
+                        mmf.set_chi(res, True)
+                        mmf.set_bb(res, True)
+                    else:
+                        mmf.set_chi(res, False)
+                        mmf.set_bb(res, False)
+            else:
+                mmf.set_chi(True)
+                mmf.set_bb(True)
+
+            mmf.set_jump(False)
+
+            # Setup FastRelax
+            fastrelax = FastRelax()
+            fastrelax.set_scorefxn(scorefxn)
+            fastrelax.set_movemap(mmf)
+            fastrelax.max_iter(max_iter)
+            fastrelax.min_type("lbfgs_armijo_nonmonotone")
+
+            if constrain_coords:
+                fastrelax.constrain_relax_to_start_coords(True)
+
+            # Run
+            fastrelax.apply(pose)
+
+            energy_after = scorefxn(pose)
+
+            # Output
+            output_path = input_path.replace('.pdb', '_relaxed.pdb')
+            pose.dump_pdb(output_path)
+
+            with open(output_path) as f:
+                relaxed_pdb = f.read()
+
+            os.unlink(output_path)
+
+            return {
+                "status": "completed",
+                "relaxed_pdb": relaxed_pdb,
+                "energy_before": energy_before,
+                "energy_after": energy_after,
+                "energy_change": energy_after - energy_before,
+            }
+
+        finally:
+            os.unlink(input_path)
+
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def _extract_sequence_from_pdb(pdb_content: str, chain: str = None) -> str:
+    """
+    Extract amino acid sequence from PDB content.
+
+    Args:
+        pdb_content: PDB file content as string
+        chain: Optional chain ID to filter (e.g., "A", "B"). If None, returns all chains.
+
+    Returns:
+        Single-letter amino acid sequence string
+    """
+    aa_map = {
+        'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E', 'PHE': 'F',
+        'GLY': 'G', 'HIS': 'H', 'ILE': 'I', 'LYS': 'K', 'LEU': 'L',
+        'MET': 'M', 'ASN': 'N', 'PRO': 'P', 'GLN': 'Q', 'ARG': 'R',
+        'SER': 'S', 'THR': 'T', 'VAL': 'V', 'TRP': 'W', 'TYR': 'Y',
+    }
+
+    sequence = []
+    seen_residues = set()
+
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            res_name = line[17:20].strip()
+            chain_id = line[21]
+            res_num = line[22:26].strip()
+
+            # Filter by chain if specified
+            if chain is not None and chain_id != chain:
+                continue
+
+            key = (chain_id, res_num)
+            if key not in seen_residues and res_name in aa_map:
+                sequence.append(aa_map[res_name])
+                seen_residues.add(key)
+
+    return ''.join(sequence)
+
+
 # ============== Cleavable Monomer Handler ==============
 
 def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -822,6 +2172,1334 @@ def handle_cleavable_monomer(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     # Convert numpy types for JSON serialization
     return to_python_types(final_result)
+
+
+# ============== Interface Ligand Design Handler ==============
+
+def handle_interface_ligand_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design protein dimers with ligands at the interface using SEPARABLE chains.
+
+    This addresses the topology problem where buried ligand design creates
+    entangled chains that cannot physically separate. The solution uses
+    asymmetric binders that grow protein on ONE side of the ligand only.
+
+    Approaches:
+    1. "asymmetric" - Design one-sided binder using ori_token offset
+    2. "sequential" - Design chain B using chain A as fixed context
+    3. "full" - Complete workflow: asymmetric chain A, then complementary chain B
+
+    Input:
+        ligand_smiles: str (required) - SMILES string for the ligand
+        approach: str (default: "asymmetric") - "asymmetric", "sequential", or "full"
+        chain_length: str (default: "60-80") - Chain length range for RFD3
+        num_designs: int (default: 3) - Number of designs to generate
+        seed: int (optional) - Random seed
+
+        # For asymmetric approach:
+        ori_offset: [x, y, z] (default: [12.0, 0.0, 0.0]) - Offset from ligand center
+        exposed_atoms: str (optional) - Ligand atoms to keep exposed (e.g., "C7,C8,C9")
+        side: str (default: "left") - Which side to bind: "left" or "right"
+
+        # For sequential approach:
+        chain_a_pdb: str (required) - PDB content of chain A with ligand
+
+    Returns:
+        {
+            "status": "completed" | "failed",
+            "result": {
+                "designs": [{"pdb_content": str, "metrics": {...}}, ...],
+                "approach": str,
+                "best_design": int
+            }
+        }
+    """
+    # Extract parameters
+    ligand_smiles = job_input.get("ligand_smiles")
+    if not ligand_smiles:
+        return {"status": "failed", "error": "Missing 'ligand_smiles' parameter"}
+
+    approach = job_input.get("approach", "asymmetric")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # FastRelax parameters for post-design refinement
+    run_fastrelax = job_input.get("run_fastrelax", False)
+    fastrelax_iter = job_input.get("fastrelax_iter", 200)
+
+    print(f"[InterfaceLigand] Starting with approach={approach}, ligand={ligand_smiles[:30]}, fastrelax={run_fastrelax}...")
+
+    if approach == "asymmetric":
+        return _design_asymmetric_binder(job_input)
+    elif approach == "sequential":
+        return _design_sequential_binder(job_input)
+    elif approach == "full":
+        return _design_full_dimer(job_input)
+    elif approach == "symmetric":
+        return _design_symmetric_dimer(job_input)
+    else:
+        return {
+            "status": "failed",
+            "error": f"Unknown approach: {approach}. Valid: asymmetric, sequential, full, symmetric"
+        }
+
+
+def _design_asymmetric_binder(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design a one-sided binder using RASA conditioning (select_exposed).
+
+    The key mechanism is select_exposed which tells RFD3 to keep certain ligand
+    atoms accessible (not buried by protein). This forces the protein to wrap
+    around only one side of the ligand, leaving space for a second chain.
+
+    Note: ori_token is disabled by default as it was causing bad positioning.
+    Use select_exposed as the primary mechanism for one-sided binding.
+    """
+    ligand_smiles = job_input.get("ligand_smiles")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # Asymmetric parameters
+    ori_offset = job_input.get("ori_offset", [12.0, 0.0, 0.0])
+    exposed_atoms = job_input.get("exposed_atoms")
+    side = job_input.get("side", "left")
+
+    # If side is specified but no exposed_atoms, use defaults for azobenzene
+    if not exposed_atoms and "N=N" in ligand_smiles:
+        # Azobenzene atom naming: C1-C6 (first phenyl), N7-N8 (azo), C9-C14 (second phenyl)
+        if side == "right":
+            exposed_atoms = "C9,C10,C11,C12,C13,C14"  # Second phenyl
+        else:
+            exposed_atoms = "C1,C2,C3,C4,C5,C6"  # First phenyl
+
+    # Adjust ori_offset based on side
+    if side == "right" and ori_offset[0] > 0:
+        ori_offset = [-ori_offset[0], ori_offset[1], ori_offset[2]]
+
+    # Use ori_token only if explicitly set by user
+    # NOTE: ori_token doesn't reliably position proteins on opposite sides
+    use_ori_token = job_input.get("use_ori_token", False)
+
+    print(f"[AsymmetricBinder] ori_offset={ori_offset}, exposed_atoms={exposed_atoms}, use_ori_token={use_ori_token}")
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[AsymmetricBinder] Generating design {design_idx + 1}/{num_designs}...")
+
+        # Build RFD3 config for asymmetric binder
+        rfd3_input = {
+            "task": "rfd3",
+            "length": chain_length,
+            "ligand_smiles": ligand_smiles,
+            "seed": design_seed,
+            "num_designs": 1,
+        }
+
+        # Optionally use ori_token to offset protein from ligand
+        if use_ori_token:
+            rfd3_input["ori_token"] = ori_offset
+
+        # Force specified atoms to remain exposed (one-sided binding)
+        # This is the KEY mechanism for asymmetric binding
+        if exposed_atoms:
+            rfd3_input["select_exposed"] = {"UNL": exposed_atoms}
+
+        result = handle_rfd3(rfd3_input)
+
+        if result.get("status") != "completed":
+            print(f"[AsymmetricBinder] Design {design_idx + 1} failed: {result.get('error')}")
+            continue
+
+        result_designs = result.get("result", {}).get("designs", [])
+        if not result_designs:
+            print(f"[AsymmetricBinder] Design {design_idx + 1} produced no designs")
+            continue
+
+        pdb_content = result_designs[0].get("content") or result_designs[0].get("pdb_content")
+        if not pdb_content:
+            print(f"[AsymmetricBinder] Design {design_idx + 1}: No PDB content")
+            continue
+
+        # Validate the design
+        validation = validate_cleaved_dimer(
+            pdb_content=pdb_content,
+            ligand_name="UNL",
+            ligand_smiles=ligand_smiles,
+            min_contacts_per_chain=2,  # Lower threshold for one-sided
+        )
+
+        # Get metrics
+        checks = validation.get("checks", {})
+        gnina_result = checks.get("gnina_result", {}).get("result", {})
+        affinity = gnina_result.get("best_affinity")
+
+        design_entry = {
+            "pdb_content": pdb_content,
+            "design_index": design_idx,
+            "validation": validation,
+            "metrics": {
+                "affinity": affinity,
+                "contacts": checks.get("contacts_a", 0) + checks.get("contacts_b", 0),
+                "has_clashes": checks.get("clash_check", {}).get("has_clashes", False),
+            }
+        }
+
+        # Score: prioritize affinity
+        score = 0
+        if affinity is not None:
+            score = -affinity  # More negative = better
+        if not design_entry["metrics"]["has_clashes"]:
+            score += 5
+
+        design_entry["score"] = score
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        print(f"[AsymmetricBinder] Design {design_idx + 1}: affinity={affinity}, score={score:.2f}")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid asymmetric binder designs generated",
+            "suggestions": [
+                "Specify exposed_atoms for your ligand (e.g., 'C1,C2,C3' for one side)",
+                "Increase num_designs to try more seeds",
+                "Try a different chain_length range",
+            ]
+        }
+
+    return {
+        "status": "completed",
+        "result": {
+            "designs": designs,
+            "approach": "asymmetric",
+            "best_design": best_design_idx,
+            "ori_offset": ori_offset,
+            "exposed_atoms": exposed_atoms,
+        }
+    }
+
+
+def _get_ligand_chain_resnum(pdb_content: str, ligand_name: str = "UNL") -> tuple:
+    """
+    Extract the chain ID and residue number of a ligand from PDB content.
+
+    Returns: (chain_id, res_num) or (None, None) if not found.
+    """
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name == ligand_name:
+                chain_id = line[21].strip() or "L"
+                res_num = line[22:26].strip()
+                return (chain_id, res_num)
+    return (None, None)
+
+
+def _design_sequential_binder(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design chain B to bind the opposite side of the ligand from chain A.
+
+    NEW APPROACH: Since contig-based binder design doesn't work for ligands,
+    we design Chain B independently using ONLY the ligand (extracted from Chain A's output).
+    Chain B uses OPPOSITE RASA conditioning from Chain A.
+
+    Steps:
+    1. Extract ligand PDB from Chain A output (preserving its exact position)
+    2. Design Chain B around JUST the ligand (like asymmetric design)
+    3. Use opposite RASA conditioning (expose atoms that Chain A bound)
+    4. Combine Chain A + Chain B + ligand into final dimer
+    """
+    ligand_smiles = job_input.get("ligand_smiles")
+    chain_a_pdb = job_input.get("chain_a_pdb")
+
+    if not chain_a_pdb:
+        return {"status": "failed", "error": "Missing 'chain_a_pdb' parameter for sequential approach"}
+
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # Get chain A length for later combining
+    chain_a_length = _get_chain_length(chain_a_pdb, "A")
+    if chain_a_length == 0:
+        chain_a_length = _get_chain_length(chain_a_pdb)
+
+    print(f"[SequentialBinder] Chain A length: {chain_a_length}")
+
+    # Extract ligand PDB from Chain A output (preserves exact 3D position)
+    ligand_pdb = _extract_ligand_pdb(chain_a_pdb, "UNL")
+    if not ligand_pdb:
+        return {"status": "failed", "error": "Could not extract ligand UNL from chain A PDB"}
+
+    print(f"[SequentialBinder] Extracted ligand from Chain A output")
+
+    # Get atoms that Chain B should EXPOSE (opposite of what Chain A exposed)
+    # Chain A exposed certain atoms, Chain B should expose the OPPOSITE atoms
+    exposed_atoms_a = job_input.get("exposed_atoms_b", "")  # Named confusingly, but this is what A exposed
+
+    # Determine opposite side for Chain B to expose
+    if "N=N" in (ligand_smiles or ""):
+        # Azobenzene: C1-C6 (first phenyl), C9-C14 (second phenyl)
+        if "C1" in exposed_atoms_a:
+            # Chain A exposed C1-C6, so Chain A bound C9-C14
+            # Chain B should bind C1-C6, so Chain B exposes C9-C14
+            exposed_atoms_b = "C9,C10,C11,C12,C13,C14"
+        else:
+            # Chain A exposed C9-C14, so Chain A bound C1-C6
+            # Chain B should bind C9-C14, so Chain B exposes C1-C6
+            exposed_atoms_b = "C1,C2,C3,C4,C5,C6"
+    else:
+        exposed_atoms_b = ""
+
+    print(f"[SequentialBinder] Chain A exposed: {exposed_atoms_a}, Chain B will expose: {exposed_atoms_b}")
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    # Extract Chain A protein-only (no ligand) for later combining
+    chain_a_protein = _extract_protein_pdb(chain_a_pdb, "A")
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[SequentialBinder] Generating design {design_idx + 1}/{num_designs}...")
+
+        # NEW APPROACH: Design Chain B around JUST the ligand (like asymmetric design)
+        # Then combine with Chain A afterward
+        # NOTE: ori_token doesn't reliably position chains on opposite sides,
+        # so we rely on select_exposed (RASA) to make each chain bind different ligand faces
+        ori_offset_b = job_input.get("ori_offset_b", [-12.0, 0.0, 0.0])
+
+        rfd3_input = {
+            "task": "rfd3",
+            "length": chain_length,  # Use length instead of contig
+            "pdb_content": ligand_pdb,  # Just the ligand, no Chain A
+            "ligand": "UNL",  # Reference to ligand in the input
+            "seed": design_seed,
+            "num_designs": 1,
+            # Position Chain B on opposite side of ligand from Chain A
+            "ori_token": ori_offset_b,
+        }
+        print(f"[SequentialBinder] Chain B ori_token: {ori_offset_b}")
+
+        # RASA conditioning: Chain B exposes opposite atoms from Chain A
+        if exposed_atoms_b:
+            rfd3_input["select_exposed"] = {"UNL": exposed_atoms_b}
+            print(f"[SequentialBinder] Chain B will expose: {exposed_atoms_b}")
+
+        result = handle_rfd3(rfd3_input)
+
+        if result.get("status") != "completed":
+            print(f"[SequentialBinder] Design {design_idx + 1} failed: {result.get('error')}")
+            continue
+
+        result_designs = result.get("result", {}).get("designs", [])
+        if not result_designs:
+            print(f"[SequentialBinder] Design {design_idx + 1} produced no designs")
+            continue
+
+        chain_b_pdb = result_designs[0].get("content") or result_designs[0].get("pdb_content")
+        if not chain_b_pdb:
+            print(f"[SequentialBinder] Design {design_idx + 1}: No PDB content")
+            continue
+
+        # Extract Chain B protein-only and relabel as chain B
+        chain_b_protein = _extract_protein_pdb(chain_b_pdb)
+        chain_b_protein = _relabel_chain(chain_b_protein, "B")
+
+        # CRITICAL: Translate Chain B to the opposite side of the ligand from Chain A
+        # Both chains are designed wrapped around the ligand at origin, so they overlap
+        # We need to translate (not just rotate) to achieve proper separation
+        chain_b_protein = _translate_chain_to_opposite_side(
+            chain_b_protein, chain_a_protein, ligand_pdb
+        )
+
+        # Combine Chain A + Chain B + Ligand into final dimer
+        dimer_pdb = _combine_chains(chain_a_protein, chain_b_protein, ligand_pdb)
+
+        # Verify we have two chains
+        chains_in_output = _get_chains_in_pdb(dimer_pdb)
+        print(f"[SequentialBinder] Design {design_idx + 1}: chains = {chains_in_output}")
+
+        if "A" not in chains_in_output or "B" not in chains_in_output:
+            print(f"[SequentialBinder] Design {design_idx + 1}: Missing chain A or B, skipping")
+            continue
+
+        # Validate the dimer
+        validation = validate_cleaved_dimer(
+            pdb_content=dimer_pdb,
+            ligand_name="UNL",
+            ligand_smiles=ligand_smiles,
+            min_contacts_per_chain=3,
+        )
+
+        checks = validation.get("checks", {})
+        gnina_result = checks.get("gnina_result", {}).get("result", {})
+        affinity = gnina_result.get("best_affinity")
+
+        design_entry = {
+            "pdb_content": dimer_pdb,
+            "design_index": design_idx,
+            "validation": validation,
+            "metrics": {
+                "affinity": affinity,
+                "contacts_a": checks.get("contacts_a", 0),
+                "contacts_b": checks.get("contacts_b", 0),
+                "has_clashes": checks.get("clash_check", {}).get("has_clashes", False),
+                "separable": True,  # Interface designs are separable by design
+            }
+        }
+
+        # Score
+        score = 0
+        if affinity is not None:
+            score = -affinity * 5  # Weight affinity heavily
+        if validation.get("overall_pass"):
+            score += 10
+        if not design_entry["metrics"]["has_clashes"]:
+            score += 5
+
+        design_entry["score"] = score
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        print(f"[SequentialBinder] Design {design_idx + 1}: contacts_a={checks.get('contacts_a', 0)}, contacts_b={checks.get('contacts_b', 0)}, affinity={affinity}")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid sequential binder designs generated",
+        }
+
+    return {
+        "status": "completed",
+        "result": {
+            "designs": designs,
+            "approach": "sequential",
+            "best_design": best_design_idx,
+        }
+    }
+
+
+def _design_full_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Complete workflow: design asymmetric chain A, then complementary chain B.
+
+    This produces a fully separable dimer with ligand at the interface.
+    """
+    ligand_smiles = job_input.get("ligand_smiles")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    print("[FullDimer] Step 1: Design asymmetric chain A...")
+
+    # Step 1: Design asymmetric chain A
+    step1_input = {
+        **job_input,
+        "approach": "asymmetric",
+        "side": job_input.get("side", "left"),
+    }
+    step1_result = _design_asymmetric_binder(step1_input)
+
+    if step1_result.get("status") != "completed":
+        return {
+            "status": "failed",
+            "error": f"Step 1 (asymmetric) failed: {step1_result.get('error')}",
+            "step1_result": step1_result,
+        }
+
+    # Get best chain A
+    step1_designs = step1_result.get("result", {}).get("designs", [])
+    best_a_idx = step1_result.get("result", {}).get("best_design", 0)
+    chain_a_pdb = step1_designs[best_a_idx]["pdb_content"]
+
+    print(f"[FullDimer] Step 1 complete. Best chain A: index {best_a_idx}")
+    print("[FullDimer] Step 2: Design complementary chain B...")
+
+    # Step 2: Design chain B using chain A as context
+    # Chain B should bind the atoms that Chain A kept EXPOSED
+    # (Chain A exposed them so Chain B could bind them later)
+    exposed_a = step1_result.get("result", {}).get("exposed_atoms", "")
+    if "N=N" in job_input.get("ligand_smiles", ""):
+        # Azobenzene atom naming: C1-C6 (first phenyl), N7-N8 (azo), C9-C14 (second phenyl)
+        if "C1" in exposed_a:
+            # Chain A exposed C1-C6 (first phenyl), so Chain A bound C9-C14 (second phenyl)
+            # Chain B should bind C1-C6 (the exposed atoms from Chain A's side)
+            buried_b = "C1,C2,C3,C4,C5,C6"  # First phenyl - Chain B binds these
+        else:
+            # Chain A exposed C9-C14 (second phenyl), so Chain A bound C1-C6 (first phenyl)
+            # Chain B should bind C9-C14 (the exposed atoms from Chain A's side)
+            buried_b = "C9,C10,C11,C12,C13,C14"  # Second phenyl - Chain B binds these
+        print(f"[FullDimer] Chain A exposed: {exposed_a}, Chain B will bind: {buried_b}")
+    else:
+        buried_b = job_input.get("exposed_atoms_b", "")
+
+    step2_input = {
+        **job_input,
+        "approach": "sequential",
+        "chain_a_pdb": chain_a_pdb,
+        "exposed_atoms_b": buried_b,  # Named for compatibility but now used as buried atoms
+    }
+    step2_result = _design_sequential_binder(step2_input)
+
+    if step2_result.get("status") != "completed":
+        return {
+            "status": "failed",
+            "error": f"Step 2 (sequential) failed: {step2_result.get('error')}",
+            "step1_result": step1_result,
+            "step2_result": step2_result,
+        }
+
+    # Get best dimer
+    step2_designs = step2_result.get("result", {}).get("designs", [])
+    best_b_idx = step2_result.get("result", {}).get("best_design", 0)
+
+    print(f"[FullDimer] Step 2 complete. Best dimer: index {best_b_idx}")
+
+    # Extract best dimer metrics for easy access
+    best_dimer = step2_designs[best_b_idx]
+    dimer_metrics = best_dimer.get("metrics", {})
+
+    return {
+        "status": "completed",
+        "result": {
+            "approach": "full",
+            "chain_a": {
+                "pdb_content": chain_a_pdb,
+                "design_index": best_a_idx,
+                "metrics": step1_designs[best_a_idx].get("metrics"),
+            },
+            "dimer": {
+                "pdb_content": best_dimer["pdb_content"],
+                "design_index": best_b_idx,
+                "validation": best_dimer.get("validation"),
+                "metrics": dimer_metrics,
+                # Flatten key metrics for frontend compatibility
+                "affinity": dimer_metrics.get("affinity"),
+                "contacts_a": dimer_metrics.get("contacts_a", 0),
+                "contacts_b": dimer_metrics.get("contacts_b", 0),
+                "has_clashes": dimer_metrics.get("has_clashes", False),
+                "separable": dimer_metrics.get("separable", True),
+            },
+            "all_chain_a_designs": step1_designs,
+            "all_dimer_designs": step2_designs,
+        }
+    }
+
+
+def _design_symmetric_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design a C2 symmetric dimer with ligand at the interface.
+
+    This uses RFD3's built-in interface_ligand mode with C2 symmetry,
+    which produces properly separated chains without overlap.
+
+    The resulting dimer has:
+    - Chain A on one side of the ligand
+    - Chain B (mirror of A) on the opposite side
+    - Ligand at the C2 symmetry axis (interface)
+    """
+    ligand_smiles = job_input.get("ligand_smiles")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    print(f"[SymmetricDimer] Designing C2 symmetric dimer with interface ligand...")
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[SymmetricDimer] Generating design {design_idx + 1}/{num_designs}...")
+
+        # Use RFD3 with C2 symmetry and interface_ligand in "binder" mode
+        # The "binder" mode adds H-bond and burial conditioning for stronger binding:
+        # - select_hbond_acceptor on N7,N8 (azo nitrogens)
+        # - select_buried on N7,N8 (forces close contact)
+        # - select_partially_buried on C4,C9 (phenyl carbons at interface)
+        rfd3_input = {
+            "task": "rfd3",
+            "length": chain_length,
+            "ligand_smiles": ligand_smiles,
+            "symmetry": "C2",
+            "interface_ligand": "binder",  # Use binder mode for stronger contacts
+            "seed": design_seed,
+            "num_designs": 1,
+        }
+
+        result = handle_rfd3(rfd3_input)
+
+        if result.get("status") != "completed":
+            print(f"[SymmetricDimer] Design {design_idx + 1} failed: {result.get('error')}")
+            continue
+
+        result_designs = result.get("result", {}).get("designs", [])
+        if not result_designs:
+            print(f"[SymmetricDimer] Design {design_idx + 1} produced no designs")
+            continue
+
+        pdb_content = result_designs[0].get("content") or result_designs[0].get("pdb_content")
+        if not pdb_content:
+            print(f"[SymmetricDimer] Design {design_idx + 1}: No PDB content")
+            continue
+
+        # Optional FastRelax refinement to resolve clashes
+        run_fastrelax = job_input.get("run_fastrelax", False)
+        fastrelax_iter = job_input.get("fastrelax_iter", 200)
+        relaxed = False
+        relax_energy_change = None
+
+        if run_fastrelax and check_pyrosetta_available() and ligand_smiles:
+            print(f"[SymmetricDimer] Running FastRelax on design {design_idx + 1}...")
+            relax_result = fastrelax_with_ligand(
+                pdb_content=pdb_content,
+                ligand_smiles=ligand_smiles,
+                max_iter=fastrelax_iter,
+                constrain_coords=True,
+                interface_only=True,  # Faster - only relax near ligand
+                interface_distance=8.0,
+            )
+
+            if relax_result.get("status") == "completed":
+                pdb_content = relax_result["relaxed_pdb"]
+                relaxed = True
+                relax_energy_change = relax_result.get("energy_change")
+                print(f"[SymmetricDimer] FastRelax complete: ΔE={relax_energy_change:.1f}")
+            else:
+                print(f"[SymmetricDimer] FastRelax failed: {relax_result.get('error')}")
+        elif run_fastrelax and not ligand_smiles:
+            print(f"[SymmetricDimer] FastRelax requested but ligand_smiles not provided")
+        elif run_fastrelax:
+            print(f"[SymmetricDimer] FastRelax requested but PyRosetta not available")
+
+        # Validate the dimer
+        validation = validate_cleaved_dimer(
+            pdb_content=pdb_content,
+            ligand_name="UNL",
+            ligand_smiles=ligand_smiles,
+            min_contacts_per_chain=0,  # Symmetric designs may have different contact patterns
+        )
+
+        checks = validation.get("checks", {})
+        gnina_result = checks.get("gnina_result", {}).get("result", {})
+        affinity = gnina_result.get("best_affinity")
+
+        design_entry = {
+            "pdb_content": pdb_content,
+            "design_index": design_idx,
+            "validation": validation,
+            "metrics": {
+                "affinity": affinity,
+                "contacts_a": checks.get("contacts_a", 0),
+                "contacts_b": checks.get("contacts_b", 0),
+                "has_clashes": checks.get("clash_check", {}).get("has_clashes", False),
+                "separable": True,  # C2 symmetric designs are separable by construction
+                "relaxed": relaxed,
+                "relax_energy_change": relax_energy_change,
+            }
+        }
+
+        # Score
+        score = 0
+        if affinity is not None and affinity < 0:
+            score = -affinity * 5  # Weight affinity
+        if not design_entry["metrics"]["has_clashes"]:
+            score += 10
+
+        design_entry["score"] = score
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        relax_info = f", relaxed={relaxed}" if run_fastrelax else ""
+        print(f"[SymmetricDimer] Design {design_idx + 1}: affinity={affinity}, clashes={design_entry['metrics']['has_clashes']}{relax_info}")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid symmetric dimer designs produced"
+        }
+
+    return {
+        "status": "completed",
+        "result": {
+            "approach": "symmetric",
+            "designs": designs,
+            "best_design": best_design_idx,
+            # Flatten best design metrics for frontend
+            "dimer": {
+                "pdb_content": designs[best_design_idx]["pdb_content"],
+                "design_index": best_design_idx,
+                "validation": designs[best_design_idx].get("validation"),
+                "metrics": designs[best_design_idx]["metrics"],
+            }
+        }
+    }
+
+
+def _extract_ligand_pdb(pdb_content: str, ligand_name: str = "UNL") -> str:
+    """Extract ligand HETATM records from PDB content."""
+    lines = []
+    for line in pdb_content.split("\n"):
+        if line.startswith("HETATM"):
+            res_name = line[17:20].strip()
+            if res_name == ligand_name:
+                lines.append(line)
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def _extract_protein_pdb(pdb_content: str, chain_id: str = None) -> str:
+    """Extract protein ATOM records from PDB content, optionally for a specific chain."""
+    lines = []
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM"):
+            if chain_id is None:
+                lines.append(line)
+            else:
+                current_chain = line[21:22].strip()
+                if current_chain == chain_id:
+                    lines.append(line)
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def _relabel_chain(pdb_content: str, new_chain_id: str) -> str:
+    """Change chain ID for all ATOM/HETATM records in PDB content."""
+    lines = []
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            if len(line) >= 22:
+                line = line[:21] + new_chain_id + line[22:]
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _combine_chains(chain_a_pdb: str, chain_b_pdb: str, ligand_pdb: str) -> str:
+    """Combine Chain A, Chain B, and ligand into a single PDB."""
+    parts = []
+
+    # Add Chain A (ensure it's labeled as A)
+    chain_a_clean = chain_a_pdb.strip()
+    if chain_a_clean:
+        parts.append(chain_a_clean)
+
+    # Add Chain B (should already be labeled as B)
+    chain_b_clean = chain_b_pdb.strip()
+    if chain_b_clean:
+        parts.append(chain_b_clean)
+
+    # Add ligand (label as chain L)
+    ligand_clean = _relabel_chain(ligand_pdb.strip(), "L")
+    if ligand_clean:
+        parts.append(ligand_clean)
+
+    return "\n".join(parts) + "\nEND\n"
+
+
+def _get_centroid(pdb_content: str) -> tuple:
+    """Calculate centroid (center of mass) of all atoms in PDB content."""
+    x_sum, y_sum, z_sum = 0.0, 0.0, 0.0
+    count = 0
+
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            try:
+                x = float(line[30:38].strip())
+                y = float(line[38:46].strip())
+                z = float(line[46:54].strip())
+                x_sum += x
+                y_sum += y
+                z_sum += z
+                count += 1
+            except (ValueError, IndexError):
+                continue
+
+    if count == 0:
+        return (0.0, 0.0, 0.0)
+
+    return (x_sum / count, y_sum / count, z_sum / count)
+
+
+def _translate_pdb(pdb_content: str, dx: float, dy: float, dz: float) -> str:
+    """Translate all atom coordinates by (dx, dy, dz)."""
+    lines = []
+
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            try:
+                x = float(line[30:38].strip()) + dx
+                y = float(line[38:46].strip()) + dy
+                z = float(line[46:54].strip()) + dz
+                # Format coordinates with proper PDB spacing
+                new_line = f"{line[:30]}{x:8.3f}{y:8.3f}{z:8.3f}{line[54:]}"
+                lines.append(new_line)
+            except (ValueError, IndexError):
+                lines.append(line)
+        else:
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def _rotate_chain_180_around_x(chain_pdb: str, ligand_pdb: str) -> str:
+    """
+    Rotate chain B by 180 degrees around the ligand's X-axis.
+
+    For azobenzene (linear molecule along X-axis), this flips the protein
+    to the opposite side of the ligand in the Y-Z plane.
+    """
+    centroid_ligand = _get_centroid(ligand_pdb)
+    lx, ly, lz = centroid_ligand
+
+    print(f"[RotateChain] Rotating Chain B 180° around X-axis centered at ligand")
+    print(f"[RotateChain] Ligand centroid: ({lx:.2f}, {ly:.2f}, {lz:.2f})")
+
+    lines = []
+    for line in chain_pdb.split("\n"):
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            try:
+                x = float(line[30:38].strip())
+                y = float(line[38:46].strip())
+                z = float(line[46:54].strip())
+
+                # Translate to ligand-centered coordinates
+                y_centered = y - ly
+                z_centered = z - lz
+
+                # Rotate 180° around X-axis: (y, z) -> (-y, -z)
+                y_rotated = -y_centered
+                z_rotated = -z_centered
+
+                # Translate back
+                y_new = y_rotated + ly
+                z_new = z_rotated + lz
+
+                # Format coordinates with proper PDB spacing
+                new_line = f"{line[:30]}{x:8.3f}{y_new:8.3f}{z_new:8.3f}{line[54:]}"
+                lines.append(new_line)
+            except (ValueError, IndexError):
+                lines.append(line)
+        else:
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def _should_flip_chain_b(chain_a_pdb: str, chain_b_pdb: str, ligand_pdb: str) -> bool:
+    """
+    Determine if Chain B should be flipped to avoid overlap with Chain A.
+
+    Returns True if both chains are on the same side of the ligand.
+    """
+    centroid_ligand = _get_centroid(ligand_pdb)
+    centroid_a = _get_centroid(chain_a_pdb)
+    centroid_b = _get_centroid(chain_b_pdb)
+
+    # Calculate vectors from ligand to each chain
+    vec_a = (centroid_a[0] - centroid_ligand[0],
+             centroid_a[1] - centroid_ligand[1],
+             centroid_a[2] - centroid_ligand[2])
+    vec_b = (centroid_b[0] - centroid_ligand[0],
+             centroid_b[1] - centroid_ligand[1],
+             centroid_b[2] - centroid_ligand[2])
+
+    # Dot product to check if on same side (considering Y and Z for azobenzene)
+    # For azobenzene along X-axis, Y-Z plane is perpendicular to the ligand
+    dot_yz = vec_a[1] * vec_b[1] + vec_a[2] * vec_b[2]
+
+    print(f"[FlipCheck] vec_a: ({vec_a[0]:.2f}, {vec_a[1]:.2f}, {vec_a[2]:.2f})")
+    print(f"[FlipCheck] vec_b: ({vec_b[0]:.2f}, {vec_b[1]:.2f}, {vec_b[2]:.2f})")
+    print(f"[FlipCheck] Y-Z dot product: {dot_yz:.2f}")
+
+    return dot_yz > 0  # Same side if positive
+
+
+def _translate_chain_to_opposite_side(
+    chain_b_pdb: str, chain_a_pdb: str, ligand_pdb: str
+) -> str:
+    """
+    Translate Chain B to the opposite side of the ligand from Chain A.
+
+    This ensures separable dimer geometry where:
+    - Chain A is on one side of the ligand
+    - Chain B is on the opposite side
+    - The ligand sits at the interface between them
+
+    Strategy:
+    1. Calculate Chain A's dominant direction from ligand
+    2. Translate Chain B to the opposite side with enough separation (~25Å typical)
+    """
+    import math
+
+    centroid_ligand = _get_centroid(ligand_pdb)
+    centroid_a = _get_centroid(chain_a_pdb)
+    centroid_b = _get_centroid(chain_b_pdb)
+
+    lx, ly, lz = centroid_ligand
+    ax, ay, az = centroid_a
+    bx, by, bz = centroid_b
+
+    # Vector from ligand to Chain A (this is where Chain A is relative to ligand)
+    vec_a_x = ax - lx
+    vec_a_y = ay - ly
+
+    # Magnitude of Chain A offset in XY plane
+    dist_a = math.sqrt(vec_a_x**2 + vec_a_y**2)
+    if dist_a < 0.1:
+        dist_a = 1.0  # Avoid division by zero
+
+    # Normalize to get direction
+    dir_x = vec_a_x / dist_a
+    dir_y = vec_a_y / dist_a
+
+    # Target separation: 25Å from ligand on opposite side
+    # This ensures proper physical separation for a separable dimer
+    SEPARATION = 25.0
+
+    # Target position for Chain B: opposite side, same distance
+    target_bx = lx - dir_x * SEPARATION
+    target_by = ly - dir_y * SEPARATION
+
+    # Also move Chain A to its target position for symmetry
+    # (we don't modify A here, but the same distance)
+    target_ax = lx + dir_x * SEPARATION
+
+    # Translation vector for Chain B: move current centroid to target
+    trans_x = target_bx - bx
+    trans_y = target_by - by
+    trans_z = 0  # Don't translate in Z (ligand axis for azobenzene)
+
+    print(f"[TranslateChain] Chain A centroid: ({ax:.2f}, {ay:.2f}, {az:.2f})")
+    print(f"[TranslateChain] Chain B centroid: ({bx:.2f}, {by:.2f}, {bz:.2f})")
+    print(f"[TranslateChain] Ligand centroid: ({lx:.2f}, {ly:.2f}, {lz:.2f})")
+    print(f"[TranslateChain] Direction from ligand to A: ({dir_x:.2f}, {dir_y:.2f})")
+    print(f"[TranslateChain] Target for Chain B: ({target_bx:.2f}, {target_by:.2f}) - {SEPARATION:.0f}Å separation")
+    print(f"[TranslateChain] Translating Chain B by ({trans_x:.2f}, {trans_y:.2f}, {trans_z:.2f})")
+
+    lines = []
+    for line in chain_b_pdb.split("\n"):
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            try:
+                x = float(line[30:38].strip())
+                y = float(line[38:46].strip())
+                z = float(line[46:54].strip())
+
+                x_new = x + trans_x
+                y_new = y + trans_y
+                z_new = z + trans_z
+
+                new_line = f"{line[:30]}{x_new:8.3f}{y_new:8.3f}{z_new:8.3f}{line[54:]}"
+                lines.append(new_line)
+            except (ValueError, IndexError):
+                lines.append(line)
+        else:
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def _rotate_chain_180_around_z(chain_pdb: str, ligand_pdb: str) -> str:
+    """
+    Rotate chain by 180 degrees around the ligand's Z-axis.
+
+    For azobenzene (with N=N bond oriented along Z-axis), this rotates
+    the protein to the opposite side of the ligand in the X-Y plane.
+    This is the correct C2 symmetry operation for separable dimers.
+    """
+    centroid_ligand = _get_centroid(ligand_pdb)
+    lx, ly, lz = centroid_ligand
+
+    print(f"[RotateChain] Rotating Chain B 180° around Z-axis (C2 operation)")
+    print(f"[RotateChain] Ligand centroid: ({lx:.2f}, {ly:.2f}, {lz:.2f})")
+
+    lines = []
+    for line in chain_pdb.split("\n"):
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            try:
+                x = float(line[30:38].strip())
+                y = float(line[38:46].strip())
+                z = float(line[46:54].strip())
+
+                # Translate to ligand-centered coordinates
+                x_centered = x - lx
+                y_centered = y - ly
+
+                # Rotate 180° around Z-axis: (x, y) -> (-x, -y)
+                x_rotated = -x_centered
+                y_rotated = -y_centered
+
+                # Translate back
+                x_new = x_rotated + lx
+                y_new = y_rotated + ly
+
+                # Format coordinates with proper PDB spacing
+                new_line = f"{line[:30]}{x_new:8.3f}{y_new:8.3f}{z:8.3f}{line[54:]}"
+                lines.append(new_line)
+            except (ValueError, IndexError):
+                lines.append(line)
+        else:
+            lines.append(line)
+
+    return "\n".join(lines)
+
+
+def _chains_on_same_side_xy(chain_a_pdb: str, chain_b_pdb: str, ligand_pdb: str) -> bool:
+    """
+    Check if both chains are on the same side of the ligand in the X-Y plane.
+
+    For azobenzene with N=N along Z-axis, proper separation means chains
+    should be on opposite sides in X-Y (i.e., negative dot product in X-Y).
+
+    Returns True if chains need to be separated (same side).
+    """
+    centroid_ligand = _get_centroid(ligand_pdb)
+    centroid_a = _get_centroid(chain_a_pdb)
+    centroid_b = _get_centroid(chain_b_pdb)
+
+    # Calculate vectors from ligand to each chain in X-Y plane only
+    vec_a_xy = (centroid_a[0] - centroid_ligand[0],
+                centroid_a[1] - centroid_ligand[1])
+    vec_b_xy = (centroid_b[0] - centroid_ligand[0],
+                centroid_b[1] - centroid_ligand[1])
+
+    # Dot product in X-Y plane
+    dot_xy = vec_a_xy[0] * vec_b_xy[0] + vec_a_xy[1] * vec_b_xy[1]
+
+    print(f"[SameXYCheck] Chain A XY offset from ligand: ({vec_a_xy[0]:.2f}, {vec_a_xy[1]:.2f})")
+    print(f"[SameXYCheck] Chain B XY offset from ligand: ({vec_b_xy[0]:.2f}, {vec_b_xy[1]:.2f})")
+    print(f"[SameXYCheck] X-Y dot product: {dot_xy:.2f} (positive = same side)")
+
+    return dot_xy > 0  # Same side if positive
+
+
+def _get_chain_length(pdb_content: str, chain_id: str = None) -> int:
+    """Get the number of residues in a chain from PDB content."""
+    residues = set()
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM"):
+            current_chain = line[21:22].strip()
+            if chain_id is None or current_chain == chain_id:
+                res_num = int(line[22:26].strip())
+                residues.add(res_num)
+    return len(residues)
+
+
+def _renumber_pdb_atoms(pdb_content: str) -> str:
+    """Renumber atoms in PDB to have strictly increasing IDs.
+
+    RFD3 requires atom IDs to be strictly increasing. This function
+    fixes PDB files that have gaps or duplicates in atom numbering.
+    """
+    lines = pdb_content.split("\n")
+    result_lines = []
+    atom_id = 1
+
+    for line in lines:
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            # PDB format: columns 1-6 = record type, columns 7-11 = atom serial
+            # In 0-indexed Python: [0:6] = record, [6:11] = serial, [11:] = rest
+            if len(line) >= 11:
+                prefix = line[:6]  # ATOM or HETATM
+                rest = line[11:]   # Everything after atom ID
+                new_line = f"{prefix}{atom_id:5d}{rest}"
+                result_lines.append(new_line)
+                atom_id += 1
+            else:
+                result_lines.append(line)
+        else:
+            result_lines.append(line)
+
+    print(f"[_renumber_pdb_atoms] Renumbered {atom_id - 1} atoms")
+    return "\n".join(result_lines)
+
+
+def _ensure_chain_a(pdb_content: str) -> str:
+    """Ensure all protein atoms have chain ID 'A'.
+
+    RFD3 de novo designs may have blank or inconsistent chain IDs.
+    This function ensures chain A is set so sequential design contig works.
+    """
+    lines = pdb_content.split("\n")
+    result_lines = []
+
+    for line in lines:
+        if line.startswith("ATOM"):
+            # PDB format: column 22 (0-indexed: 21) is chain ID
+            if len(line) >= 22:
+                # Replace chain ID with 'A'
+                new_line = line[:21] + "A" + line[22:]
+                result_lines.append(new_line)
+            else:
+                result_lines.append(line)
+        else:
+            result_lines.append(line)
+
+    return "\n".join(result_lines)
+
+
+def _label_dimer_chains(pdb_content: str, chain_a_length: int) -> str:
+    """Label protein chains as A and B based on residue numbers.
+
+    After sequential design, RFD3 may output all residues in chain A.
+    This function splits them into chains A and B based on the expected
+    chain A length.
+
+    Args:
+        pdb_content: PDB content with potentially misaligned chain IDs
+        chain_a_length: Number of residues in chain A
+
+    Returns:
+        PDB content with chains properly labeled A and B
+    """
+    lines = pdb_content.split("\n")
+    result_lines = []
+
+    # First pass: identify the residue number cutoff for chain A vs B
+    residue_nums = set()
+    for line in lines:
+        if line.startswith("ATOM"):
+            try:
+                res_num = int(line[22:26].strip())
+                residue_nums.add(res_num)
+            except (ValueError, IndexError):
+                pass
+
+    sorted_residues = sorted(residue_nums)
+    if len(sorted_residues) <= chain_a_length:
+        # Not enough residues for two chains, return as-is
+        print(f"[_label_dimer_chains] Only {len(sorted_residues)} residues, expected {chain_a_length}+ for dimer")
+        return pdb_content
+
+    # Find the boundary: chain A is first N residues, chain B is the rest
+    # Note: there may be gaps in numbering, so use sorted list
+    chain_a_residues = set(sorted_residues[:chain_a_length])
+    chain_b_start = sorted_residues[chain_a_length] if len(sorted_residues) > chain_a_length else None
+
+    print(f"[_label_dimer_chains] Chain A: residues up to {max(chain_a_residues)}, Chain B starts at: {chain_b_start}")
+
+    # Second pass: relabel chains
+    for line in lines:
+        if line.startswith("ATOM"):
+            if len(line) >= 26:
+                try:
+                    res_num = int(line[22:26].strip())
+                    if res_num in chain_a_residues:
+                        chain_id = "A"
+                    else:
+                        chain_id = "B"
+                    new_line = line[:21] + chain_id + line[22:]
+                    result_lines.append(new_line)
+                except (ValueError, IndexError):
+                    result_lines.append(line)
+            else:
+                result_lines.append(line)
+        else:
+            result_lines.append(line)
+
+    return "\n".join(result_lines)
+
+
+def _get_chains_in_pdb(pdb_content: str) -> list:
+    """Get list of unique chain IDs in PDB content."""
+    chains = set()
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM") or line.startswith("HETATM"):
+            if len(line) >= 22:
+                chain_id = line[21:22]
+                if chain_id.strip():  # Non-empty chain ID
+                    chains.add(chain_id)
+    return sorted(chains)
+
+
+def _extract_ligand_from_pdb(pdb_content: str, ligand_name: str) -> str:
+    """Extract HETATM records for a specific ligand from PDB content.
+
+    Args:
+        pdb_content: Full PDB content
+        ligand_name: Residue name of the ligand (e.g., "UNL")
+
+    Returns:
+        PDB content containing only the ligand HETATM records
+    """
+    ligand_lines = []
+    for line in pdb_content.split("\n"):
+        if line.startswith("HETATM"):
+            # Residue name is at columns 18-20 (0-indexed: 17:20)
+            if len(line) >= 20:
+                res_name = line[17:20].strip()
+                if res_name == ligand_name:
+                    ligand_lines.append(line)
+
+    if ligand_lines:
+        return "\n".join(ligand_lines)
+    return ""
+
+
+# Standard amino acid 3-letter codes
+STANDARD_AMINO_ACIDS = {
+    'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
+    'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL',
+    # Common modifications that are still amino acids
+    'MSE',  # Selenomethionine (often used in crystallography)
+}
+
+
+def _strip_nonstandard_residues(pdb_content: str) -> str:
+    """Strip non-standard residues and renumber to be contiguous.
+
+    This removes HETATM records (ligands, chromophores, ions, water) and
+    non-standard amino acids that can cause RFD3 parsing issues.
+
+    Additionally, it renumbers residues to be contiguous (1, 2, 3, ...)
+    because RFD3 expects continuous residue numbering in contig strings.
+
+    For example, GFP (1EMA) has residues ...64, 66, 68... (65/67 are the
+    chromophore). After cleaning, this becomes ...64, 65, 66...
+
+    Args:
+        pdb_content: Raw PDB content
+
+    Returns:
+        PDB content with only standard amino acid ATOM records,
+        renumbered to be contiguous starting from 1.
+    """
+    # First pass: collect valid ATOM lines and unique residue numbers per chain
+    valid_lines = []
+    removed_residues = set()
+    chain_residues = {}  # chain -> list of (original_resnum, insertion_code)
+
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM"):
+            if len(line) >= 27:
+                res_name = line[17:20].strip()
+                if res_name in STANDARD_AMINO_ACIDS:
+                    chain_id = line[21]
+                    res_num = line[22:26].strip()
+                    ins_code = line[26] if len(line) > 26 else ' '
+                    res_key = (res_num, ins_code)
+
+                    if chain_id not in chain_residues:
+                        chain_residues[chain_id] = []
+                    if res_key not in chain_residues[chain_id]:
+                        chain_residues[chain_id].append(res_key)
+
+                    valid_lines.append(line)
+                else:
+                    removed_residues.add(res_name)
+        elif line.startswith("HETATM"):
+            if len(line) >= 20:
+                res_name = line[17:20].strip()
+                removed_residues.add(res_name)
+
+    if removed_residues:
+        print(f"[PDBClean] Removed non-standard residues: {sorted(removed_residues)}")
+
+    # Build renumbering map: (chain, old_res, ins_code) -> new_res
+    renumber_map = {}
+    for chain_id, res_list in chain_residues.items():
+        # Sort by original residue number (numerically if possible)
+        def sort_key(r):
+            try:
+                return (int(r[0]), r[1])
+            except ValueError:
+                return (999999, r[1])
+        res_list.sort(key=sort_key)
+
+        for new_idx, (old_res, ins_code) in enumerate(res_list, start=1):
+            renumber_map[(chain_id, old_res, ins_code)] = new_idx
+
+    # Second pass: apply renumbering
+    clean_lines = []
+    for line in valid_lines:
+        chain_id = line[21]
+        old_res = line[22:26].strip()
+        ins_code = line[26] if len(line) > 26 else ' '
+
+        new_res = renumber_map.get((chain_id, old_res, ins_code))
+        if new_res is not None:
+            # Replace residue number (columns 23-26, 1-indexed: 22:26 in 0-indexed)
+            # Format: right-justified, 4 characters
+            new_res_str = f"{new_res:4d}"
+            # Replace insertion code with space (column 27, index 26)
+            new_line = line[:22] + new_res_str + ' ' + line[27:]
+            clean_lines.append(new_line)
+        else:
+            clean_lines.append(line)
+
+    # Add TER and END records
+    clean_lines.append("TER")
+    clean_lines.append("END")
+
+    # Report renumbering stats
+    for chain_id, res_list in chain_residues.items():
+        if res_list:
+            orig_first = res_list[0][0]
+            orig_last = res_list[-1][0]
+            print(f"[PDBClean] Chain {chain_id}: {len(res_list)} residues, "
+                  f"renumbered {orig_first}-{orig_last} -> 1-{len(res_list)}")
+
+    return "\n".join(clean_lines)
+
+
+def _combine_chains_to_dimer(chain_a_pdb: str, chain_b_pdb: str) -> str:
+    """Combine two chain PDBs into a dimer with proper chain labels.
+
+    Chain A keeps its label 'A', Chain B is relabeled to 'B'.
+    Ligand is taken from chain_a_pdb and kept with its original chain/residue.
+
+    Args:
+        chain_a_pdb: PDB content for chain A (with ligand)
+        chain_b_pdb: PDB content for chain B (with its own ligand copy - will be removed)
+
+    Returns:
+        Combined PDB with chains A, B, and ligand
+    """
+    result_lines = []
+    atom_serial = 1
+
+    # Extract chain A protein atoms (already labeled 'A')
+    for line in chain_a_pdb.split("\n"):
+        if line.startswith("ATOM"):
+            # Ensure chain ID is 'A' and renumber atoms
+            new_line = line[:6] + f"{atom_serial:5d}" + line[11:21] + "A" + line[22:]
+            result_lines.append(new_line)
+            atom_serial += 1
+
+    # Extract chain B protein atoms (relabel to 'B')
+    for line in chain_b_pdb.split("\n"):
+        if line.startswith("ATOM"):
+            # Set chain ID to 'B' and renumber atoms
+            new_line = line[:6] + f"{atom_serial:5d}" + line[11:21] + "B" + line[22:]
+            result_lines.append(new_line)
+            atom_serial += 1
+
+    # Extract ligand from chain A (HETATM records)
+    for line in chain_a_pdb.split("\n"):
+        if line.startswith("HETATM"):
+            # Keep ligand with original chain ID, renumber atoms
+            new_line = line[:6] + f"{atom_serial:5d}" + line[11:]
+            result_lines.append(new_line)
+            atom_serial += 1
+
+    result_lines.append("END")
+    return "\n".join(result_lines)
 
 
 # ============== ESM3 Handlers ==============

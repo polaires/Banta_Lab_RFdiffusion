@@ -16,6 +16,7 @@ import {
   EnzymeForm,
   SymmetricForm,
   RefinementForm,
+  InterfaceLigandForm,
   RFD3Request,
 } from './tasks';
 
@@ -28,6 +29,7 @@ const TASK_NAMES: Record<DesignTask, string> = {
   enzyme: 'Enzyme Scaffold',
   symmetric: 'Symmetric Oligomer',
   refinement: 'Structure Refinement',
+  interface_ligand: 'Interface Ligand Dimer',
 };
 
 export function RFD3Panel() {
@@ -70,7 +72,7 @@ export function RFD3Panel() {
       addJob({
         id: response.job_id,
         type: 'rfd3',
-        status: 'pending',
+        status: response.syncCompleted ? (response.status as 'pending' | 'running' | 'completed' | 'failed') : 'pending',
         createdAt: new Date().toISOString(),
       });
 
@@ -81,55 +83,96 @@ export function RFD3Panel() {
         request: request as Record<string, any>,
       });
 
-      const result = await api.waitForJob(response.job_id, (status) => {
-        // Update local store with full error details
+      let result;
+
+      // For traditional mode (runsync), result is already in the response
+      if (response.syncCompleted) {
+        // Result already available from synchronous runsync call
+        result = {
+          status: response.status,
+          result: response.result,
+          error: response.error,
+        };
+        // Update job with completed status
         updateJob(response.job_id, {
-          status: status.status,
-          completedAt: status.completed_at,
-          result: status.result,
-          error: status.error,
-          errorType: status.error_type,
-          traceback: status.traceback,
-          errorContext: status.context,
+          status: response.status as 'pending' | 'running' | 'completed' | 'failed',
+          completedAt: new Date().toISOString(),
+          result: response.result,
+          error: response.error,
         });
-        // Update Supabase (async, non-blocking)
-        updateJobInSupabase(response.job_id, {
-          status: status.status,
-          completed_at: status.completed_at || null,
-          result: status.result || null,
+      } else {
+        // Serverless mode - poll for result
+        result = await api.waitForJob(response.job_id, (status) => {
+          // Update local store with full error details
+          updateJob(response.job_id, {
+            status: status.status,
+            completedAt: status.completed_at,
+            result: status.result,
+            error: status.error,
+            errorType: status.error_type,
+            traceback: status.traceback,
+            errorContext: status.context,
+          });
+          // Update Supabase (async, non-blocking)
+          updateJobInSupabase(response.job_id, {
+            status: status.status,
+            completed_at: status.completed_at || null,
+            result: status.result || null,
+          });
         });
-      });
+      }
 
-      if (result.status === 'completed' && result.result?.designs?.[0]) {
-        const pdbContent = result.result.designs[0].content;
-        const cifContent = result.result.designs[0].cif_content;
-        setSelectedPdb(pdbContent);
-        setLatestDesignPdb(pdbContent);
-        setLastCompletedJobType('rfd3');
-        setLastDesignPdb(pdbContent);
+      if (result.status === 'completed') {
+        // Extract PDB content from various response formats:
+        // 1. Standard RFD3: result.designs[0].content
+        // 2. Interface ligand (asymmetric/sequential): result.designs[0].pdb_content
+        // 3. Interface ligand (full): result.dimer.pdb_content
+        let pdbContent: string | undefined;
+        let cifContent: string | undefined;
 
-        const sequence = extractSequenceFromPdb(pdbContent);
+        if (result.result?.designs?.[0]) {
+          // Standard RFD3 or interface_ligand asymmetric/sequential
+          const design = result.result.designs[0];
+          pdbContent = design.content || design.pdb_content;
+          cifContent = design.cif_content;
+        } else if (result.result?.dimer?.pdb_content) {
+          // Interface ligand full dimer approach
+          pdbContent = result.result.dimer.pdb_content;
+        }
 
-        setLatestRfd3Design({
-          jobId: response.job_id,
-          pdbContent,
-          cifContent,
-          source: 'rfd3',
-          sequence,
-          timestamp: Date.now(),
-        });
+        if (pdbContent) {
+          setSelectedPdb(pdbContent);
+          setLatestDesignPdb(pdbContent);
+          setLastCompletedJobType('rfd3');
+          setLastDesignPdb(pdbContent);
 
-        addNotification({
-          type: 'success',
-          title: 'Structure designed!',
-          message: result.result.seed
-            ? `Backbone ready (seed: ${result.result.seed}). Design sequences with MPNN next.`
-            : 'Your protein backbone is ready. Design sequences with MPNN next.',
-          action: {
-            label: 'Design Sequences',
-            tab: 'mpnn',
-          },
-        });
+          const sequence = extractSequenceFromPdb(pdbContent);
+
+          setLatestRfd3Design({
+            jobId: response.job_id,
+            pdbContent,
+            cifContent,
+            source: 'rfd3',
+            sequence,
+            timestamp: Date.now(),
+          });
+
+          // Customize notification based on response type
+          const isInterfaceLigand = result.result?.approach;
+          addNotification({
+            type: 'success',
+            title: isInterfaceLigand ? 'Dimer designed!' : 'Structure designed!',
+            message: isInterfaceLigand
+              ? `${result.result.approach} design complete. Affinity: ${result.result.dimer?.metrics?.affinity?.toFixed(2) || result.result.designs?.[0]?.metrics?.affinity?.toFixed(2) || 'N/A'} kcal/mol`
+              : result.result.seed
+                ? `Backbone ready (seed: ${result.result.seed}). Design sequences with MPNN next.`
+                : 'Your protein backbone is ready. Design sequences with MPNN next.',
+            action: {
+              label: 'Design Sequences',
+              tab: 'mpnn',
+            },
+          });
+        }
       } else if (result.status === 'failed') {
         // Set detailed error for display
         setError({
@@ -184,6 +227,7 @@ export function RFD3Panel() {
     enzyme: EnzymeForm,
     symmetric: SymmetricForm,
     refinement: RefinementForm,
+    interface_ligand: InterfaceLigandForm,
   };
 
   const CurrentForm = selectedDesignTask ? TaskForms[selectedDesignTask as DesignTask] : null;

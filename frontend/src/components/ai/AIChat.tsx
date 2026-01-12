@@ -111,10 +111,10 @@ export function AIChat({
   };
 
   const suggestedPrompts = [
+    'Design a protein binder for my target',
+    'Create a 60-residue binder',
     'Design a zinc-binding enzyme',
     'Create a C2 symmetric dimer',
-    'Score my MPNN sequences',
-    'Generate a hydrolase sequence',
   ];
 
   return (

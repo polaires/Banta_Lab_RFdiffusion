@@ -139,6 +139,30 @@ export interface RFD3Request extends BaseRFD3Request {
 
   // Nucleic acid chains
   na_chains?: string;
+
+  // Covalent modifications (for enzyme design with covalent inhibitors/substrates)
+  covalent_bonds?: Array<{
+    protein: { chain: string; res_name: string; res_num: number; atom_name: string };
+    ligand: { chain: string; res_name: string; res_num: number; atom_name: string };
+  }>;
+
+  // Interface ligand design (separable dimer)
+  task?: string;  // Task type for specialized handlers (e.g., 'interface_ligand_design', 'protein_binder_design')
+  approach?: 'asymmetric' | 'sequential' | 'full';  // Design approach
+  ligand_smiles?: string;  // SMILES string for ligand
+  chain_length?: string;  // Chain length range (e.g., "60-80")
+  side?: 'left' | 'right';  // Which side of ligand to bind
+  ori_offset?: number[];  // Offset from ligand center [x, y, z]
+  use_ori_token?: boolean;  // Whether to use ori_token positioning
+
+  // Protein binder design specific fields
+  target_pdb?: string;  // PDB content for target protein
+  binder_length?: string;  // Binder length range (e.g., "60-80")
+  quality_threshold?: 'relaxed' | 'standard' | 'strict';  // Quality filter threshold
+  protocol?: string;  // Protocol preset (e.g., 'miniprotein_default', 'peptide_default')
+  validate_structure?: boolean;  // Enable ESMFold structure validation
+  auto_hotspots?: boolean;  // Auto-detect hotspots using SASA analysis
+  filter_wrap_around?: boolean;  // Filter out wrap-around binders using Rg ratio
 }
 
 // HealthResponse type (matches store)

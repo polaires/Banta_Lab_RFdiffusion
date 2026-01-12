@@ -28,6 +28,40 @@ function extractLigandsFromPdb(pdbContent: string): string[] {
   return Array.from(ligands).sort();
 }
 
+// Extract contig string from PDB content (for template refinement)
+// Returns something like "A1-52" to indicate full chain A with residues 1-52
+function extractContigFromPdb(pdbContent: string): string {
+  const chainResidues: Record<string, number[]> = {};
+  const lines = pdbContent.split('\n');
+
+  for (const line of lines) {
+    if (line.startsWith('ATOM')) {
+      const chainId = line.substring(21, 22).trim() || 'A';
+      const resSeq = parseInt(line.substring(22, 26).trim(), 10);
+      if (!isNaN(resSeq)) {
+        if (!chainResidues[chainId]) chainResidues[chainId] = [];
+        if (!chainResidues[chainId].includes(resSeq)) {
+          chainResidues[chainId].push(resSeq);
+        }
+      }
+    }
+  }
+
+  // Build contig string for each chain
+  const contigs: string[] = [];
+  for (const [chain, residues] of Object.entries(chainResidues)) {
+    if (residues.length > 0) {
+      residues.sort((a, b) => a - b);
+      const minRes = residues[0];
+      const maxRes = residues[residues.length - 1];
+      contigs.push(`${chain}${minRes}-${maxRes}`);
+    }
+  }
+
+  // Join with chain breaks
+  return contigs.join(',/0,');
+}
+
 // Metal/ion codes that are single atoms
 const METAL_CODES = new Set([
   'ZN', 'MG', 'CA', 'FE', 'MN', 'CO', 'CU', 'NI',
@@ -99,6 +133,12 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
   const [useUnindex, setUseUnindex] = useState(false);
   const [unindexResidues, setUnindexResidues] = useState('');
 
+  // Covalent bond (for covalent inhibitors)
+  const [useCovalentBond, setUseCovalentBond] = useState(false);
+  const [covalentProteinRes, setCovalentProteinRes] = useState('');
+  const [covalentProteinAtom, setCovalentProteinAtom] = useState('SG');
+  const [covalentLigandAtom, setCovalentLigandAtom] = useState('');
+
   // Options
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Balanced');
   const [isNonLoopy, setIsNonLoopy] = useState(true);
@@ -129,7 +169,8 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
     const request: RFD3Request = {
       pdb_content: finalPdbContent || undefined,
       ligand: finalLigandCode,
-      // Don't send length during partial diffusion - it comes from the input structure
+      // For partial diffusion, don't send length (backend validation updated to allow partial_t alone)
+      // For de novo design, send length
       ...(useTemplateRefinement ? {} : { length: proteinLength }),
       num_designs: numDesigns,
       is_non_loopy: isNonLoopy,
@@ -147,17 +188,48 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
     if (usePartiallyBuried && partiallyBuriedAtoms) {
       request.select_partially_buried = { [finalLigandCode]: partiallyBuriedAtoms };
     }
-    if (fixedAtomSelection) {
-      request.select_fixed_atoms = { [finalLigandCode]: fixedAtomSelection };
-    }
     if (useTemplateRefinement && partialT) {
       request.partial_t = parseFloat(partialT);
+      // For partial diffusion: ligand is fixed by default (per RFD3 docs)
+      // select_fixed_atoms is for PROTEIN residues, not ligands
+      // Only add if user specified custom fixed atoms (these should be residue IDs like "A431")
+      if (fixedAtomSelection) {
+        // User specified custom atom selection - this is for protein residues
+        request.select_fixed_atoms = { [finalLigandCode]: fixedAtomSelection };
+      }
+    } else if (fixedAtomSelection) {
+      // De novo design with fixed atoms
+      request.select_fixed_atoms = { [finalLigandCode]: fixedAtomSelection };
     }
     if (useUnindex && unindexResidues) {
       request.unindex = unindexResidues;
     }
     if (seed) {
       request.seed = parseInt(seed, 10);
+    }
+
+    // Add covalent bond if specified (for covalent inhibitors)
+    if (useCovalentBond && covalentProteinRes && covalentProteinAtom && covalentLigandAtom) {
+      // Parse protein residue (e.g., "A145" -> chain A, res 145)
+      const match = covalentProteinRes.match(/^([A-Z]?)(\d+)$/i);
+      if (match) {
+        const chain = match[1] || 'A';
+        const resNum = parseInt(match[2], 10);
+        request.covalent_bonds = [{
+          protein: {
+            chain: chain.toUpperCase(),
+            res_name: 'CYS', // Commonly cysteine for covalent inhibitors
+            res_num: resNum,
+            atom_name: covalentProteinAtom.toUpperCase(),
+          },
+          ligand: {
+            chain: '',
+            res_name: finalLigandCode,
+            res_num: 1,
+            atom_name: covalentLigandAtom.toUpperCase(),
+          },
+        }];
+      }
     }
 
     await onSubmit(request);
@@ -538,6 +610,56 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
                   placeholder="e.g., A10,A15,A20"
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
                 />
+              )}
+            </div>
+
+            {/* Covalent Bond (for covalent inhibitors) */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useCovalentBond}
+                  onChange={(e) => setUseCovalentBond(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-slate-700"
+                />
+                <span className="text-sm text-slate-600">Covalent bond (for covalent inhibitors)</span>
+              </label>
+              {useCovalentBond && (
+                <div className="grid grid-cols-3 gap-2 p-3 rounded-lg bg-slate-50 border border-slate-200">
+                  <div>
+                    <label className="text-xs text-slate-500">Protein residue</label>
+                    <input
+                      type="text"
+                      value={covalentProteinRes}
+                      onChange={(e) => setCovalentProteinRes(e.target.value.toUpperCase())}
+                      placeholder="A145"
+                      className="mt-1 w-full px-2 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Protein atom</label>
+                    <input
+                      type="text"
+                      value={covalentProteinAtom}
+                      onChange={(e) => setCovalentProteinAtom(e.target.value.toUpperCase())}
+                      placeholder="SG"
+                      className="mt-1 w-full px-2 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Ligand atom</label>
+                    <input
+                      type="text"
+                      value={covalentLigandAtom}
+                      onChange={(e) => setCovalentLigandAtom(e.target.value.toUpperCase())}
+                      placeholder="C1"
+                      className="mt-1 w-full px-2 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                    />
+                  </div>
+                  <p className="col-span-3 text-xs text-slate-500 mt-1">
+                    Common: CYS-SG for warhead attachment (e.g., A145 SG → ligand C1)
+                  </p>
+                </div>
               )}
             </div>
 

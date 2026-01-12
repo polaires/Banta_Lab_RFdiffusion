@@ -13,6 +13,19 @@ interface CatalyticResidue {
   name: string;
 }
 
+interface CovalentBond {
+  // Protein side: chain/resName/resId/atomName
+  proteinChain: string;
+  proteinRes: number;
+  proteinResName: string;
+  proteinAtom: string;
+  // Ligand side: chain/resName/resId/atomName
+  ligandChain: string;
+  ligandRes: number;
+  ligandResName: string;
+  ligandAtom: string;
+}
+
 export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   // Required
   const [pdbContent, setPdbContent] = useState<string | null>(null);
@@ -28,6 +41,21 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
   // Fixed atoms on catalytic residues
   const [fixedAtomType, setFixedAtomType] = useState('BKBN');
+
+  // Covalent bonds between protein and ligand
+  const [covalentBonds, setCovalentBonds] = useState<CovalentBond[]>([]);
+  const [showCovalentSection, setShowCovalentSection] = useState(false);
+  // New covalent bond input state
+  const [newBond, setNewBond] = useState<CovalentBond>({
+    proteinChain: 'A',
+    proteinRes: 0,
+    proteinResName: '',
+    proteinAtom: '',
+    ligandChain: '',
+    ligandRes: 1,
+    ligandResName: '',
+    ligandAtom: '',
+  });
 
   // Options
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Balanced');
@@ -56,6 +84,41 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
   const removeCatalyticResidue = (index: number) => {
     setCatalyticResidues(catalyticResidues.filter((_, i) => i !== index));
+  };
+
+  // Covalent bond management
+  const addCovalentBond = () => {
+    if (
+      newBond.proteinRes > 0 &&
+      newBond.proteinResName &&
+      newBond.proteinAtom &&
+      newBond.ligandResName &&
+      newBond.ligandAtom
+    ) {
+      setCovalentBonds([...covalentBonds, { ...newBond }]);
+      // Reset form
+      setNewBond({
+        proteinChain: 'A',
+        proteinRes: 0,
+        proteinResName: '',
+        proteinAtom: '',
+        ligandChain: '',
+        ligandRes: 1,
+        ligandResName: '',
+        ligandAtom: '',
+      });
+    }
+  };
+
+  const removeCovalentBond = (index: number) => {
+    setCovalentBonds(covalentBonds.filter((_, i) => i !== index));
+  };
+
+  // Format covalent bond for display
+  const formatBondString = (bond: CovalentBond): string => {
+    const proteinStr = `${bond.proteinChain}/${bond.proteinResName}/${bond.proteinRes}/${bond.proteinAtom}`;
+    const ligandStr = `${bond.ligandChain || 'L'}/${bond.ligandResName}/${bond.ligandRes}/${bond.ligandAtom}`;
+    return `${proteinStr} ↔ ${ligandStr}`;
   };
 
   const handleSubmit = async () => {
@@ -91,6 +154,24 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
     if (seed) {
       request.seed = parseInt(seed, 10);
+    }
+
+    // Add covalent bonds if specified
+    if (covalentBonds.length > 0) {
+      request.covalent_bonds = covalentBonds.map((bond) => ({
+        protein: {
+          chain: bond.proteinChain,
+          res_name: bond.proteinResName,
+          res_num: bond.proteinRes,
+          atom_name: bond.proteinAtom,
+        },
+        ligand: {
+          chain: bond.ligandChain || 'L',
+          res_name: bond.ligandResName,
+          res_num: bond.ligandRes,
+          atom_name: bond.ligandAtom,
+        },
+      }));
     }
 
     await onSubmit(request);
@@ -272,6 +353,168 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               <div className="text-xs text-slate-500 mt-0.5">{opt.desc}</div>
             </button>
           ))}
+        </div>
+      </FormSection>
+
+      {/* Covalent Bonds Section */}
+      <FormSection
+        title="Covalent Modifications"
+        description="Optional: Specify covalent bonds between protein and ligand (e.g., covalent inhibitors)"
+      >
+        <div className="space-y-4">
+          {/* Toggle to show/hide covalent section */}
+          <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+            <input
+              type="checkbox"
+              checked={showCovalentSection}
+              onChange={(e) => setShowCovalentSection(e.target.checked)}
+              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <div>
+              <div className="font-medium text-sm text-slate-900">Add Covalent Bonds</div>
+              <div className="text-xs text-slate-500">
+                For covalent inhibitors, suicide substrates, or covalently-linked cofactors
+              </div>
+            </div>
+          </label>
+
+          {showCovalentSection && (
+            <div className="space-y-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+              {/* Existing covalent bonds */}
+              {covalentBonds.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-slate-700">Defined Bonds:</div>
+                  {covalentBonds.map((bond, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-white border border-slate-200"
+                    >
+                      <code className="text-sm font-mono text-slate-700">
+                        {formatBondString(bond)}
+                      </code>
+                      <button
+                        onClick={() => removeCovalentBond(i)}
+                        className="text-slate-400 hover:text-red-600 transition-colors"
+                      >
+                        <span className="material-symbols-outlined text-sm">close</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add new covalent bond form */}
+              <div className="space-y-3">
+                <div className="text-sm font-medium text-slate-700">Add New Bond:</div>
+
+                {/* Protein side */}
+                <div className="p-3 rounded-lg bg-white border border-slate-200">
+                  <div className="text-xs font-medium text-slate-500 mb-2">Protein Residue</div>
+                  <div className="flex gap-2 flex-wrap">
+                    <input
+                      type="text"
+                      value={newBond.proteinChain}
+                      onChange={(e) => setNewBond({ ...newBond, proteinChain: e.target.value.toUpperCase() })}
+                      placeholder="Chain"
+                      maxLength={1}
+                      className="w-16 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm text-center"
+                    />
+                    <input
+                      type="text"
+                      value={newBond.proteinResName}
+                      onChange={(e) => setNewBond({ ...newBond, proteinResName: e.target.value.toUpperCase() })}
+                      placeholder="ResName (e.g., CYS)"
+                      maxLength={3}
+                      className="w-28 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm font-mono"
+                    />
+                    <input
+                      type="number"
+                      value={newBond.proteinRes || ''}
+                      onChange={(e) => setNewBond({ ...newBond, proteinRes: parseInt(e.target.value) || 0 })}
+                      placeholder="ResNum"
+                      className="w-20 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={newBond.proteinAtom}
+                      onChange={(e) => setNewBond({ ...newBond, proteinAtom: e.target.value.toUpperCase() })}
+                      placeholder="Atom (e.g., SG)"
+                      maxLength={4}
+                      className="w-24 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Ligand side */}
+                <div className="p-3 rounded-lg bg-white border border-slate-200">
+                  <div className="text-xs font-medium text-slate-500 mb-2">Ligand Atom</div>
+                  <div className="flex gap-2 flex-wrap">
+                    <input
+                      type="text"
+                      value={newBond.ligandChain}
+                      onChange={(e) => setNewBond({ ...newBond, ligandChain: e.target.value.toUpperCase() })}
+                      placeholder="Chain (opt)"
+                      maxLength={1}
+                      className="w-20 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm text-center"
+                    />
+                    <input
+                      type="text"
+                      value={newBond.ligandResName}
+                      onChange={(e) => setNewBond({ ...newBond, ligandResName: e.target.value.toUpperCase() })}
+                      placeholder="LigandName (e.g., LIG)"
+                      className="w-32 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm font-mono"
+                    />
+                    <input
+                      type="number"
+                      value={newBond.ligandRes || ''}
+                      onChange={(e) => setNewBond({ ...newBond, ligandRes: parseInt(e.target.value) || 1 })}
+                      placeholder="ResNum"
+                      className="w-20 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={newBond.ligandAtom}
+                      onChange={(e) => setNewBond({ ...newBond, ligandAtom: e.target.value.toUpperCase() })}
+                      placeholder="Atom (e.g., C1)"
+                      maxLength={4}
+                      className="w-24 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Add bond button */}
+                <button
+                  onClick={addCovalentBond}
+                  disabled={
+                    !newBond.proteinRes ||
+                    !newBond.proteinResName ||
+                    !newBond.proteinAtom ||
+                    !newBond.ligandResName ||
+                    !newBond.ligandAtom
+                  }
+                  className={`w-full py-2 px-4 rounded-lg font-medium text-sm transition-all ${
+                    newBond.proteinRes &&
+                    newBond.proteinResName &&
+                    newBond.proteinAtom &&
+                    newBond.ligandResName &&
+                    newBond.ligandAtom
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                  }`}
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="material-symbols-outlined text-sm">add</span>
+                    Add Covalent Bond
+                  </span>
+                </button>
+              </div>
+
+              {/* Help text */}
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
+                <strong>Format:</strong> Chain/ResName/ResNum/AtomName (e.g., A/CYS/145/SG for cysteine sulfur)
+              </div>
+            </div>
+          )}
         </div>
       </FormSection>
 

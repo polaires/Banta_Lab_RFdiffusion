@@ -1,6 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import type { MetalCoordination } from '@/lib/metalAnalysis';
+import type { LigandData } from '@/lib/ligandAnalysis';
 
 // Import Molstar CSS
 import 'molstar/lib/mol-plugin-ui/skin/light.scss';
@@ -8,6 +10,11 @@ import 'molstar/lib/mol-plugin-ui/skin/light.scss';
 interface ProteinViewerProps {
   pdbContent: string | null;
   className?: string;
+  // Focus props
+  focusedMetalIndex?: number | null;
+  focusedLigandIndex?: number | null;
+  metalCoordination?: MetalCoordination[] | null;
+  ligandData?: { ligandDetails: LigandData[] } | null;
 }
 
 // Dynamically import the viewer with SSR disabled to avoid Turbopack bundling issues
@@ -28,6 +35,22 @@ const ProteinViewerClient = dynamic(
   }
 );
 
-export function ProteinViewer({ pdbContent, className = '' }: ProteinViewerProps) {
-  return <ProteinViewerClient pdbContent={pdbContent} className={className} />;
+export function ProteinViewer({
+  pdbContent,
+  className = '',
+  focusedMetalIndex,
+  focusedLigandIndex,
+  metalCoordination,
+  ligandData,
+}: ProteinViewerProps) {
+  return (
+    <ProteinViewerClient
+      pdbContent={pdbContent}
+      className={className}
+      focusedMetalIndex={focusedMetalIndex}
+      focusedLigandIndex={focusedLigandIndex}
+      metalCoordination={metalCoordination}
+      ligandData={ligandData}
+    />
+  );
 }

@@ -7,6 +7,11 @@ import { findMetalCoordinationFromPDB } from '@/lib/metalAnalysis';
 import { findLigandContactsFromPDB } from '@/lib/ligandAnalysis';
 
 // Dynamic imports for components that use Molstar (SSR incompatible)
+const ComparisonView = dynamic(
+  () => import('@/components/viewer/ComparisonView').then((mod) => mod.ComparisonView),
+  { ssr: false }
+);
+
 const ProteinViewer = dynamic(
   () => import('@/components/ProteinViewer').then((mod) => mod.ProteinViewer),
   {
@@ -138,6 +143,28 @@ export function CollapsibleViewer() {
   const hasMetals = !!(metalCoordination && metalCoordination.length > 0);
   const hasLigands = !!(ligandData && ligandData.ligandCount > 0);
 
+  // State for reference structure overlay visibility
+  const [overlayVisible, setOverlayVisible] = useState(true);
+
+  // Handler for loading reference structure into viewer
+  const handleLoadReference = useCallback((pdb: string, label: string, source: 'rfd3' | 'rf3') => {
+    // The ProteinViewer will handle the reference structure via the store
+    console.log(`[ComparisonView] Loading reference: ${label} (${source})`);
+    // Reference is already set in store by ComparisonView
+    setOverlayVisible(true);
+  }, []);
+
+  // Handler for clearing reference structure
+  const handleClearReference = useCallback(() => {
+    console.log('[ComparisonView] Clearing reference');
+    setOverlayVisible(false);
+  }, []);
+
+  // Handler for toggling overlay visibility
+  const handleToggleOverlay = useCallback((visible: boolean) => {
+    setOverlayVisible(visible);
+  }, []);
+
   return (
     <section className="bg-white rounded-2xl shadow-card overflow-hidden mt-8">
       {/* Header */}
@@ -165,6 +192,11 @@ export function CollapsibleViewer() {
           {ligandData && ligandData.ligandCount > 0 && (
             <span className="text-[10px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full border border-green-200">
               {ligandData.ligandCount} ligand{ligandData.ligandCount !== 1 ? 's' : ''}
+            </span>
+          )}
+          {comparisonEnabled && (
+            <span className="text-[10px] font-semibold text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200">
+              Comparing
             </span>
           )}
         </div>
@@ -221,17 +253,33 @@ export function CollapsibleViewer() {
             </div>
           </div>
 
-          {/* Binding site analysis panel */}
-          {showBindingSitePanel && (
-            <BindingSitePanel
-              metalCoordination={metalCoordination}
-              ligandData={ligandData}
-              focusedMetalIndex={focusedMetalIndex}
-              focusedLigandIndex={focusedLigandIndex}
-              onFocusMetal={setFocusedMetalIndex}
-              onFocusLigand={setFocusedLigandIndex}
-              loading={analysisLoading}
-            />
+          {/* Side panels container */}
+          {(showBindingSitePanel || hasComparison) && (
+            <div className="w-80 border-l border-slate-100 bg-slate-50/50 overflow-y-auto max-h-[640px]">
+              {/* Comparison view panel */}
+              {hasComparison && (
+                <div className="p-4 border-b border-slate-100">
+                  <ComparisonView
+                    onLoadReference={handleLoadReference}
+                    onClearReference={handleClearReference}
+                    onToggleOverlay={handleToggleOverlay}
+                  />
+                </div>
+              )}
+
+              {/* Binding site analysis panel */}
+              {showBindingSitePanel && (
+                <BindingSitePanel
+                  metalCoordination={metalCoordination}
+                  ligandData={ligandData}
+                  focusedMetalIndex={focusedMetalIndex}
+                  focusedLigandIndex={focusedLigandIndex}
+                  onFocusMetal={setFocusedMetalIndex}
+                  onFocusLigand={setFocusedLigandIndex}
+                  loading={analysisLoading}
+                />
+              )}
+            </div>
           )}
         </div>
       )}

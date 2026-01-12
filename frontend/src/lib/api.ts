@@ -84,6 +84,24 @@ export interface RFD3Request {
   select_hbond_donor?: Record<string, string>;  // H-bond donor conditioning
   select_hbond_acceptor?: Record<string, string>;  // H-bond acceptor conditioning
 
+  // Interface ligand design (separable dimer)
+  task?: string;  // Task type for specialized handlers (e.g., 'interface_ligand_design', 'protein_binder_design')
+  approach?: 'asymmetric' | 'sequential' | 'full';  // Design approach
+  ligand_smiles?: string;  // SMILES string for ligand
+  chain_length?: string;  // Chain length range (e.g., "60-80")
+  side?: 'left' | 'right';  // Which side of ligand to bind
+  ori_offset?: number[];  // Offset from ligand center [x, y, z]
+  use_ori_token?: boolean;  // Whether to use ori_token positioning
+
+  // Protein binder design (BindCraft-inspired pipeline)
+  target_pdb?: string;  // PDB content for target protein
+  binder_length?: string;  // Binder length range (e.g., "60-80")
+  quality_threshold?: 'relaxed' | 'standard' | 'strict';  // Quality filter threshold
+  protocol?: string;  // Protocol preset (e.g., 'miniprotein_default', 'peptide_default')
+  validate_structure?: boolean;  // Enable ESMFold structure validation
+  auto_hotspots?: boolean;  // Auto-detect hotspots using SASA analysis
+  filter_wrap_around?: boolean;  // Filter out wrap-around binders using Rg ratio
+
   // Legacy/deprecated
   select_hotspots?: Record<string, string>;  // Old hotspot format
   cfg?: CFGConfig;  // Classifier-Free Guidance
@@ -391,6 +409,35 @@ export interface EvaluateDesignRequest {
   expected_donors?: string[];
 }
 
+// Hotspot detection for protein binder design
+export interface DetectHotspotsRequest {
+  target_pdb: string;
+  target_chain?: string;
+  method?: 'exposed' | 'exposed_clustered' | 'patch' | 'interface_like';
+  max_hotspots?: number;
+  prefer_hydrophobic?: boolean;
+  min_relative_sasa?: number;
+}
+
+export interface HotspotResidue {
+  residue: string;  // e.g., "A25"
+  restype: string;  // e.g., "LEU"
+  relative_sasa: number;
+  property: 'hydrophobic' | 'polar' | 'charged' | 'special';
+  coords?: [number, number, number];
+}
+
+export interface DetectHotspotsResponse {
+  status: 'completed' | 'failed';
+  hotspots: string[];  // ["A25", "A30", ...]
+  method: string;
+  residue_details: HotspotResidue[];
+  total_exposed: number;
+  cluster_center?: { x: number; y: number; z: number };
+  patch_area?: number;
+  error?: string;
+}
+
 export interface DesignEvaluation {
   success: boolean;
   coordination_number: number;
@@ -592,14 +639,29 @@ class FoundryAPI {
       console.log('[API] RFD3 result:', result.status, result.id);
 
       // RunPod runsync returns result directly in output
-      // Format: { id, status, output: { status, result: {...} } }
-      // Mark as syncCompleted so caller knows not to poll
+      // Format: { id, status: "COMPLETED"|"FAILED", output: { status: "completed"|"failed"|"error", ... } }
+      // The outer status is the RunPod wrapper status
+      // The inner status (output.status) is the handler's actual status
+      const output = result.output || {};
+      const innerStatus = output.status;
+
+      // Check both outer RunPod status and inner handler status
+      // Handler returns "completed", "failed", or "error"
+      const isSuccess = result.status === 'COMPLETED' &&
+                       innerStatus === 'completed' &&
+                       !output.error;
+
+      console.log('[API] Inner status:', innerStatus, 'isSuccess:', isSuccess);
+
       return {
         job_id: result.id || 'sync-' + Date.now(),
-        status: result.status === 'COMPLETED' ? 'completed' : 'failed',
-        message: result.status === 'COMPLETED' ? 'Design completed' : 'Design failed',
-        result: result.output?.result || result.output,
-        error: result.output?.error,
+        status: isSuccess ? 'completed' : 'failed',
+        message: isSuccess ? 'Design completed' : (output.error || 'Design failed'),
+        // Return the inner result, not the full output wrapper
+        // output = { status: "completed", result: { designs: [...] } }
+        // We want just output.result = { designs: [...] }
+        result: isSuccess ? output.result : undefined,
+        error: output.error || (innerStatus === 'error' || innerStatus === 'failed' ? 'Handler returned error status' : undefined),
         syncCompleted: true,  // Signal that result is already available
       };
     }
@@ -917,6 +979,41 @@ class FoundryAPI {
     }
 
     return result.output?.result || result.output;
+  }
+
+  // ============== Hotspot Detection ==============
+
+  /**
+   * Detect optimal binding hotspots for protein binder design.
+   * Uses SASA analysis and spatial clustering to find binding patches.
+   */
+  async detectHotspots(request: DetectHotspotsRequest): Promise<DetectHotspotsResponse> {
+    console.log('[API] Detecting hotspots for target chain:', request.target_chain || 'A');
+
+    // Traditional mode uses Next.js proxy
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'detect_hotspots',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to detect hotspots: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('[API] Hotspot detection result:', result.output?.status);
+
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Hotspot detection failed');
+    }
+
+    return result.output || result;
   }
 
   // Job Management

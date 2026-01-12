@@ -30,11 +30,19 @@ services:
       - ./binding_analysis.py:/app/binding_analysis.py
       - ./conformer_utils.py:/app/conformer_utils.py
       - ./cleavage_utils.py:/app/cleavage_utils.py
+      - ./hotspot_detection.py:/app/hotspot_detection.py
+      - ./rosetta_utils.py:/app/rosetta_utils.py
+      - ./topology_validation.py:/app/topology_validation.py
+      - ./esm_utils.py:/app/esm_utils.py
+      - ./esmfold_utils.py:/app/esmfold_utils.py
+      # Mount utils directory for SASA calculations
+      - ../utils:/app/utils
       - ../utils/dssp.py:/app/dssp.py
     environment:
       - CHECKPOINT_DIR=/runpod-volume/checkpoints
       - FOUNDRY_CHECKPOINT_DIRS=/runpod-volume/checkpoints
       - PYTHONUNBUFFERED=1
+      - HF_TOKEN=${HF_TOKEN:-}
     # Override command to start local API server
     command: ["python", "-u", "handler.py", "--rp_serve_api", "--rp_api_host", "0.0.0.0"]
     # GPU access - requires nvidia-docker2

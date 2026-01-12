@@ -60,6 +60,16 @@ RUN uv pip install "rc-foundry[all]" biotite
 # Install RDKit for SMILES-to-SDF conversion (needed for GNINA)
 RUN uv pip install rdkit
 
+# Install PyRosetta for structure refinement (FastRelax)
+# Requires academic license - register at https://www.pyrosetta.org/home/licensing-pyrosetta
+# Using pyrosetta-installer for automatic installation
+RUN uv pip install pyrosetta-installer && \
+    python -c "import pyrosetta_installer; pyrosetta_installer.install_pyrosetta()"
+
+# Install rdkit-to-params for generating PyRosetta ligand params from SMILES
+# This allows FastRelax to properly handle ligands without pre-computed params files
+RUN uv pip install rdkit-to-params
+
 # Install ESM3 for sequence scoring and generation
 # Note: User must set HF_TOKEN env var and accept ESM3 license on HuggingFace
 RUN uv pip install esm
@@ -69,6 +79,18 @@ COPY handler.py /app/
 COPY inference_utils.py /app/
 COPY binding_analysis.py /app/
 COPY conformer_utils.py /app/
+COPY cleavage_utils.py /app/
+COPY rosetta_utils.py /app/
+COPY topology_validation.py /app/
+COPY esm_utils.py /app/
+COPY esmfold_utils.py /app/
+COPY hotspot_detection.py /app/
+
+# Copy utils package (SASA calculator, DSSP for secondary structure)
+COPY utils/ /app/utils/
+
+# Copy test input for local testing mode
+COPY test_input.json /app/test_input.json
 
 # Environment variables
 # These can be overridden at runtime or in RunPod console

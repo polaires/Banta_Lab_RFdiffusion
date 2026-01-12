@@ -89,11 +89,11 @@ def find_cleavage_sites(
         List of CleavageSite objects, sorted by residue index
     """
     try:
-        from dssp import assign_secondary_structure, get_ss_codes_by_residue
+        from utils.dssp import assign_secondary_structure, get_ss_codes_by_residue
     except ImportError:
-        # Try relative import
+        # Try direct import
         try:
-            from backend.utils.dssp import assign_secondary_structure, get_ss_codes_by_residue
+            from dssp import assign_secondary_structure, get_ss_codes_by_residue
         except ImportError:
             print("[CleavageUtils] Warning: Could not import DSSP, using fallback")
             get_ss_codes_by_residue = lambda x: {}
@@ -301,10 +301,10 @@ def cleave_protein(
         CleavageResult with dimer PDB and metadata
     """
     try:
-        from dssp import assign_secondary_structure, get_ss_codes_by_residue
+        from utils.dssp import assign_secondary_structure, get_ss_codes_by_residue
     except ImportError:
         try:
-            from backend.utils.dssp import assign_secondary_structure, get_ss_codes_by_residue
+            from dssp import assign_secondary_structure, get_ss_codes_by_residue
         except ImportError:
             get_ss_codes_by_residue = lambda x: {}
             assign_secondary_structure = lambda x: {"success": False}

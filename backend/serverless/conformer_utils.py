@@ -529,3 +529,231 @@ def get_available_methods() -> list:
         pass
 
     return available
+
+
+# ============== Symmetry Orientation Functions ==============
+
+def _rotation_matrix_from_vectors(vec1, vec2):
+    """
+    Find the rotation matrix that aligns vec1 to vec2.
+
+    Uses Rodrigues' rotation formula.
+    """
+    import numpy as np
+
+    a = vec1 / np.linalg.norm(vec1)
+    b = vec2 / np.linalg.norm(vec2)
+
+    # Check if vectors are already aligned
+    if np.allclose(a, b):
+        return np.eye(3)
+
+    # Check if vectors are opposite
+    if np.allclose(a, -b):
+        # Find a perpendicular vector
+        perp = np.array([1, 0, 0]) if abs(a[0]) < 0.9 else np.array([0, 1, 0])
+        perp = perp - np.dot(perp, a) * a
+        perp = perp / np.linalg.norm(perp)
+        # 180 degree rotation around perpendicular axis
+        return 2 * np.outer(perp, perp) - np.eye(3)
+
+    # Rodrigues' formula
+    v = np.cross(a, b)
+    c = np.dot(a, b)
+    s = np.linalg.norm(v)
+
+    vx = np.array([
+        [0, -v[2], v[1]],
+        [v[2], 0, -v[0]],
+        [-v[1], v[0], 0]
+    ])
+
+    R = np.eye(3) + vx + np.dot(vx, vx) * ((1 - c) / (s * s))
+    return R
+
+
+def _find_azo_bond(mol):
+    """
+    Find the N=N double bond in an azo compound.
+
+    Returns tuple of (atom_idx1, atom_idx2) for the azo nitrogens,
+    or None if not found.
+    """
+    from rdkit import Chem
+
+    # Look for N=N pattern
+    pattern = Chem.MolFromSmarts('[N]=[N]')
+    if pattern is None:
+        return None
+
+    matches = mol.GetSubstructMatches(pattern)
+    if matches:
+        return matches[0]  # Return first match (atom indices)
+
+    return None
+
+
+def _find_longest_axis(mol, conf):
+    """
+    Find the longest axis of the molecule using PCA.
+
+    Returns tuple of (atom_idx1, atom_idx2) for the two atoms
+    that define the longest axis.
+    """
+    import numpy as np
+
+    # Get all atom positions
+    coords = []
+    for i in range(mol.GetNumAtoms()):
+        pos = conf.GetAtomPosition(i)
+        coords.append([pos.x, pos.y, pos.z])
+    coords = np.array(coords)
+
+    # PCA to find principal axis
+    centered = coords - np.mean(coords, axis=0)
+    cov = np.cov(centered.T)
+    eigenvalues, eigenvectors = np.linalg.eig(cov)
+
+    # Principal axis is eigenvector with largest eigenvalue
+    principal_axis = eigenvectors[:, np.argmax(eigenvalues)]
+
+    # Find atoms furthest along this axis
+    projections = np.dot(centered, principal_axis)
+    idx1 = np.argmin(projections)
+    idx2 = np.argmax(projections)
+
+    return (idx1, idx2)
+
+
+def orient_for_symmetry(
+    mol,
+    conf,
+    symmetry: str = "C2",
+    axis_atoms: Optional[Tuple[int, int]] = None
+) -> None:
+    """
+    Orient molecule so specified axis lies along symmetry axis.
+
+    For C2 symmetry: The specified bond/axis aligns with the Z-axis.
+    For azobenzene: The N=N bond should be along Z so each phenyl
+    ring faces one chain of the dimer.
+
+    Args:
+        mol: RDKit molecule
+        conf: RDKit conformer
+        symmetry: Symmetry type (currently only "C2" supported)
+        axis_atoms: Tuple of (atom_idx1, atom_idx2) defining the axis.
+                   If None, auto-detects (N=N for azo, or longest axis)
+
+    Modifies conf in place.
+    """
+    import numpy as np
+
+    if symmetry not in ["C2", "D2"]:
+        print(f"[Conformer] Symmetry {symmetry} orientation not implemented, skipping")
+        return
+
+    # Auto-detect axis if not provided
+    if axis_atoms is None:
+        # Try to find N=N bond (azo compounds)
+        azo_atoms = _find_azo_bond(mol)
+        if azo_atoms:
+            axis_atoms = azo_atoms
+            print(f"[Conformer] Auto-detected azo N=N bond at atoms {axis_atoms}")
+        else:
+            # Fall back to longest axis
+            axis_atoms = _find_longest_axis(mol, conf)
+            print(f"[Conformer] Using longest axis between atoms {axis_atoms}")
+
+    # Get current axis vector
+    pos1 = np.array(conf.GetAtomPosition(axis_atoms[0]))
+    pos2 = np.array(conf.GetAtomPosition(axis_atoms[1]))
+    current_axis = pos2 - pos1
+
+    if np.linalg.norm(current_axis) < 0.01:
+        print("[Conformer] Axis atoms too close, skipping orientation")
+        return
+
+    current_axis = current_axis / np.linalg.norm(current_axis)
+
+    # Target: Z-axis for C2 symmetry
+    target_axis = np.array([0.0, 0.0, 1.0])
+
+    # Compute rotation matrix
+    rotation = _rotation_matrix_from_vectors(current_axis, target_axis)
+
+    # Calculate center of the axis (rotation pivot point)
+    center = (pos1 + pos2) / 2
+
+    # Apply rotation to all atoms
+    for i in range(mol.GetNumAtoms()):
+        pos = np.array(conf.GetAtomPosition(i))
+        # Translate to origin, rotate, translate back
+        new_pos = rotation @ (pos - center) + center
+        conf.SetAtomPosition(i, tuple(new_pos))
+
+    print(f"[Conformer] Oriented molecule for {symmetry} symmetry (axis along Z)")
+
+
+def generate_conformer_oriented(
+    smiles: str,
+    method: ConformerMethod = ConformerMethod.RDKIT,
+    name: str = "UNL",
+    center: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    symmetry: Optional[str] = None,
+    axis_atoms: Optional[Tuple[int, int]] = None,
+    optimize: bool = True,
+    fallback: bool = True,
+) -> Optional[str]:
+    """
+    Generate 3D conformer from SMILES with symmetry-appropriate orientation.
+
+    For symmetric interface designs (e.g., C2 dimer with ligand at interface),
+    the molecule is oriented so the specified axis lies along the symmetry axis.
+
+    Args:
+        smiles: SMILES string for the molecule
+        method: Conformer generation method (rdkit, xtb, or torsional)
+        name: 3-letter residue name for PDB output (default: "UNL")
+        center: (x, y, z) coordinates for ligand center (should be at symmetry center)
+        symmetry: Symmetry type ("C2", "D2", etc.) - determines orientation axis
+        axis_atoms: Tuple of (atom_idx1, atom_idx2) defining the axis to orient.
+                   If None, auto-detects (N=N for azo compounds, or longest axis)
+        optimize: Whether to optimize the geometry (default: True)
+        fallback: If True, fall back to RDKit if requested method fails
+
+    Returns:
+        PDB string with HETATM records, oriented for symmetric interface
+    """
+    import numpy as np
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    # Generate conformer using the standard method
+    mol, conf, _ = _generate_mol_and_conformer(smiles, method, (0, 0, 0), optimize)
+
+    if mol is None or conf is None:
+        if fallback and method != ConformerMethod.RDKIT:
+            mol, conf, _ = _generate_mol_and_conformer(smiles, ConformerMethod.RDKIT, (0, 0, 0), optimize)
+        if mol is None:
+            return None
+
+    # Orient for symmetry if specified
+    if symmetry:
+        orient_for_symmetry(mol, conf, symmetry, axis_atoms)
+
+    # Calculate current center and translation to target
+    coords = []
+    for i in range(mol.GetNumAtoms()):
+        pos = conf.GetAtomPosition(i)
+        coords.append([pos.x, pos.y, pos.z])
+    coords = np.array(coords)
+    current_center = np.mean(coords, axis=0)
+    translation = np.array(center) - current_center
+
+    # Count atoms
+    heavy_atoms = sum(1 for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1)
+    print(f"[Conformer] Oriented: {mol.GetNumAtoms()} atoms, {heavy_atoms} heavy atoms")
+
+    # Generate PDB content
+    return _coords_to_pdb(mol, conf, translation, name)

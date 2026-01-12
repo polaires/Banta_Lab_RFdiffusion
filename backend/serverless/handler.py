@@ -874,6 +874,13 @@ def handle_protein_binder_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
     binder_length = job_input.get("binder_length", "60-80")
     num_designs = job_input.get("num_designs", 10)
     quality_threshold = job_input.get("quality_threshold", "standard")
+
+    # Debug: Log received parameters
+    print(f"[ProteinBinder] Parameters received:")
+    print(f"  - num_designs: {num_designs} (requested by user)")
+    print(f"  - binder_length: {binder_length}")
+    print(f"  - quality_threshold: {quality_threshold}")
+    print(f"  - auto_hotspots: {auto_hotspots}")
     filter_wrap_around = job_input.get("filter_wrap_around", True)
     max_rg_ratio = job_input.get("max_rg_ratio", 1.3)  # Stricter: 1.3 instead of 1.5
     run_mpnn = job_input.get("run_mpnn", True)

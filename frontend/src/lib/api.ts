@@ -1083,13 +1083,27 @@ class FoundryAPI {
     onStatusChange?: (status: JobStatus) => void,
     pollInterval: number = 2000
   ): Promise<JobStatus> {
+    console.log(`[API] Starting to poll job ${jobId}...`);
+    const startTime = Date.now();
+    let pollCount = 0;
+
     while (true) {
+      pollCount++;
       const status = await this.getJobStatus(jobId);
+
+      // Log every 10th poll or status changes
+      if (pollCount % 10 === 1) {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        console.log(`[API] Job ${jobId} status: ${status.status} (poll #${pollCount}, ${elapsed}s elapsed)`);
+      }
+
       if (onStatusChange) {
         onStatusChange(status);
       }
 
       if (status.status === 'completed' || status.status === 'failed') {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        console.log(`[API] Job ${jobId} finished with status: ${status.status} after ${elapsed}s (${pollCount} polls)`);
         return status;
       }
 

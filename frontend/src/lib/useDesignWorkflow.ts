@@ -382,6 +382,15 @@ export function useDesignWorkflow() {
 
       // Backend mode
       try {
+        // Debug: Log the request being sent
+        console.log('[executeBinder] Submitting request:', {
+          task: 'protein_binder_design',
+          num_designs: request.num_designs,
+          binder_length: request.binder_length,
+          quality_threshold: request.quality_threshold,
+          protocol: request.protocol,
+        });
+
         const response = await api.submitRFD3Design({
           task: 'protein_binder_design',
           ...request,
@@ -419,12 +428,21 @@ export function useDesignWorkflow() {
 
         const result = jobResult.result;
 
+        // Debug: Log the result
+        console.log('[executeBinder] Job result:', {
+          status: jobResult.status,
+          hasResult: !!result,
+          statistics: result?.statistics,
+          designCount: (result?.designs as unknown[])?.length,
+        });
+
         if (jobResult.status === 'completed' && result) {
           const designs = parseBinderDesigns(result);
           const statistics = parseBinderStatistics(result, designs.length);
           const evaluation = createBinderEvaluation(designs, statistics);
           const pdbContent = designs[0]?.pdb_content;
 
+          console.log('[executeBinder] Parsed designs:', designs.length);
           setState((prev) => ({ ...prev, isRunning: false }));
           return { evaluation, designs, statistics, pdbContent };
         }

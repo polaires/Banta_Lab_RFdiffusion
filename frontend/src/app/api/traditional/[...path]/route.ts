@@ -181,6 +181,6 @@ export async function GET(request: NextRequest) {
 // Use Node.js runtime for better fetch support
 export const runtime = 'nodejs';
 
-// Maximum execution time (15 minutes) for Vercel serverless functions
-// Full binder pipeline (8 designs × RFD3 + MPNN + ESM + FastRelax + analysis) can take 10+ minutes
-export const maxDuration = 900;
+// Maximum execution time for Vercel serverless functions
+// Hobby plan limit is 300 seconds (5 minutes). Long-running jobs use RunPod backend instead.
+export const maxDuration = 300;

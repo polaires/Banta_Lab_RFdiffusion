@@ -1,37 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { type DesignResult } from '@/lib/demoData';
 
-// Individual design data structure
-export interface DesignResult {
-  id: string;
-  rank: number;
-  pdbContent: string;
-  metrics: {
-    affinity?: number;
-    contacts_a?: number;
-    contacts_b?: number;
-    total_contacts?: number;
-    has_clashes?: boolean;
-    separable?: boolean;
-    interface_area?: number;
-    rmsd?: number;
-    plddt?: number;
-    esm_score?: number;
-  };
-  chain_a_metrics?: {
-    contacts: number;
-    exposed_atoms: string[];
-    affinity?: number;
-    buried_sasa?: number;
-  };
-  chain_b_metrics?: {
-    contacts: number;
-    exposed_atoms: string[];
-    affinity?: number;
-    buried_sasa?: number;
-  };
-}
+// Re-export for convenience
+export type { DesignResult };
 
 interface DesignGalleryProps {
   designs: DesignResult[];

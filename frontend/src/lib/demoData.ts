@@ -89,19 +89,25 @@ export interface DesignResult {
     affinity?: number;
     contacts_a?: number;
     contacts_b?: number;
-    has_clashes: boolean;
+    total_contacts?: number;
+    has_clashes?: boolean;
     separable?: boolean;
     interface_area?: number;
+    rmsd?: number;
+    plddt?: number;
+    esm_score?: number;
   };
   chain_a_metrics?: {
     contacts: number;
     exposed_atoms: string[];
-    affinity: number;
+    affinity?: number;
+    buried_sasa?: number;
   };
   chain_b_metrics?: {
     contacts: number;
     exposed_atoms: string[];
-    affinity: number;
+    affinity?: number;
+    buried_sasa?: number;
   };
 }
 

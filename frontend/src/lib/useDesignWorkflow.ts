@@ -294,12 +294,12 @@ export function useDesignWorkflow() {
                 rank: 1,
                 pdbContent: designPdb,
                 metrics: {
-                  affinity: dimerMetrics.affinity,
-                  contacts_a: dimerMetrics.contacts_a,
-                  contacts_b: dimerMetrics.contacts_b,
-                  has_clashes: dimerMetrics.has_clashes || false,
-                  separable: dimerMetrics.separable ?? true,
-                  interface_area: dimerMetrics.interface_area,
+                  affinity: dimerMetrics.affinity as number | undefined,
+                  contacts_a: dimerMetrics.contacts_a as number | undefined,
+                  contacts_b: dimerMetrics.contacts_b as number | undefined,
+                  has_clashes: (dimerMetrics.has_clashes as boolean | undefined) ?? false,
+                  separable: (dimerMetrics.separable as boolean | undefined) ?? true,
+                  interface_area: dimerMetrics.interface_area as number | undefined,
                 },
               },
             ];
@@ -513,14 +513,14 @@ export function createEvaluationFromDesign(design: DesignResult): LigandEvaluati
       ? {
           contacts: design.chain_a_metrics.contacts,
           exposed_atoms: design.chain_a_metrics.exposed_atoms.join(','),
-          affinity: design.chain_a_metrics.affinity,
+          affinity: design.chain_a_metrics.affinity ?? 0,
         }
       : undefined,
     chain_b: design.chain_b_metrics
       ? {
           contacts: design.chain_b_metrics.contacts,
           exposed_atoms: design.chain_b_metrics.exposed_atoms.join(','),
-          affinity: design.chain_b_metrics.affinity,
+          affinity: design.chain_b_metrics.affinity ?? 0,
         }
       : undefined,
     dimer: {

@@ -894,31 +894,26 @@ def handle_protein_binder_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
     PROTOCOL_PRESETS = {
         "miniprotein_default": {
             "binder_length": "60-100",
-            "generation_multiplier": 2,
             "max_hotspots": 5,
             "quality_threshold": "standard",
         },
         "miniprotein_hardtarget": {
             "binder_length": "80-120",
-            "generation_multiplier": 4,  # More sampling for difficult targets
             "max_hotspots": 7,
-            "quality_threshold": "relaxed",  # Start relaxed
+            "quality_threshold": "relaxed",  # Start relaxed for difficult targets
         },
         "peptide_default": {
             "binder_length": "15-30",
-            "generation_multiplier": 5,  # Peptides need more sampling
             "max_hotspots": 3,
             "quality_threshold": "standard",
         },
         "peptide_helical": {
             "binder_length": "15-25",
-            "generation_multiplier": 5,
             "max_hotspots": 3,
             "quality_threshold": "standard",
         },
         "large_binder": {
             "binder_length": "100-150",
-            "generation_multiplier": 3,
             "max_hotspots": 7,
             "quality_threshold": "standard",
         },
@@ -935,10 +930,9 @@ def handle_protein_binder_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
             max_hotspots = preset["max_hotspots"]
         if "quality_threshold" not in job_input:
             quality_threshold = preset["quality_threshold"]
-        # Use preset's generation multiplier
-        generation_multiplier = preset.get("generation_multiplier", 2)
-    else:
-        generation_multiplier = 2  # Default: generate 2x for filtering headroom
+
+    # No generation multiplier - generate exactly what user requests
+    generation_multiplier = 1
 
     # Track whether hotspots were auto-detected
     hotspots_auto_detected = False

@@ -100,9 +100,9 @@ const BINDER_INTERVIEW_STEPS: InterviewStep[] = [
     description: 'More designs give better chance of finding high-affinity binders',
     icon: 'content_copy',
     options: [
-      { id: '4', label: '4 designs', description: 'Quick exploration (~5 min)' },
-      { id: '8', label: '8 designs (Recommended)', description: 'Good coverage (~10 min)' },
-      { id: '16', label: '16 designs', description: 'Thorough search (~20 min)' },
+      { id: '3', label: '3 designs', description: 'Quick exploration (~3 min)' },
+      { id: '5', label: '5 designs (Recommended)', description: 'Good coverage (~5 min)' },
+      { id: '10', label: '10 designs', description: 'Thorough search (~10 min)' },
     ]
   },
   {
@@ -177,11 +177,11 @@ const PROTOCOL_LABELS: Record<string, string> = {
 
 // Protocol-specific defaults that can inform UI
 const PROTOCOL_DEFAULTS: Record<string, { binderLength: string; numDesigns: string }> = {
-  'miniprotein_default': { binderLength: '60-80', numDesigns: '8' },
-  'miniprotein_hardtarget': { binderLength: '80-100', numDesigns: '16' },
-  'peptide_default': { binderLength: '40-60', numDesigns: '8' },
-  'peptide_helical': { binderLength: '40-60', numDesigns: '8' },
-  'large_binder': { binderLength: '80-100', numDesigns: '8' },
+  'miniprotein_default': { binderLength: '60-80', numDesigns: '5' },
+  'miniprotein_hardtarget': { binderLength: '80-100', numDesigns: '10' },
+  'peptide_default': { binderLength: '40-60', numDesigns: '5' },
+  'peptide_helical': { binderLength: '40-60', numDesigns: '5' },
+  'large_binder': { binderLength: '80-100', numDesigns: '5' },
 };
 
 interface BinderInterviewModeProps {

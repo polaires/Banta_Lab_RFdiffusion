@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { FormSection, FormField } from './shared/FormSection';
+import { LengthRangeInput } from './shared/LengthRangeInput';
+import { QualityPresetSelector, QualityPreset, QualityParams } from './shared/QualityPresetSelector';
+import { AdvancedOptionsWrapper } from './shared/AdvancedOptionsWrapper';
 import { QUALITY_PRESETS, RFD3Request, TaskFormProps } from './shared/types';
-
-type QualityPreset = keyof typeof QUALITY_PRESETS;
 
 // Common ligands with SMILES
 const COMMON_LIGANDS_SMILES = [
@@ -15,21 +16,67 @@ const COMMON_LIGANDS_SMILES = [
   { id: 'biphenyl', name: 'Biphenyl', smiles: 'c1ccc(cc1)c2ccccc2', description: 'Two connected phenyl rings' },
 ];
 
-// Design approaches
+// Design approaches - based on tested workflows in docs/
+// See: joint_heterodimer_workflow.md and heterodimer_context_protein_workflow.md
 const APPROACHES = [
   {
-    id: 'asymmetric',
-    name: 'Asymmetric Binder',
-    description: 'Design one-sided binder (Chain A only)',
-    details: 'Creates a protein that binds to one side of the ligand, leaving the other side exposed for a second chain.',
+    id: 'joint',
+    name: 'Joint Heterodimer',
+    description: 'Both chains simultaneously',
+    details: 'Multi-chain RFD3 diffusion. Both chains co-evolve around the ligand in same coordinate frame. Best for true heterodimers.',
+    icon: 'hub',
+    recommended: true,
   },
   {
-    id: 'full',
-    name: 'Full Dimer',
-    description: 'Design complete separable dimer (A + B)',
-    details: 'First designs Chain A, then designs Chain B using A as context. Creates two chains that can physically separate.',
+    id: 'asymmetric_rasa',
+    name: 'Asymmetric RASA',
+    description: 'RASA-conditioned dimer',
+    details: 'Complementary burial/exposure for each chain. Chain A buries one side, Chain B buries the other.',
+    icon: 'tune',
+    recommended: false,
+  },
+  {
+    id: 'induced',
+    name: 'Induced Dimerization',
+    description: 'Context protein workflow',
+    details: 'Design Chain A first, then Chain B using A + ligand as fixed context. Good for induced dimerization designs.',
+    icon: 'account_tree',
+    recommended: false,
+  },
+  {
+    id: 'asymmetric',
+    name: 'Single Chain',
+    description: 'One-sided binder only',
+    details: 'Design a protein binding one side of ligand. Select which side to bind (left/right).',
+    icon: 'link',
+    recommended: false,
   },
 ];
+
+// Expected Results thresholds matching backend handler.py
+const EXPECTED_RESULTS = {
+  excellent: {
+    affinity: '< -7 kcal/mol',
+    contacts: '≥ 10 per chain',
+    identity: '< 40%',
+    antiHomo: '> 80/100',
+    hbonds: 'N5 ≥ 2, N6 ≥ 2',
+  },
+  good: {
+    affinity: '-5 to -7 kcal/mol',
+    contacts: '5-10 per chain',
+    identity: '< 70%',
+    antiHomo: '> 60/100',
+    hbonds: 'N5 ≥ 1, N6 ≥ 1',
+  },
+  minimum: {
+    affinity: '< -2 kcal/mol',
+    contacts: '≥ 2 per chain',
+    identity: '< 90%',
+    antiHomo: '> 40/100',
+    hbonds: 'At least 1 total',
+  },
+};
 
 export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   // Ligand selection
@@ -37,8 +84,8 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
   const [selectedPreset, setSelectedPreset] = useState('azobenzene');
   const [customSmiles, setCustomSmiles] = useState(false);
 
-  // Approach
-  const [approach, setApproach] = useState<'asymmetric' | 'full'>('full');
+  // Approach - default to joint (best results per docs)
+  const [approach, setApproach] = useState<'joint' | 'asymmetric_rasa' | 'induced' | 'asymmetric'>('joint');
   const [side, setSide] = useState<'left' | 'right'>('left');
 
   // Design parameters
@@ -46,11 +93,16 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
   const [numDesigns, setNumDesigns] = useState(3);
   const [seed, setSeed] = useState<string>('');
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Balanced');
+  const [qualityParams, setQualityParams] = useState<QualityParams>(QUALITY_PRESETS.Balanced);
 
   // Advanced options
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [useOriToken, setUseOriToken] = useState(false);
   const [oriOffset, setOriOffset] = useState('12.0, 0.0, 0.0');
+
+  const handleQualityChange = (preset: QualityPreset, params: QualityParams) => {
+    setQualityPreset(preset);
+    setQualityParams(params);
+  };
 
   const handlePresetSelect = (presetId: string) => {
     setSelectedPreset(presetId);
@@ -62,8 +114,6 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
   };
 
   const handleSubmit = async () => {
-    const preset = QUALITY_PRESETS[qualityPreset];
-
     // Parse ori_offset if provided
     let parsedOriOffset: number[] | undefined;
     if (useOriToken && oriOffset) {
@@ -81,9 +131,9 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
       chain_length: chainLength,
       num_designs: numDesigns,
       side,
-      num_timesteps: preset.num_timesteps,
-      step_scale: preset.step_scale,
-      gamma_0: preset.gamma_0,
+      num_timesteps: qualityParams.num_timesteps,
+      step_scale: qualityParams.step_scale,
+      gamma_0: qualityParams.gamma_0,
     };
 
     if (seed) {
@@ -175,7 +225,7 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                 setCustomSmiles(true);
               }}
               placeholder="e.g., c1ccc(cc1)N=Nc2ccccc2"
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-1 focus:ring-purple-200 outline-none font-mono text-sm"
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none font-mono text-sm"
             />
           </div>
         </div>
@@ -184,30 +234,35 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
       {/* Design Approach */}
       <FormSection
         title="Design Approach"
-        description="Choose how to design the dimer"
+        description="Choose how to design the heterodimer"
         required
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {APPROACHES.map((app) => (
             <button
               key={app.id}
-              onClick={() => setApproach(app.id as 'asymmetric' | 'full')}
-              className={`p-4 rounded-xl border text-left transition-all ${
+              onClick={() => setApproach(app.id as 'joint' | 'asymmetric_rasa' | 'induced' | 'asymmetric')}
+              className={`p-4 rounded-xl border text-left transition-all relative ${
                 approach === app.id
                   ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-200'
                   : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
               }`}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                  approach === app.id ? 'border-purple-600' : 'border-slate-300'
+              {app.recommended && (
+                <span className="absolute -top-2 -right-2 px-2 py-0.5 bg-emerald-500 text-white text-xs font-medium rounded-full">
+                  Recommended
+                </span>
+              )}
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`material-symbols-outlined text-lg ${
+                  approach === app.id ? 'text-purple-600' : 'text-slate-400'
                 }`}>
-                  {approach === app.id && <span className="w-2 h-2 rounded-full bg-purple-600" />}
+                  {app.icon}
                 </span>
                 <span className="font-medium text-slate-900">{app.name}</span>
               </div>
-              <p className="text-sm text-slate-600 ml-6">{app.description}</p>
-              <p className="text-xs text-slate-400 ml-6 mt-1">{app.details}</p>
+              <p className="text-sm text-slate-600">{app.description}</p>
+              <p className="text-xs text-slate-400 mt-1">{app.details}</p>
             </button>
           ))}
         </div>
@@ -248,104 +303,74 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
       {/* Design Parameters */}
       <FormSection title="Design Parameters" required>
         <div className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <FormField label="Chain Length" hint="e.g., 60-80">
-              <input
-                type="text"
+          <div className="flex gap-4 items-start">
+            <div className="flex-1">
+              <LengthRangeInput
                 value={chainLength}
-                onChange={(e) => setChainLength(e.target.value)}
+                onChange={setChainLength}
+                label="Chain Length"
                 placeholder="60-80"
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-1 focus:ring-purple-200 outline-none"
+                hint="Per chain length range"
               />
-            </FormField>
-            <FormField label="# Designs">
+            </div>
+            <FormField label="# Designs" className="w-24">
               <input
                 type="number"
                 value={numDesigns}
                 onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
                 min={1}
                 max={10}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-1 focus:ring-purple-200 outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none text-sm"
               />
             </FormField>
-            <FormField label="Seed" hint="Optional">
+            <FormField label="Seed" hint="Optional" className="w-24">
               <input
                 type="number"
                 value={seed}
                 onChange={(e) => setSeed(e.target.value)}
                 placeholder="Random"
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-1 focus:ring-purple-200 outline-none"
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none text-sm"
               />
             </FormField>
           </div>
 
           {/* Quality preset */}
-          <div>
-            <label className="text-xs text-slate-500 font-medium">Quality</label>
-            <div className="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
-                <button
-                  key={preset}
-                  onClick={() => setQualityPreset(preset)}
-                  className={`p-2.5 rounded-lg border text-left transition-all ${
-                    qualityPreset === preset
-                      ? 'border-purple-400 bg-purple-50'
-                      : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="font-medium text-sm text-slate-800">{preset}</div>
-                  <div className="text-xs text-slate-500 mt-0.5 line-clamp-1">
-                    {QUALITY_PRESETS[preset].description}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
+          <QualityPresetSelector
+            value={qualityPreset}
+            onChange={handleQualityChange}
+            showDescription
+          />
         </div>
       </FormSection>
 
       {/* Advanced Options */}
-      <div className="border border-slate-200 rounded-xl overflow-hidden">
-        <button
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
-        >
-          <span className="text-sm font-medium text-slate-700">Advanced Options</span>
-          <span className={`material-symbols-outlined text-slate-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>
-            expand_more
-          </span>
-        </button>
+      <AdvancedOptionsWrapper title="Advanced Options">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={useOriToken}
+            onChange={(e) => setUseOriToken(e.target.checked)}
+            className="w-4 h-4 rounded border-slate-300 text-purple-600"
+          />
+          <span className="text-sm text-slate-600">Use ori_token offset (experimental)</span>
+        </label>
 
-        {showAdvanced && (
-          <div className="p-4 space-y-4 border-t border-slate-200">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={useOriToken}
-                onChange={(e) => setUseOriToken(e.target.checked)}
-                className="w-4 h-4 rounded border-slate-300 text-purple-600"
-              />
-              <span className="text-sm text-slate-600">Use ori_token offset (experimental)</span>
-            </label>
-
-            {useOriToken && (
-              <div>
-                <label className="text-xs text-slate-500 font-medium">Offset from ligand (x, y, z)</label>
-                <input
-                  type="text"
-                  value={oriOffset}
-                  onChange={(e) => setOriOffset(e.target.value)}
-                  placeholder="12.0, 0.0, 0.0"
-                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
-                />
-                <p className="text-xs text-slate-500 mt-1">
-                  Positions protein origin away from ligand center. Use cautiously.
-                </p>
-              </div>
-            )}
+        {useOriToken && (
+          <div>
+            <label className="text-xs text-slate-500 font-medium">Offset from ligand (x, y, z)</label>
+            <input
+              type="text"
+              value={oriOffset}
+              onChange={(e) => setOriOffset(e.target.value)}
+              placeholder="12.0, 0.0, 0.0"
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-purple-400 focus:ring-2 focus:ring-purple-100 outline-none text-sm font-mono"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Positions protein origin away from ligand center. Use cautiously.
+            </p>
           </div>
         )}
-      </div>
+      </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
       <div className="pt-4 border-t border-slate-200">
@@ -361,12 +386,12 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
           {isSubmitting ? (
             <>
               <span className="material-symbols-outlined animate-spin">progress_activity</span>
-              Designing {approach === 'full' ? 'Dimer' : 'Binder'}...
+              Designing {approach === 'asymmetric' ? 'Binder' : 'Dimer'}...
             </>
           ) : (
             <>
               <span className="material-symbols-outlined">link</span>
-              Design {selectedLigandName} {approach === 'full' ? 'Dimer' : 'Binder'}
+              Design {selectedLigandName} {approach === 'asymmetric' ? 'Binder' : 'Dimer'}
             </>
           )}
         </button>
@@ -376,15 +401,61 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
           </p>
         )}
 
-        {/* Expected Results */}
-        <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200">
-          <p className="text-xs text-slate-500 font-medium mb-2">Expected Results</p>
-          <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-            <div>Affinity: -3 to -5 kcal/mol</div>
-            <div>Topology: Separable</div>
-            <div>Chain contacts: ≥3 each</div>
-            <div>Clashes: None</div>
+        {/* Expected Results - Quality Tiers */}
+        <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="material-symbols-outlined text-slate-500 text-sm">checklist</span>
+            <p className="text-xs text-slate-600 font-semibold uppercase tracking-wide">Success Criteria</p>
           </div>
+
+          {/* Quality tiers */}
+          <div className="space-y-3">
+            {/* Excellent */}
+            <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-100">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="text-xs font-medium text-emerald-800">Excellent</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-emerald-700 ml-4">
+                <div>GNINA: {EXPECTED_RESULTS.excellent.affinity}</div>
+                <div>Contacts: {EXPECTED_RESULTS.excellent.contacts}</div>
+                <div>Identity: {EXPECTED_RESULTS.excellent.identity}</div>
+                <div>Anti-homo: {EXPECTED_RESULTS.excellent.antiHomo}</div>
+              </div>
+            </div>
+
+            {/* Good */}
+            <div className="p-2 rounded-lg bg-blue-50 border border-blue-100">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                <span className="text-xs font-medium text-blue-800">Good</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-blue-700 ml-4">
+                <div>GNINA: {EXPECTED_RESULTS.good.affinity}</div>
+                <div>Contacts: {EXPECTED_RESULTS.good.contacts}</div>
+                <div>Identity: {EXPECTED_RESULTS.good.identity}</div>
+                <div>Anti-homo: {EXPECTED_RESULTS.good.antiHomo}</div>
+              </div>
+            </div>
+
+            {/* Minimum */}
+            <div className="p-2 rounded-lg bg-amber-50 border border-amber-100">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-amber-500" />
+                <span className="text-xs font-medium text-amber-800">Minimum Viable</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-amber-700 ml-4">
+                <div>GNINA: {EXPECTED_RESULTS.minimum.affinity}</div>
+                <div>Contacts: {EXPECTED_RESULTS.minimum.contacts}</div>
+                <div>Identity: {EXPECTED_RESULTS.minimum.identity}</div>
+                <div>H-bonds: {EXPECTED_RESULTS.minimum.hbonds}</div>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-500 mt-3 text-center">
+            Pipeline: Backbone → LigandMPNN → Validation → PLIP Analysis
+          </p>
         </div>
       </div>
     </div>

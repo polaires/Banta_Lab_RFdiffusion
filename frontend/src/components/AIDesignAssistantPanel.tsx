@@ -330,6 +330,7 @@ export function AIDesignAssistantPanel() {
   const { state: workflowState, isBackendConnected, executeMetal, executeLigand, executeBinder } = useDesignWorkflow();
 
   const [pdbInput, setPdbInput] = useState('');
+  const [followUpInput, setFollowUpInput] = useState('');
   const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
   const [analysisResult, setAnalysisResult] = useState<MetalBindingAnalysis | null>(null);
   const [evaluationResult, setEvaluationResult] = useState<DesignEvaluation | null>(null);
@@ -1294,7 +1295,7 @@ export function AIDesignAssistantPanel() {
             <input
               ref={inputRef}
               type="text"
-              value={pdbInput}
+              value={pdbInput || ''}
               onChange={(e) => setPdbInput(e.target.value.toUpperCase())}
               onKeyDown={(e) => e.key === 'Enter' && handleStructureInput()}
               placeholder="Enter PDB code (e.g., 1BRF) or AZOB for demo"
@@ -1315,12 +1316,14 @@ export function AIDesignAssistantPanel() {
           <div className="flex gap-3">
             <input
               type="text"
+              value={followUpInput}
+              onChange={(e) => setFollowUpInput(e.target.value)}
               placeholder={workflowPhase === 'complete' ? "Ask a follow-up question..." : "Type a message..."}
               className="flex-1 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none text-slate-900 text-sm transition-all"
               disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running'}
             />
             <button
-              disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running'}
+              disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running' || !followUpInput.trim()}
               className="px-4 py-3 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-medium text-sm transition-all flex items-center gap-2"
             >
               <span className="material-symbols-outlined text-lg">send</span>

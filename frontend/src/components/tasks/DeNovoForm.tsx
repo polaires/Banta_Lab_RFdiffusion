@@ -2,14 +2,15 @@
 
 import { useState } from 'react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
+import { LengthRangeInput } from './shared/LengthRangeInput';
+import { QualityPresetSelector, QualityPreset, QualityParams } from './shared/QualityPresetSelector';
+import { AdvancedOptionsWrapper } from './shared/AdvancedOptionsWrapper';
 import {
   QUALITY_PRESETS,
   SYMMETRY_OPTIONS,
   RFD3Request,
   TaskFormProps,
 } from './shared/types';
-
-type QualityPreset = keyof typeof QUALITY_PRESETS;
 
 export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   // Required
@@ -18,20 +19,24 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   // Optional
   const [isNonLoopy, setIsNonLoopy] = useState(true);
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Balanced');
+  const [qualityParams, setQualityParams] = useState<QualityParams>(QUALITY_PRESETS.Balanced);
   const [symmetry, setSymmetry] = useState<string>('');
   const [numDesigns, setNumDesigns] = useState(1);
   const [seed, setSeed] = useState<string>('');
 
-  const handleSubmit = async () => {
-    const preset = QUALITY_PRESETS[qualityPreset];
+  const handleQualityChange = (preset: QualityPreset, params: QualityParams) => {
+    setQualityPreset(preset);
+    setQualityParams(params);
+  };
 
+  const handleSubmit = async () => {
     const request: RFD3Request = {
       length,
       num_designs: numDesigns,
       is_non_loopy: isNonLoopy,
-      num_timesteps: preset.num_timesteps,
-      step_scale: preset.step_scale,
-      gamma_0: preset.gamma_0,
+      num_timesteps: qualityParams.num_timesteps,
+      step_scale: qualityParams.step_scale,
+      gamma_0: qualityParams.gamma_0,
     };
 
     if (symmetry) {
@@ -74,15 +79,15 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
         required
       >
         <div className="flex gap-4 items-start">
-          <FormField label="Length" required className="flex-1">
-            <input
-              type="text"
+          <div className="flex-1">
+            <LengthRangeInput
               value={length}
-              onChange={(e) => setLength(e.target.value)}
+              onChange={setLength}
+              label="Length"
               placeholder="100 or 80-120"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              hint="Single number or range"
             />
-          </FormField>
+          </div>
           <FormField label="# Designs" className="w-28">
             <input
               type="number"
@@ -101,26 +106,11 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
         title="Quality Settings"
         description="Higher quality takes longer but produces better designs"
       >
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setQualityPreset(preset)}
-              className={`p-3 rounded-lg border text-left transition-all ${
-                qualityPreset === preset
-                  ? 'border-blue-400 bg-white shadow-sm'
-                  : 'border-slate-200 hover:border-slate-300 bg-white'
-              }`}
-            >
-              <div className={`font-medium text-sm ${qualityPreset === preset ? 'text-blue-700' : 'text-slate-800'}`}>
-                {preset}
-              </div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {QUALITY_PRESETS[preset].description}
-              </div>
-            </button>
-          ))}
-        </div>
+        <QualityPresetSelector
+          value={qualityPreset}
+          onChange={handleQualityChange}
+          showDescription
+        />
       </FormSection>
 
       {/* Structure Options */}
@@ -184,7 +174,7 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
       </FormSection>
 
       {/* Advanced Options */}
-      <FormSection title="Advanced" description="Additional options for fine-tuning">
+      <AdvancedOptionsWrapper title="Advanced Options">
         <FormRow>
           <FormField label="Random Seed" hint="For reproducible results">
             <input
@@ -196,14 +186,14 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
             />
           </FormField>
         </FormRow>
-      </FormSection>
+      </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
       <div className="pt-4 border-t border-slate-200">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
-          className={`w-full py-3 px-6 rounded-lg font-semibold text-white transition-all flex items-center justify-center gap-2 ${
+          className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
               ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
               : 'bg-slate-300 cursor-not-allowed'

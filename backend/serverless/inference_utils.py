@@ -1514,44 +1514,81 @@ def run_mpnn_inference(
     model_type: str = "ligand_mpnn",
     remove_waters: bool = True,
     fixed_positions: Optional[List[str]] = None,  # e.g., ["A35", "A36", "B35"]
-    use_mock: bool = False
+    use_mock: bool = False,
+    # Advanced LigandMPNN parameters (from Nature Methods 2025 paper)
+    pack_side_chains: bool = False,
+    pack_with_ligand_context: bool = True,
+    number_of_packs_per_design: int = 4,
+    bias_AA: Optional[str] = None,  # e.g., "W:3.0,P:-3.0,C:-5.0"
+    omit_AA: Optional[str] = None,  # e.g., "C" to omit cysteine
+    model_noise_level: str = "010",  # 005, 010, 020, 030
+    ligand_cutoff_for_score: float = 8.0,  # Angstroms
+    use_side_chain_context: bool = False,
+    save_stats: bool = False,
 ) -> Dict[str, Any]:
-    """Run MPNN sequence design.
+    """Run MPNN sequence design with full LigandMPNN capabilities.
 
     Args:
         pdb_content: PDB content including HETATM records for ligand awareness
         num_sequences: Number of sequences to design
-        temperature: Sampling temperature (lower = more conservative)
+        temperature: Sampling temperature (lower = more conservative, 0.05-0.1 recommended)
         model_type: 'ligand_mpnn' for ligand-aware design, 'proteinmpnn' otherwise
         remove_waters: Whether to remove water molecules
         fixed_positions: List of residue positions to keep fixed (e.g., ["A35", "A36"])
-                        These positions will not be redesigned (useful for binding sites)
         use_mock: Use mock mode for testing
 
-    Returns:
-        Dict with designed sequences
+        Advanced LigandMPNN parameters:
+        pack_side_chains: Enable sidechain packing (generates chi angles)
+        pack_with_ligand_context: Include ligand atoms when packing sidechains
+        number_of_packs_per_design: Number of sidechain packing samples per sequence
+        bias_AA: Global amino acid biases (e.g., "W:3.0,Y:2.0,C:-5.0")
+        omit_AA: Amino acids to completely omit (e.g., "C" to avoid cysteines)
+        model_noise_level: Model noise level (005=low, 010=default, 020, 030=high)
+        ligand_cutoff_for_score: Distance cutoff for ligand-adjacent residues (Angstroms)
+        use_side_chain_context: Use fixed residue sidechains as additional context
+        save_stats: Return confidence metrics (ligand_confidence, overall_confidence)
 
-    Note: For best ligand-aware design:
-    - Include HETATM records in pdb_content
-    - Use model_type='ligand_mpnn'
-    - Consider fixing binding site residues with fixed_positions
+    Returns:
+        Dict with designed sequences and optional confidence metrics
+
+    Note: For best ligand binding design:
+    - Use model_type='ligand_mpnn' with pack_side_chains=True
+    - Bias toward aromatic residues for hydrophobic ligands: bias_AA="W:2.0,Y:2.0,F:1.5"
+    - Omit cysteines to avoid disulfide complications: omit_AA="C"
+    - Use ligand_cutoff_for_score=6.0 for small molecules (tighter contact)
     """
 
     if use_mock:
         return run_mpnn_mock(pdb_content, num_sequences)
 
+    # Build kwargs dict for the advanced parameters
+    advanced_params = {
+        "pack_side_chains": pack_side_chains,
+        "pack_with_ligand_context": pack_with_ligand_context,
+        "number_of_packs_per_design": number_of_packs_per_design,
+        "bias_AA": bias_AA,
+        "omit_AA": omit_AA,
+        "model_noise_level": model_noise_level,
+        "ligand_cutoff_for_score": ligand_cutoff_for_score,
+        "use_side_chain_context": use_side_chain_context,
+        "save_stats": save_stats,
+    }
+
     try:
         return run_mpnn_python_api(
-            pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions
+            pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions,
+            **advanced_params
         )
     except ImportError as e:
         print(f"[MPNN] Python API not available: {e}")
-        return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions)
+        return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions,
+                          **advanced_params)
     except Exception as e:
         import traceback
         # Try CLI fallback
         try:
-            return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions)
+            return run_mpnn_cli(pdb_content, num_sequences, temperature, model_type, remove_waters, fixed_positions,
+                              **advanced_params)
         except Exception as cli_error:
             return {
                 "status": "failed",
@@ -1566,9 +1603,19 @@ def run_mpnn_python_api(
     temperature: float,
     model_type: str,
     remove_waters: bool,
-    fixed_positions: Optional[List[str]] = None
+    fixed_positions: Optional[List[str]] = None,
+    # Advanced LigandMPNN parameters
+    pack_side_chains: bool = False,
+    pack_with_ligand_context: bool = True,
+    number_of_packs_per_design: int = 4,
+    bias_AA: Optional[str] = None,
+    omit_AA: Optional[str] = None,
+    model_noise_level: str = "010",
+    ligand_cutoff_for_score: float = 8.0,
+    use_side_chain_context: bool = False,
+    save_stats: bool = False,
 ) -> Dict[str, Any]:
-    """MPNN via Python API"""
+    """MPNN via Python API with full LigandMPNN capabilities."""
     from mpnn.inference_engines.mpnn import MPNNInferenceEngine
     from biotite.structure import get_residue_starts
     from biotite.sequence import ProteinSequence
@@ -1576,33 +1623,98 @@ def run_mpnn_python_api(
     # Parse input
     atom_array = pdb_to_atom_array(pdb_content)
 
-    # Configure engine
+    # Configure engine with model type
+    # Note: model_type must be "ligand_mpnn" or "protein_mpnn"
+    # Noise level is controlled via checkpoint_path (e.g., ligandmpnn_v_32_010_25.pt)
+    checkpoint_path = None
+    if model_noise_level != "010":
+        # Non-default noise level - construct checkpoint path
+        # Format: /runpod-volume/checkpoints/ligandmpnn_v_32_{noise}_25.pt
+        if model_type == "ligand_mpnn":
+            checkpoint_path = f"/runpod-volume/checkpoints/ligandmpnn_v_32_{model_noise_level}_25.pt"
+        else:
+            checkpoint_path = f"/runpod-volume/checkpoints/proteinmpnn_v_48_{model_noise_level}_25.pt"
+        print(f"[MPNN] Using checkpoint: {checkpoint_path}")
+
     engine_config = {
-        "model_type": model_type,
+        "model_type": model_type,  # Must be "ligand_mpnn" or "protein_mpnn"
         "is_legacy_weights": True,
         "out_directory": None,
-        "write_structures": False,
+        "write_structures": pack_side_chains,  # Write structures if packing sidechains
         "write_fasta": False,
     }
+
+    # Add checkpoint path if non-default noise level
+    if checkpoint_path:
+        engine_config["checkpoint_path"] = checkpoint_path
 
     input_configs = [{
         "batch_size": num_sequences,
         "remove_waters": remove_waters,
+        "temperature": temperature,
     }]
 
     # Add fixed positions if specified
     if fixed_positions:
-        # Convert list ["A35", "B36"] to format expected by MPNN
-        # This keeps these residue positions fixed during design
         input_configs[0]["fixed_positions"] = fixed_positions
         print(f"[MPNN] Fixed positions: {fixed_positions}")
 
-    # Run
+    # Single-letter to 3-letter amino acid code conversion
+    AA_1TO3 = {
+        "A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS",
+        "Q": "GLN", "E": "GLU", "G": "GLY", "H": "HIS", "I": "ILE",
+        "L": "LEU", "K": "LYS", "M": "MET", "F": "PHE", "P": "PRO",
+        "S": "SER", "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL",
+    }
+
+    # Add amino acid biasing (uses 3-letter codes)
+    if bias_AA:
+        # Parse bias string like "W:3.0,Y:2.0,C:-5.0" into dict with 3-letter codes
+        bias_dict = {}
+        for item in bias_AA.split(","):
+            aa, val = item.strip().split(":")
+            aa1 = aa.strip().upper()
+            aa3 = AA_1TO3.get(aa1, aa1)  # Convert to 3-letter if single-letter
+            bias_dict[aa3] = float(val.strip())
+        input_configs[0]["bias"] = bias_dict  # Note: key is "bias", not "bias_AA"
+        print(f"[MPNN] AA bias: {bias_dict}")
+
+    # Add amino acid omission (uses 3-letter codes)
+    if omit_AA:
+        # Convert single-letter codes to 3-letter codes
+        omit_list = []
+        for aa in omit_AA.split(","):
+            aa1 = aa.strip().upper()
+            aa3 = AA_1TO3.get(aa1, aa1)
+            omit_list.append(aa3)
+        input_configs[0]["omit"] = omit_list  # Note: key is "omit", not "omit_AA"
+        print(f"[MPNN] Omitting AAs: {omit_list}")
+
+    # LigandMPNN-specific parameters
+    if model_type == "ligand_mpnn":
+        input_configs[0]["ligand_mpnn_use_atom_context"] = 1  # Enable ligand awareness
+        input_configs[0]["ligand_mpnn_cutoff_for_score"] = ligand_cutoff_for_score
+        if use_side_chain_context:
+            input_configs[0]["ligand_mpnn_use_side_chain_context"] = 1
+        print(f"[MPNN] Ligand cutoff for score: {ligand_cutoff_for_score}Å")
+
+    # Sidechain packing parameters
+    if pack_side_chains:
+        input_configs[0]["pack_side_chains"] = 1
+        input_configs[0]["number_of_packs_per_design"] = number_of_packs_per_design
+        if pack_with_ligand_context and model_type == "ligand_mpnn":
+            input_configs[0]["pack_with_ligand_context"] = 1
+        print(f"[MPNN] Sidechain packing enabled: {number_of_packs_per_design} packs/design")
+
+    # Run inference
     model = MPNNInferenceEngine(**engine_config)
     mpnn_outputs = model.run(input_dicts=input_configs, atom_arrays=[atom_array])
 
-    # Extract sequences
+    # Extract sequences and stats
     sequences = []
+    stats_list = []
+    pdb_structures = []
+
     for i, item in enumerate(mpnn_outputs):
         if hasattr(item, 'atom_array'):
             res_starts = get_residue_starts(item.atom_array)
@@ -1613,17 +1725,51 @@ def run_mpnn_python_api(
             )
             sequences.append(f">design_{i+1}\n{seq}")
 
+            # Extract confidence/stats if available
+            if save_stats and hasattr(item, 'stats'):
+                stats_list.append({
+                    "design": i + 1,
+                    "overall_confidence": getattr(item.stats, 'overall_confidence', None),
+                    "ligand_confidence": getattr(item.stats, 'ligand_confidence', None),
+                    "score": getattr(item.stats, 'score', None),
+                })
+
+            # Extract packed structure if available
+            if pack_side_chains and hasattr(item, 'pdb_content'):
+                pdb_structures.append({
+                    "design": i + 1,
+                    "pdb_content": item.pdb_content,
+                })
+
     fasta_content = "\n".join(sequences)
 
-    return {
+    result = {
         "status": "completed",
         "result": {
             "sequences": [{"filename": "sequences.fasta", "content": fasta_content}],
             "num_sequences": len(sequences),
             "model_type": model_type,
+            "model_noise_level": model_noise_level,
             "mode": "real",
         }
     }
+
+    # Add stats if requested
+    if save_stats and stats_list:
+        result["result"]["stats"] = stats_list
+        # Compute averages
+        confidences = [s["overall_confidence"] for s in stats_list if s["overall_confidence"] is not None]
+        ligand_confs = [s["ligand_confidence"] for s in stats_list if s["ligand_confidence"] is not None]
+        if confidences:
+            result["result"]["avg_overall_confidence"] = sum(confidences) / len(confidences)
+        if ligand_confs:
+            result["result"]["avg_ligand_confidence"] = sum(ligand_confs) / len(ligand_confs)
+
+    # Add packed structures if generated
+    if pack_side_chains and pdb_structures:
+        result["result"]["packed_structures"] = pdb_structures
+
+    return result
 
 
 def run_mpnn_cli(
@@ -1632,9 +1778,19 @@ def run_mpnn_cli(
     temperature: float,
     model_type: str,
     remove_waters: bool,
-    fixed_positions: Optional[List[str]] = None
+    fixed_positions: Optional[List[str]] = None,
+    # Advanced LigandMPNN parameters
+    pack_side_chains: bool = False,
+    pack_with_ligand_context: bool = True,
+    number_of_packs_per_design: int = 4,
+    bias_AA: Optional[str] = None,
+    omit_AA: Optional[str] = None,
+    model_noise_level: str = "010",
+    ligand_cutoff_for_score: float = 8.0,
+    use_side_chain_context: bool = False,
+    save_stats: bool = False,
 ) -> Dict[str, Any]:
-    """MPNN via CLI"""
+    """MPNN via CLI with full LigandMPNN capabilities."""
     with tempfile.TemporaryDirectory() as tmpdir:
         pdb_path = os.path.join(tmpdir, "input.pdb")
         with open(pdb_path, "w") as f:
@@ -1643,47 +1799,120 @@ def run_mpnn_cli(
         out_dir = os.path.join(tmpdir, "output")
         os.makedirs(out_dir, exist_ok=True)
 
+        # Build command - model_type must be "ligand_mpnn" or "protein_mpnn"
+        # Checkpoint path is required by the CLI
+        if model_type == "ligand_mpnn":
+            checkpoint = f"/runpod-volume/checkpoints/ligandmpnn_v_32_{model_noise_level}_25.pt"
+        else:
+            checkpoint = f"/runpod-volume/checkpoints/proteinmpnn_v_48_{model_noise_level}_25.pt"
+
         cmd_parts = [
             "mpnn",
             f"--structure_path {pdb_path}",
             f"--out_directory {out_dir}",
             "--name design",
-            f"--model_type {model_type}",
+            f"--model_type {model_type}",  # Must be "ligand_mpnn" or "protein_mpnn"
+            f"--checkpoint_path {checkpoint}",  # Required by CLI
             f"--batch_size {num_sequences}",
             f"--temperature {temperature}",
             "--is_legacy_weights True",
             "--write_fasta True",
-            "--write_structures False",
+            f"--write_structures {'True' if pack_side_chains else 'False'}",
             f"--remove_waters {'True' if remove_waters else 'None'}",
         ]
+        print(f"[MPNN] Using checkpoint: {checkpoint}")
 
-        # Add fixed positions if specified
+        # Add fixed positions if specified (atomworks CLI uses --fixed_residues)
         if fixed_positions:
-            # Convert list to comma-separated string for CLI
             fixed_str = ",".join(fixed_positions)
-            cmd_parts.append(f"--fixed_positions {fixed_str}")
-            print(f"[MPNN] CLI fixed positions: {fixed_str}")
+            cmd_parts.append(f"--fixed_residues {fixed_str}")
+            print(f"[MPNN] CLI fixed_residues: {fixed_str}")
+
+        # Add amino acid biasing (atomworks CLI uses --bias with JSON format)
+        # Format: {"TRP": 3.0, "TYR": 2.0} - uses 3-letter codes
+        # Single-letter to 3-letter conversion
+        AA_1TO3 = {
+            "A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS",
+            "Q": "GLN", "E": "GLU", "G": "GLY", "H": "HIS", "I": "ILE",
+            "L": "LEU", "K": "LYS", "M": "MET", "F": "PHE", "P": "PRO",
+            "S": "SER", "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL",
+        }
+        if bias_AA:
+            # Convert "W:3.0,Y:2.0" to JSON format with 3-letter codes
+            bias_dict = {}
+            for item in bias_AA.split(","):
+                aa, val = item.strip().split(":")
+                aa1 = aa.strip().upper()
+                aa3 = AA_1TO3.get(aa1, aa1)  # Convert to 3-letter if single-letter
+                bias_dict[aa3] = float(val.strip())
+            import json
+            bias_json = json.dumps(bias_dict)
+            cmd_parts.append(f"--bias '{bias_json}'")
+            print(f"[MPNN] CLI bias: {bias_json}")
+
+        # Add amino acid omission (atomworks CLI uses --omit with JSON list format)
+        if omit_AA:
+            # Convert single-letter codes to 3-letter codes as JSON list
+            omit_list = []
+            for aa in omit_AA.split(","):
+                aa1 = aa.strip().upper()
+                aa3 = AA_1TO3.get(aa1, aa1)  # Convert to 3-letter if single-letter
+                omit_list.append(aa3)
+            import json
+            omit_json = json.dumps(omit_list)
+            cmd_parts.append(f"--omit '{omit_json}'")
+            print(f"[MPNN] CLI omit: {omit_json}")
+
+        # Note: LigandMPNN-specific parameters (cutoff, atom context, side chain context)
+        # are handled automatically by the atomworks CLI when model_type=ligand_mpnn
+        # The ligand awareness is built into the model itself
+        if model_type == "ligand_mpnn":
+            print(f"[MPNN] Using ligand_mpnn model (ligand awareness automatic)")
+
+        # Sidechain atomization and structure output
+        if pack_side_chains:
+            cmd_parts.append("--atomize_side_chains True")
+            # write_structures is already set above
+            print(f"[MPNN] Sidechain atomization enabled")
 
         cmd = " ".join(cmd_parts)
+        print(f"[MPNN] Running CLI: {cmd}")
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=1800)
 
         if result.returncode == 0:
             sequences = []
+            packed_structures = []
+            stats_data = None
+
             for root, _, files in os.walk(out_dir):
                 for filename in files:
+                    filepath = os.path.join(root, filename)
                     if filename.endswith((".fa", ".fasta")):
-                        with open(os.path.join(root, filename)) as f:
+                        with open(filepath) as f:
                             sequences.append({"filename": filename, "content": f.read()})
+                    elif filename.endswith(".pdb") and pack_side_chains:
+                        with open(filepath) as f:
+                            packed_structures.append({"filename": filename, "pdb_content": f.read()})
+                    elif filename.endswith("_stats.json") and save_stats:
+                        import json
+                        with open(filepath) as f:
+                            stats_data = json.load(f)
 
             if sequences:
-                return {
+                response = {
                     "status": "completed",
                     "result": {
                         "sequences": sequences,
                         "model_type": model_type,
+                        "model_noise_level": model_noise_level,
                         "mode": "real (cli)",
                     }
                 }
+                if packed_structures:
+                    response["result"]["packed_structures"] = packed_structures
+                if stats_data:
+                    response["result"]["stats"] = stats_data
+                return response
             else:
                 return {
                     "status": "failed",

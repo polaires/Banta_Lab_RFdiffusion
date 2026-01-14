@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
+import { LengthRangeInput } from './shared/LengthRangeInput';
+import { QualityPresetSelector, QualityPreset, QualityParams } from './shared/QualityPresetSelector';
+import { AdvancedOptionsWrapper } from './shared/AdvancedOptionsWrapper';
 import { QUALITY_PRESETS, SYMMETRY_OPTIONS, RFD3Request, TaskFormProps } from './shared/types';
-
-type QualityPreset = keyof typeof QUALITY_PRESETS;
 
 export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   // Required
@@ -23,12 +24,17 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
 
   // Options
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Balanced');
+  const [qualityParams, setQualityParams] = useState<QualityParams>(QUALITY_PRESETS.Balanced);
   const [isNonLoopy, setIsNonLoopy] = useState(true);
   const [numDesigns, setNumDesigns] = useState(1);
   const [seed, setSeed] = useState<string>('');
 
+  const handleQualityChange = (preset: QualityPreset, params: QualityParams) => {
+    setQualityPreset(preset);
+    setQualityParams(params);
+  };
+
   const handleSubmit = async () => {
-    const preset = QUALITY_PRESETS[qualityPreset];
     const selectedSymmetry = SYMMETRY_OPTIONS.find((s) => s.id === symmetry);
 
     let contig: string | undefined;
@@ -49,9 +55,9 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
       pdb_content: useMotif ? pdbContent || undefined : undefined,
       num_designs: numDesigns,
       is_non_loopy: isNonLoopy,
-      num_timesteps: preset.num_timesteps,
-      step_scale: preset.step_scale,
-      gamma_0: preset.gamma_0,
+      num_timesteps: qualityParams.num_timesteps,
+      step_scale: qualityParams.step_scale,
+      gamma_0: qualityParams.gamma_0,
       symmetry: {
         id: symmetry,
         is_symmetric_motif: useMotif ? isSymmetricMotif : undefined,
@@ -134,27 +140,27 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
         description="Specify the length per subunit"
         required
       >
-        <FormRow>
-          <FormField label="Length per Subunit" required hint="Number of residues in each subunit">
-            <input
-              type="text"
+        <div className="flex gap-4 items-start">
+          <div className="flex-1">
+            <LengthRangeInput
               value={lengthPerSubunit}
-              onChange={(e) => setLengthPerSubunit(e.target.value)}
+              onChange={setLengthPerSubunit}
+              label="Length per Subunit"
               placeholder="80 or 60-100"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              hint="Number of residues in each subunit"
             />
-          </FormField>
-          <FormField label="# Designs">
+          </div>
+          <FormField label="# Designs" className="w-28">
             <input
               type="number"
               value={numDesigns}
               onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               max={10}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
             />
           </FormField>
-        </FormRow>
+        </div>
 
         {/* Total size info */}
         <div className={`p-3 rounded-xl border mt-3 ${
@@ -270,37 +276,24 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
         title="Quality Settings"
         description="Higher quality takes longer but produces better designs"
       >
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setQualityPreset(preset)}
-              className={`p-3 rounded-xl border-2 text-left transition-all ${
-                qualityPreset === preset
-                  ? 'border-blue-400 bg-blue-50'
-                  : 'border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              <div className="font-medium text-sm text-slate-900">{preset}</div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {QUALITY_PRESETS[preset].description}
-              </div>
-            </button>
-          ))}
-        </div>
+        <QualityPresetSelector
+          value={qualityPreset}
+          onChange={handleQualityChange}
+          showDescription
+        />
       </FormSection>
 
       {/* Structure Options */}
       <FormSection title="Structure Options">
-        <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+        <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
           <input
             type="checkbox"
             checked={isNonLoopy}
             onChange={(e) => setIsNonLoopy(e.target.checked)}
-            className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
           />
           <div>
-            <div className="font-medium text-sm text-slate-900">Non-loopy Mode</div>
+            <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
             <div className="text-xs text-slate-500">
               Produces cleaner secondary structures (recommended)
             </div>
@@ -309,7 +302,7 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
       </FormSection>
 
       {/* Advanced Options */}
-      <FormSection title="Advanced" description="Additional options for fine-tuning">
+      <AdvancedOptionsWrapper title="Advanced Options">
         <FormRow>
           <FormField label="Random Seed" hint="For reproducible results">
             <input
@@ -317,11 +310,11 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Optional"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
             />
           </FormField>
         </FormRow>
-      </FormSection>
+      </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
       <div className="pt-4 border-t border-slate-200">

@@ -1,5 +1,15 @@
 'use client';
 
+// PLIP interaction profile from ligand analysis
+export interface InteractionProfile {
+  hydrogen_bonds: number;
+  hydrophobic_contacts: number;
+  pi_stacking: number;
+  salt_bridges: number;
+  halogen_bonds?: number;
+  total: number;
+}
+
 interface InterfaceMetricsProps {
   metrics: {
     interface_contacts: number;
@@ -23,6 +33,10 @@ interface InterfaceMetricsProps {
     rmsd?: number;
     validation_passed: boolean;
   };
+  // PLIP interaction profile
+  interactions?: InteractionProfile;
+  key_binding_residues?: string[];
+  analysis_method?: 'plip' | 'distance_based';
 }
 
 function getContactsQuality(contacts: number): { label: string; color: string } {
@@ -75,7 +89,15 @@ function getPlddtQuality(plddt: number): { label: string; color: string } {
   return { label: 'Very Low', color: 'text-red-600' };
 }
 
-export function InterfaceMetrics({ metrics, esm, mpnn_score, esmfold }: InterfaceMetricsProps) {
+export function InterfaceMetrics({
+  metrics,
+  esm,
+  mpnn_score,
+  esmfold,
+  interactions,
+  key_binding_residues,
+  analysis_method
+}: InterfaceMetricsProps) {
   const contactsQ = getContactsQuality(metrics.interface_contacts);
   const hbondsQ = getHbondsQuality(metrics.interface_hbonds);
   const scQ = metrics.shape_complementarity != null ? getSCQuality(metrics.shape_complementarity) : null;
@@ -217,6 +239,105 @@ export function InterfaceMetrics({ metrics, esm, mpnn_score, esmfold }: Interfac
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* PLIP Interaction Profile (if available) */}
+      {interactions && (
+        <div className="px-4 pb-4">
+          <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm text-blue-600">science</span>
+                <span className="text-xs text-blue-700 font-medium uppercase tracking-wide">
+                  Interaction Profile
+                </span>
+              </div>
+              {analysis_method && (
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  analysis_method === 'plip'
+                    ? 'bg-purple-100 text-purple-700'
+                    : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {analysis_method === 'plip' ? 'PLIP Analysis' : 'Distance-Based'}
+                </span>
+              )}
+            </div>
+
+            {/* Interaction counts grid */}
+            <div className="grid grid-cols-5 gap-2 mb-4">
+              {/* H-bonds */}
+              <div className="text-center p-2 bg-white/60 rounded-lg">
+                <div className="text-xl font-bold text-blue-700">
+                  {interactions.hydrogen_bonds}
+                </div>
+                <div className="text-xs text-slate-500">H-bonds</div>
+              </div>
+
+              {/* Hydrophobic */}
+              <div className="text-center p-2 bg-white/60 rounded-lg">
+                <div className="text-xl font-bold text-amber-700">
+                  {interactions.hydrophobic_contacts}
+                </div>
+                <div className="text-xs text-slate-500">Hydrophobic</div>
+              </div>
+
+              {/* Pi-stacking */}
+              <div className="text-center p-2 bg-white/60 rounded-lg">
+                <div className="text-xl font-bold text-purple-700">
+                  {interactions.pi_stacking}
+                </div>
+                <div className="text-xs text-slate-500">Pi-Stack</div>
+              </div>
+
+              {/* Salt bridges */}
+              <div className="text-center p-2 bg-white/60 rounded-lg">
+                <div className="text-xl font-bold text-red-700">
+                  {interactions.salt_bridges}
+                </div>
+                <div className="text-xs text-slate-500">Salt Bridges</div>
+              </div>
+
+              {/* Total */}
+              <div className="text-center p-2 bg-white/60 rounded-lg border-2 border-blue-200">
+                <div className="text-xl font-bold text-slate-900">
+                  {interactions.total}
+                </div>
+                <div className="text-xs text-slate-500 font-medium">Total</div>
+              </div>
+            </div>
+
+            {/* Halogen bonds (if present) */}
+            {interactions.halogen_bonds !== undefined && interactions.halogen_bonds > 0 && (
+              <div className="mb-3 text-center p-2 bg-white/60 rounded-lg">
+                <span className="text-sm text-teal-700">
+                  <span className="font-bold">{interactions.halogen_bonds}</span> halogen bonds
+                </span>
+              </div>
+            )}
+
+            {/* Key binding residues */}
+            {key_binding_residues && key_binding_residues.length > 0 && (
+              <div>
+                <div className="text-xs text-slate-500 mb-2">Key Binding Residues:</div>
+                <div className="flex flex-wrap gap-1">
+                  {key_binding_residues.slice(0, 10).map((residue, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-0.5 bg-white/80 text-xs font-mono text-slate-700 rounded border border-slate-200"
+                    >
+                      {residue}
+                    </span>
+                  ))}
+                  {key_binding_residues.length > 10 && (
+                    <span className="px-2 py-0.5 text-xs text-slate-500">
+                      +{key_binding_residues.length - 10} more
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

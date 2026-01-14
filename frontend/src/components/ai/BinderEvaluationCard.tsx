@@ -1,5 +1,15 @@
 'use client';
 
+// Interaction profile data from PLIP analysis
+export interface InteractionProfile {
+  hbonds: number;
+  hydrophobic: number;
+  pi_stacking: number;
+  salt_bridges: number;
+  halogen_bonds?: number;
+  total: number;
+}
+
 // Binder evaluation result interface
 export interface BinderEvaluation {
   success: boolean;
@@ -31,6 +41,10 @@ export interface BinderEvaluation {
   // Hotspot information
   hotspots_used?: string[];
   hotspots_auto_detected?: boolean;
+  // Interaction analysis (from PLIP)
+  interactions?: InteractionProfile;
+  key_binding_residues?: string[];
+  recommendations?: string[];
 }
 
 interface BinderEvaluationCardProps {
@@ -203,6 +217,74 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
               </div>
             )}
           </div>
+
+          {/* Interaction Profile (from PLIP analysis) */}
+          {evaluation.interactions && expanded && (
+            <div className="mt-4 p-3 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-100">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="material-symbols-outlined text-blue-600 text-sm">science</span>
+                <span className="text-xs font-medium text-blue-700 uppercase">Interaction Profile</span>
+              </div>
+              <div className="grid grid-cols-5 gap-2 text-center">
+                <div className="p-2 bg-white/60 rounded-lg">
+                  <div className="text-lg font-bold text-blue-600">{evaluation.interactions.hbonds}</div>
+                  <div className="text-xs text-slate-500">H-bonds</div>
+                </div>
+                <div className="p-2 bg-white/60 rounded-lg">
+                  <div className="text-lg font-bold text-yellow-600">{evaluation.interactions.hydrophobic}</div>
+                  <div className="text-xs text-slate-500">Hydrophobic</div>
+                </div>
+                <div className="p-2 bg-white/60 rounded-lg">
+                  <div className="text-lg font-bold text-purple-600">{evaluation.interactions.pi_stacking}</div>
+                  <div className="text-xs text-slate-500">π-Stack</div>
+                </div>
+                <div className="p-2 bg-white/60 rounded-lg">
+                  <div className="text-lg font-bold text-red-600">{evaluation.interactions.salt_bridges}</div>
+                  <div className="text-xs text-slate-500">Salt Bridge</div>
+                </div>
+                <div className="p-2 bg-white/60 rounded-lg">
+                  <div className="text-lg font-bold text-slate-800">{evaluation.interactions.total}</div>
+                  <div className="text-xs text-slate-500">Total</div>
+                </div>
+              </div>
+              {/* Key Binding Residues */}
+              {evaluation.key_binding_residues && evaluation.key_binding_residues.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-blue-100">
+                  <div className="text-xs text-slate-500 mb-1">Key Binding Residues</div>
+                  <div className="flex flex-wrap gap-1">
+                    {evaluation.key_binding_residues.slice(0, 8).map((residue) => (
+                      <span key={residue} className="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded">
+                        {residue}
+                      </span>
+                    ))}
+                    {evaluation.key_binding_residues.length > 8 && (
+                      <span className="text-xs px-2 py-0.5 text-slate-400">
+                        +{evaluation.key_binding_residues.length - 8} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Recommendations */}
+          {evaluation.recommendations && evaluation.recommendations.length > 0 && expanded && (
+            <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="material-symbols-outlined text-amber-600 text-sm">lightbulb</span>
+                <span className="text-xs font-medium text-amber-700 uppercase">Suggestions for Improvement</span>
+              </div>
+              <ul className="space-y-1">
+                {evaluation.recommendations.map((rec, idx) => (
+                  <li key={idx} className="text-sm text-amber-800 flex items-start gap-2">
+                    <span className="text-amber-500 mt-0.5">•</span>
+                    {rec}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Hotspot Info */}
           {evaluation.hotspots_used && evaluation.hotspots_used.length > 0 && expanded && (

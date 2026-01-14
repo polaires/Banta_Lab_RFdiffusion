@@ -1,10 +1,17 @@
 /**
- * Zustand store for application state (v2.1)
- * Supports cross-panel data flow, confidence metrics, and enhanced viewer state
+ * Zustand store for application state (v2.2)
+ * Supports cross-panel data flow, confidence metrics, enhanced viewer state,
+ * and versioned persistence with migration support
  */
 
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
+
+// Store version for migration handling
+const STORE_VERSION = 2;
+
+// Maximum number of jobs to keep in history
+const MAX_JOB_HISTORY = 100;
 import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult, MetalBindingAnalysis, UserPreferences, DesignEvaluation } from './api';
 import type { MetalCoordination } from './metalAnalysis';
 import type { LigandAnalysisResult } from './ligandAnalysis';
@@ -127,6 +134,7 @@ interface AppState {
   addJob: (job: Job) => void;
   updateJob: (id: string, updates: Partial<Job>) => void;
   removeJob: (id: string) => void;
+  cleanupExpiredJobs: () => void;
 
   // Selected structure for visualization
   selectedPdb: string | null;
@@ -211,25 +219,15 @@ interface AppState {
   clearAiConversation: () => void;
 }
 
-// Helper to get initial backend URL (localStorage > env > default)
-const getInitialBackendUrl = (): string => {
-  if (typeof window !== 'undefined') {
-    const stored = localStorage.getItem('foundry-backend-url');
-    if (stored) return stored;
-  }
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-};
+// Default backend URL from environment or fallback
+const DEFAULT_BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export const useStore = create<AppState>((set) => ({
-  // Backend connection - persisted to localStorage
-  backendUrl: getInitialBackendUrl(),
-  setBackendUrl: (url) => {
-    // Persist to localStorage
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('foundry-backend-url', url);
-    }
-    set({ backendUrl: url });
-  },
+export const useStore = create<AppState>()(
+  persist(
+    (set) => ({
+  // Backend connection - persisted via Zustand middleware
+  backendUrl: DEFAULT_BACKEND_URL,
+  setBackendUrl: (url) => set({ backendUrl: url }),
 
   // Health status
   health: null,
@@ -237,13 +235,35 @@ export const useStore = create<AppState>((set) => ({
 
   // Jobs
   jobs: [],
-  addJob: (job) => set((state) => ({ jobs: [job, ...state.jobs] })),
+  addJob: (job) => set((state) => {
+    // Add new job at the start, then enforce max limit
+    const newJobs = [job, ...state.jobs];
+    // Keep only the most recent MAX_JOB_HISTORY jobs
+    if (newJobs.length > MAX_JOB_HISTORY) {
+      return { jobs: newJobs.slice(0, MAX_JOB_HISTORY) };
+    }
+    return { jobs: newJobs };
+  }),
   updateJob: (id, updates) => set((state) => ({
     jobs: state.jobs.map((job) => job.id === id ? { ...job, ...updates } : job)
   })),
   removeJob: (id) => set((state) => ({
     jobs: state.jobs.filter((job) => job.id !== id)
   })),
+  cleanupExpiredJobs: () => set((state) => {
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    return {
+      jobs: state.jobs.filter((job) => {
+        // Keep all non-failed jobs
+        if (job.status !== 'failed') return true;
+        // Remove failed jobs older than 24 hours
+        const createdAt = new Date(job.createdAt).getTime();
+        const expiresAt = createdAt + TWENTY_FOUR_HOURS;
+        return now < expiresAt;
+      }),
+    };
+  }),
 
   // Selected structure
   selectedPdb: null,
@@ -379,4 +399,38 @@ export const useStore = create<AppState>((set) => ({
       jobProgress: 0,
     },
   })),
-}));
+}),
+    {
+      name: 'rfd3-design-history',
+      version: STORE_VERSION,
+      storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({
+        // Only persist jobs and backend URL - not transient UI state
+        jobs: state.jobs,
+        backendUrl: state.backendUrl,
+      }),
+      migrate: (persistedState: unknown, version: number) => {
+        // Handle migrations from older versions
+        const state = persistedState as Partial<AppState>;
+
+        if (version < 2) {
+          // v1 -> v2: Ensure jobs array exists and has required fields
+          if (state.jobs) {
+            state.jobs = state.jobs.map((job: Job) => ({
+              ...job,
+              // Ensure errorContext exists for older jobs
+              errorContext: job.errorContext || undefined,
+            }));
+          }
+        }
+
+        // Enforce max job limit on load
+        if (state.jobs && state.jobs.length > MAX_JOB_HISTORY) {
+          state.jobs = state.jobs.slice(0, MAX_JOB_HISTORY);
+        }
+
+        return state as AppState;
+      },
+    }
+  )
+);

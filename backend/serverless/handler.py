@@ -44,6 +44,9 @@ from binding_analysis import (
     calculate_surface_hydrophobicity,
     calculate_unsaturated_hbonds,
     count_interface_residues,
+    # Homodimerization scoring for heterodimer validation
+    score_homodimerization,
+    calculate_sequence_identity,
 )
 
 # Import ESMFold validation for structure prediction
@@ -71,6 +74,19 @@ from cleavage_utils import (
     CleavageResult,
 )
 
+# Import shared interaction analysis module
+try:
+    from shared.interaction_analysis import (
+        analyze_all_interactions,
+        format_for_frontend,
+        format_for_ai_assistant,
+        generate_recommendations,
+    )
+    SHARED_INTERACTION_ANALYSIS_AVAILABLE = True
+except ImportError:
+    SHARED_INTERACTION_ANALYSIS_AVAILABLE = False
+    print("[Handler] Warning: shared.interaction_analysis not available")
+
 # Import Rosetta utilities for structure refinement
 from rosetta_utils import (
     fastrelax_with_ligand,
@@ -87,6 +103,48 @@ from hotspot_detection import (
     filter_wrap_around_designs,
     format_hotspots_for_rfd3,
 )
+
+# ============== Ligand H-bond Presets ==============
+
+# Azobenzene RDKit atom naming (canonical)
+AZOBENZENE_ATOMS = {
+    "ring1": ["C1", "C2", "C3", "C4", "C13", "C14"],
+    "ring2": ["C7", "C8", "C9", "C10", "C11", "C12"],
+    "azo": ["N5", "N6"],  # H-bond acceptor sites (sp2 nitrogen)
+}
+
+# H-bond presets for common ligands
+LIGAND_HBOND_PRESETS = {
+    "azobenzene": {
+        "acceptors": {"UNL": "N5,N6"},  # Azo nitrogens are sp2 acceptors
+        "donors": {},
+    },
+    "atp": {
+        "acceptors": {"UNL": "O1A,O2A,O3A,O1B,O2B,O3B,O1G,O2G,O3G"},
+        "donors": {"UNL": "N6"},
+    },
+    "nad": {
+        "acceptors": {"UNL": "N1A,N3A,N7A,N1N,N7N"},
+        "donors": {"UNL": "N6A,NC2"},
+    },
+}
+
+
+def get_ligand_hbond_preset(ligand_smiles: str) -> Dict[str, Dict[str, str]]:
+    """
+    Auto-detect H-bond preset from SMILES.
+
+    Returns:
+        Dict with 'acceptors' and 'donors' keys for H-bond conditioning.
+    """
+    if not ligand_smiles:
+        return {}
+    if "N=N" in ligand_smiles:
+        return LIGAND_HBOND_PRESETS["azobenzene"]
+    if "OP(O)(=O)" in ligand_smiles or "OP(=O)" in ligand_smiles:
+        return LIGAND_HBOND_PRESETS.get("atp", {})
+    return {}
+
 
 # ============== Configuration ==============
 
@@ -223,10 +281,13 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Hotspot detection for binder design
         elif task == "detect_hotspots":
             return handle_detect_hotspots(job_input)
+        # Interaction analysis (PLIP or distance-based)
+        elif task == "interaction_analysis":
+            return handle_interaction_analysis(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, fastrelax, protein_binder_design, detect_hotspots, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -418,22 +479,45 @@ def handle_rf3(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def handle_mpnn(job_input: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle MPNN sequence design request.
+    """Handle MPNN sequence design request with full LigandMPNN capabilities.
 
     For ligand-aware design:
     - Include HETATM records in pdb_content
     - Use model_type='ligand_mpnn' (default)
     - Optionally fix binding site residues with fixed_positions
+
+    Advanced LigandMPNN parameters (Nature Methods 2025):
+    - pack_side_chains: Enable sidechain packing (generates chi angles)
+    - pack_with_ligand_context: Include ligand atoms when packing sidechains
+    - number_of_packs_per_design: Number of sidechain packing samples per sequence
+    - bias_AA: Global amino acid biases (e.g., "W:3.0,Y:2.0,C:-5.0")
+    - omit_AA: Amino acids to completely omit (e.g., "C" to avoid cysteines)
+    - model_noise_level: Model noise level (005=low, 010=default, 020, 030=high)
+    - ligand_cutoff_for_score: Distance cutoff for ligand-adjacent residues (Angstroms)
+    - use_side_chain_context: Use fixed residue sidechains as additional context
+    - save_stats: Return confidence metrics (ligand_confidence, overall_confidence)
     """
     pdb_content = job_input.get("pdb_content")
     if not pdb_content:
         return {"status": "failed", "error": "Missing 'pdb_content' parameter"}
 
+    # Basic parameters
     num_sequences = job_input.get("num_sequences", 8)
     temperature = job_input.get("temperature", 0.1)
     model_type = job_input.get("model_type", "ligand_mpnn")
     remove_waters = job_input.get("remove_waters", True)
     fixed_positions = job_input.get("fixed_positions")  # e.g., ["A35", "A36", "B35"]
+
+    # Advanced LigandMPNN parameters
+    pack_side_chains = job_input.get("pack_side_chains", False)
+    pack_with_ligand_context = job_input.get("pack_with_ligand_context", True)
+    number_of_packs_per_design = job_input.get("number_of_packs_per_design", 4)
+    bias_AA = job_input.get("bias_AA")  # e.g., "W:3.0,Y:2.0,C:-5.0"
+    omit_AA = job_input.get("omit_AA")  # e.g., "C"
+    model_noise_level = job_input.get("model_noise_level", "010")  # 005, 010, 020, 030
+    ligand_cutoff_for_score = job_input.get("ligand_cutoff_for_score", 8.0)
+    use_side_chain_context = job_input.get("use_side_chain_context", False)
+    save_stats = job_input.get("save_stats", False)
 
     result = run_mpnn_inference(
         pdb_content=pdb_content,
@@ -442,10 +526,120 @@ def handle_mpnn(job_input: Dict[str, Any]) -> Dict[str, Any]:
         model_type=model_type,
         remove_waters=remove_waters,
         fixed_positions=fixed_positions,
-        use_mock=not FOUNDRY_AVAILABLE
+        use_mock=not FOUNDRY_AVAILABLE,
+        # Advanced LigandMPNN parameters
+        pack_side_chains=pack_side_chains,
+        pack_with_ligand_context=pack_with_ligand_context,
+        number_of_packs_per_design=number_of_packs_per_design,
+        bias_AA=bias_AA,
+        omit_AA=omit_AA,
+        model_noise_level=model_noise_level,
+        ligand_cutoff_for_score=ligand_cutoff_for_score,
+        use_side_chain_context=use_side_chain_context,
+        save_stats=save_stats,
     )
 
     return result
+
+
+def run_ligandmpnn_for_ligand_binding(
+    pdb_content: str,
+    ligand_type: str = "small_molecule",
+    num_sequences: int = 4,
+    temperature: float = 0.1,
+) -> Dict[str, Any]:
+    """
+    Run LigandMPNN with optimized settings for ligand binding design.
+
+    This helper function provides preset configurations based on the Nature Methods
+    2025 paper recommendations for different ligand types.
+
+    Args:
+        pdb_content: PDB content with ligand (HETATM records)
+        ligand_type: One of "small_molecule", "metal", "nucleotide", or "protein"
+        num_sequences: Number of sequences to generate (default: 4)
+        temperature: Sampling temperature (default: 0.1)
+
+    Returns:
+        MPNN result with sequences and optional confidence metrics
+
+    Example usage in heterodimer design:
+        mpnn_result = run_ligandmpnn_for_ligand_binding(
+            pdb_content=design["pdb_content"],
+            ligand_type="small_molecule",
+            num_sequences=4,
+        )
+    """
+    # Preset configurations by ligand type (from Nature Methods 2025)
+    presets = {
+        "small_molecule": {
+            # For azobenzene, drugs, small organic molecules
+            "bias_AA": "W:2.0,Y:2.0,F:1.5,H:1.0",  # Favor aromatic residues
+            "omit_AA": "C",  # Avoid cysteines
+            "ligand_cutoff_for_score": 6.0,  # Tighter for small molecules
+            "model_noise_level": "010",  # Default noise
+            "pack_side_chains": True,
+            "pack_with_ligand_context": True,
+            "number_of_packs_per_design": 4,
+            "save_stats": True,
+        },
+        "metal": {
+            # For zinc, calcium, iron, magnesium binding
+            "bias_AA": "H:3.0,C:3.0,D:2.0,E:2.0",  # Metal-coordinating residues
+            "omit_AA": None,  # Allow cysteine for metal coordination
+            "ligand_cutoff_for_score": 4.0,  # Very tight for metals
+            "model_noise_level": "005",  # High accuracy for metals
+            "pack_side_chains": True,
+            "pack_with_ligand_context": True,
+            "number_of_packs_per_design": 4,
+            "save_stats": True,
+        },
+        "nucleotide": {
+            # For DNA, RNA, ATP binding
+            "bias_AA": "R:2.0,K:2.0,N:1.5,Q:1.5",  # DNA-binding residues
+            "omit_AA": "C",
+            "ligand_cutoff_for_score": 8.0,  # Larger cutoff for nucleotides
+            "model_noise_level": "010",
+            "pack_side_chains": True,
+            "pack_with_ligand_context": True,
+            "number_of_packs_per_design": 4,
+            "save_stats": True,
+        },
+        "protein": {
+            # For protein-protein interfaces (no ligand)
+            "bias_AA": None,
+            "omit_AA": "C",
+            "ligand_cutoff_for_score": 8.0,
+            "model_noise_level": "020",  # More robust for interfaces
+            "pack_side_chains": False,  # Less critical for PPI
+            "pack_with_ligand_context": False,
+            "number_of_packs_per_design": 1,
+            "save_stats": False,
+        },
+    }
+
+    preset = presets.get(ligand_type, presets["small_molecule"])
+
+    mpnn_input = {
+        "pdb_content": pdb_content,
+        "num_sequences": num_sequences,
+        "temperature": temperature,
+        "model_type": "ligand_mpnn",
+        "remove_waters": True,
+        # Apply preset
+        "bias_AA": preset["bias_AA"],
+        "omit_AA": preset["omit_AA"],
+        "ligand_cutoff_for_score": preset["ligand_cutoff_for_score"],
+        "model_noise_level": preset["model_noise_level"],
+        "pack_side_chains": preset["pack_side_chains"],
+        "pack_with_ligand_context": preset["pack_with_ligand_context"],
+        "number_of_packs_per_design": preset["number_of_packs_per_design"],
+        "save_stats": preset["save_stats"],
+    }
+
+    print(f"[LigandMPNN] Running with {ligand_type} preset: bias_AA={preset['bias_AA']}, cutoff={preset['ligand_cutoff_for_score']}Å")
+
+    return handle_mpnn(mpnn_input)
 
 
 def handle_rmsd(job_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -789,6 +983,118 @@ def handle_detect_hotspots(job_input: Dict[str, Any]) -> Dict[str, Any]:
         print(f"[DetectHotspots] Detection failed: {result.get('error', 'Unknown error')}")
 
     return to_python_types(result)
+
+
+# ============== Interaction Analysis Handler ==============
+
+def handle_interaction_analysis(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze protein-ligand interactions using PLIP or distance-based methods.
+
+    Detects multiple interaction types:
+    - Hydrogen bonds (with D-H-A angle validation if PLIP available)
+    - Hydrophobic contacts
+    - Pi-stacking (face-to-face and edge-to-face)
+    - Salt bridges
+    - Halogen bonds
+
+    Input:
+        pdb_content: str (required) - PDB content with protein and ligand
+        ligand_name: str (default: "UNL") - Ligand residue name
+        include_visualization: bool (default: True) - Include visualization data
+        include_recommendations: bool (default: True) - Include binding recommendations
+        ligand_has_aromatics: bool (default: False) - For pi-stacking recommendations
+
+    Returns:
+        {
+            "status": "completed",
+            "interactions": {
+                "hbonds": int,
+                "hydrophobic": int,
+                "pi_stacking": int,
+                "salt_bridges": int,
+                "total": int
+            },
+            "key_residues": ["A:GLN40", "A:PHE21", ...],
+            "details": {
+                "hydrogen_bonds": [...],
+                "hydrophobic_contacts": [...],
+                "pi_stacking": [...],
+                "salt_bridges": [...]
+            },
+            "recommendations": [...],
+            "ai_summary": str,
+            "analysis_method": "plip" | "distance_based"
+        }
+    """
+    pdb_content = job_input.get("pdb_content")
+    if not pdb_content:
+        return {"status": "error", "error": "Missing 'pdb_content' parameter"}
+
+    ligand_name = job_input.get("ligand_name", "UNL")
+    include_visualization = job_input.get("include_visualization", True)
+    include_recommendations = job_input.get("include_recommendations", True)
+    ligand_has_aromatics = job_input.get("ligand_has_aromatics", False)
+
+    print(f"[InteractionAnalysis] Analyzing interactions with ligand {ligand_name}")
+
+    if not SHARED_INTERACTION_ANALYSIS_AVAILABLE:
+        return {
+            "status": "error",
+            "error": "Interaction analysis module not available"
+        }
+
+    try:
+        # Run comprehensive interaction analysis
+        summary = analyze_all_interactions(
+            pdb_content=pdb_content,
+            ligand_name=ligand_name,
+            include_visualization_data=include_visualization,
+        )
+
+        if summary.status == "error":
+            return {
+                "status": "error",
+                "error": f"Analysis failed: {summary.error}"
+            }
+
+        # Format for frontend
+        frontend_data = format_for_frontend(summary)
+
+        result = {
+            "status": "completed",
+            "interactions": frontend_data["interactions"],
+            "key_residues": summary.key_residues,
+            "details": frontend_data.get("details", {}),
+            "analysis_method": summary.analysis_method,
+        }
+
+        # Add visualization data if requested
+        if include_visualization and frontend_data.get("visualization"):
+            result["visualization"] = frontend_data["visualization"]
+
+        # Add recommendations if requested
+        if include_recommendations:
+            result["recommendations"] = generate_recommendations(
+                summary,
+                ligand_has_aromatics=ligand_has_aromatics
+            )
+
+        # Add AI-friendly summary
+        result["ai_summary"] = format_for_ai_assistant(summary)
+
+        print(f"[InteractionAnalysis] Found {frontend_data['interactions']['total']} total interactions")
+        print(f"[InteractionAnalysis] Key residues: {summary.key_residues[:5]}...")
+
+        return to_python_types(result)
+
+    except Exception as e:
+        print(f"[InteractionAnalysis] Error: {e}")
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "error": f"Interaction analysis failed: {str(e)}"
+        }
 
 
 # ============== Protein Binder Design Handler ==============
@@ -2239,10 +2545,17 @@ def handle_interface_ligand_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return _design_full_dimer(job_input)
     elif approach == "symmetric":
         return _design_symmetric_dimer(job_input)
+    # New heterodimer approaches (anti-homodimerization)
+    elif approach == "joint":
+        return _design_joint_heterodimer(job_input)
+    elif approach == "asymmetric_rasa":
+        return _design_asymmetric_rasa_heterodimer(job_input)
+    elif approach == "induced":
+        return _design_induced_heterodimer(job_input)
     else:
         return {
             "status": "failed",
-            "error": f"Unknown approach: {approach}. Valid: asymmetric, sequential, full, symmetric"
+            "error": f"Unknown approach: {approach}. Valid: asymmetric, sequential, full, symmetric, joint, asymmetric_rasa, induced"
         }
 
 
@@ -3032,6 +3345,162 @@ def _should_flip_chain_b(chain_a_pdb: str, chain_b_pdb: str, ligand_pdb: str) ->
     return dot_yz > 0  # Same side if positive
 
 
+def _count_chain_residues(pdb_content: str, chain_id: str) -> int:
+    """
+    Count the number of residues in a specific chain.
+
+    Args:
+        pdb_content: PDB file content as string
+        chain_id: Chain identifier (e.g., "A", "B")
+
+    Returns:
+        Number of unique residues in the chain
+    """
+    residues = set()
+    for line in pdb_content.split("\n"):
+        if line.startswith("ATOM") and len(line) > 26:
+            if line[21] == chain_id:
+                res_num = line[22:26].strip()
+                residues.add(res_num)
+    return len(residues)
+
+
+def _align_chain_to_interface(
+    chain_b_pdb: str,
+    chain_a_pdb: str,
+    ligand_pdb: str,
+    target_radius: float = None
+) -> str:
+    """
+    Align Chain B to form a proper interface with Chain A around the ligand.
+
+    The problem with independent chain design:
+    - Chain A wraps around ligand at radius R_a (typically ~4-8 Angstrom)
+    - Chain B wraps around ligand at radius R_b (can be 20-30 Angstrom!)
+    - Both ligands are at origin, so Kabsch alignment does nothing
+
+    This function:
+    1. Calculates Chain A's position vector from ligand (direction and radius)
+    2. Calculates where Chain B should be: OPPOSITE direction, SAME radius
+    3. Translates Chain B to that target position
+
+    Args:
+        chain_b_pdb: PDB content of Chain B (protein only)
+        chain_a_pdb: PDB content of Chain A (protein only)
+        ligand_pdb: Ligand PDB content
+        target_radius: Optional target radius; if None, uses Chain A's radius
+
+    Returns:
+        Transformed Chain B PDB aligned to form interface
+    """
+    import numpy as np
+
+    def extract_coords(pdb_content: str) -> np.ndarray:
+        """Extract all atom coordinates from PDB."""
+        coords = []
+        for line in pdb_content.split("\n"):
+            if line.startswith("ATOM") or line.startswith("HETATM"):
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    coords.append([x, y, z])
+                except (ValueError, IndexError):
+                    continue
+        return np.array(coords) if coords else np.array([]).reshape(0, 3)
+
+    def apply_translation(pdb_content: str, translation: np.ndarray) -> str:
+        """Apply translation to all atoms in PDB."""
+        lines = []
+        for line in pdb_content.split("\n"):
+            if line.startswith("ATOM") or line.startswith("HETATM"):
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+
+                    # Apply translation
+                    new_x = x + translation[0]
+                    new_y = y + translation[1]
+                    new_z = z + translation[2]
+
+                    # Format new coordinates
+                    new_line = (
+                        line[:30] +
+                        f"{new_x:8.3f}" +
+                        f"{new_y:8.3f}" +
+                        f"{new_z:8.3f}" +
+                        line[54:]
+                    )
+                    lines.append(new_line)
+                except (ValueError, IndexError):
+                    lines.append(line)
+            else:
+                lines.append(line)
+        return "\n".join(lines)
+
+    # Extract coordinates
+    coords_a = extract_coords(chain_a_pdb)
+    coords_b = extract_coords(chain_b_pdb)
+    coords_ligand = extract_coords(ligand_pdb)
+
+    if len(coords_a) == 0 or len(coords_b) == 0 or len(coords_ligand) == 0:
+        print("[AlignInterface] Warning: Could not extract coordinates")
+        return chain_b_pdb
+
+    # Calculate centroids
+    centroid_a = np.mean(coords_a, axis=0)
+    centroid_b = np.mean(coords_b, axis=0)
+    centroid_ligand = np.mean(coords_ligand, axis=0)
+
+    # Vector from ligand to Chain A
+    vec_ligand_to_a = centroid_a - centroid_ligand
+    radius_a = np.linalg.norm(vec_ligand_to_a)
+
+    # Current position of Chain B relative to ligand
+    vec_ligand_to_b = centroid_b - centroid_ligand
+    radius_b = np.linalg.norm(vec_ligand_to_b)
+
+    print(f"[AlignInterface] Chain A radius: {radius_a:.1f}A, Chain B radius: {radius_b:.1f}A")
+
+    # Determine target radius (use Chain A's radius or provided value)
+    if target_radius is None:
+        target_radius = radius_a
+
+    # Target position for Chain B: OPPOSITE direction from Chain A, at target radius
+    if radius_a > 0.1:
+        direction_a = vec_ligand_to_a / radius_a
+        # Opposite direction
+        direction_b_target = -direction_a
+        # Target position
+        target_position = centroid_ligand + direction_b_target * target_radius
+    else:
+        # Chain A is too close to ligand, use default offset
+        print("[AlignInterface] Warning: Chain A too close to ligand, using default offset")
+        target_position = centroid_ligand + np.array([-15.0, 0.0, 0.0])
+
+    # Translation needed
+    translation = target_position - centroid_b
+
+    print(f"[AlignInterface] Translating Chain B by ({translation[0]:.1f}, {translation[1]:.1f}, {translation[2]:.1f})")
+    print(f"[AlignInterface] Chain B will be at radius {target_radius:.1f}A on opposite side")
+
+    # Apply translation
+    transformed_b = apply_translation(chain_b_pdb, translation)
+
+    return transformed_b
+
+
+def _superimpose_by_ligand(chain_b_pdb: str, ligand_b_pdb: str, ligand_a_pdb: str) -> str:
+    """
+    DEPRECATED: Use _align_chain_to_interface instead.
+
+    This function doesn't work when both ligands are at the same position (origin).
+    """
+    print("[SuperimposeLigand] WARNING: This function is deprecated. Use _align_chain_to_interface.")
+    return chain_b_pdb
+
+
 def _translate_chain_to_opposite_side(
     chain_b_pdb: str, chain_a_pdb: str, ligand_pdb: str
 ) -> str:
@@ -3501,6 +3970,799 @@ def _combine_chains_to_dimer(chain_a_pdb: str, chain_b_pdb: str) -> str:
 
     result_lines.append("END")
     return "\n".join(result_lines)
+
+
+# ============== Heterodimer Design Approaches (Anti-Homodimerization) ==============
+
+def _design_joint_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design a TRUE heterodimer by designing BOTH chains simultaneously using RFD3's
+    native multi-chain capability with chain breaks.
+
+    Approach 5: Joint Multi-Chain Diffusion
+    - Uses contig syntax "60-100,/0,60-100" to design two independent chains
+    - Both chains co-evolve around the ligand during diffusion
+    - Different hotspots per chain enforce asymmetric binding
+    - Results in chains that cannot homodimerize (only A+B can form dimer)
+
+    This is the recommended approach for true heterodimer design.
+    """
+    ligand_smiles = job_input.get("ligand_smiles")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # Parse chain length range
+    if "-" in str(chain_length):
+        min_len, max_len = map(int, str(chain_length).split("-"))
+    else:
+        min_len = max_len = int(chain_length)
+
+    # Build contig with chain break: "min-max,/0,min-max"
+    contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+    print(f"[JointHeterodimer] Designing with contig={contig}")
+    print(f"[JointHeterodimer] Ligand: {ligand_smiles[:30]}...")
+
+    # Determine atoms for asymmetric binding based on ligand
+    # For cis-azobenzene, use different phenyl rings for each chain
+    # RDKit naming: C1-C4 + C13-C14 (first ring), C7-C12 (second ring), N5-N6 (azo)
+    is_azobenzene = "N=N" in (ligand_smiles or "")
+
+    # Allow user to control H-bond vs hydrophobic balance
+    # Options: "hydrophobic" (default), "balanced", "hbond_focused"
+    binding_mode = job_input.get("binding_mode", "balanced")
+
+    if is_azobenzene:
+        # Chain A binds Ring 1, Chain B binds Ring 2
+        hotspots_a = "C1,C2,C3,C4"  # First phenyl ring carbons
+        hotspots_b = "C7,C8,C9,C10,C11,C12"  # Second phenyl ring carbons
+
+        if binding_mode == "hydrophobic":
+            # Full hydrophobic burial - best affinity, no H-bond specificity
+            burial_atoms = "C1,C2,C3,C4,C7,C8,C9,C10,C11,C12,N5,N6"
+            partial_burial_atoms = ""
+            use_hbond_conditioning = False
+        elif binding_mode == "hbond_focused":
+            # H-bond focused - prioritize H-bonds over hydrophobic contacts
+            burial_atoms = "C4,C7"  # Only interface carbons
+            partial_burial_atoms = ""
+            use_hbond_conditioning = True
+        else:  # "balanced" (default)
+            # Balance: phenyl rings buried, azo at interface for potential H-bonds
+            burial_atoms = "C1,C2,C3,C4,C7,C8,C9,C10,C11,C12"  # Phenyl carbons buried
+            partial_burial_atoms = "N5,N6"  # Azo at interface (can form H-bonds)
+            use_hbond_conditioning = True
+
+        print(f"[JointHeterodimer] Binding mode: {binding_mode}")
+    else:
+        hotspots_a = ""
+        hotspots_b = ""
+        burial_atoms = ""
+        partial_burial_atoms = ""
+        use_hbond_conditioning = False
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[JointHeterodimer] Generating design {design_idx + 1}/{num_designs}...")
+
+        # Build RFD3 config for joint heterodimer design
+        # Note: This uses the native multi-chain capability of RFD3
+        rfd3_input = {
+            "task": "rfd3",
+            "contig": contig,
+            "ligand_smiles": ligand_smiles,
+            "seed": design_seed,
+            "num_designs": 1,
+            "is_non_loopy": True,  # Prefer helical structures for interfaces
+        }
+
+        # Add burial constraints based on binding mode
+        if burial_atoms:
+            rfd3_input["select_buried"] = {"UNL": burial_atoms}
+
+        # Partial burial for azo nitrogens (at interface, accessible for H-bonds)
+        if partial_burial_atoms:
+            rfd3_input["select_partially_buried"] = {"UNL": partial_burial_atoms}
+
+        # Add H-bond conditioning (conditional based on binding mode)
+        if use_hbond_conditioning and is_azobenzene:
+            rfd3_input["select_hbond_acceptor"] = {"UNL": "N5,N6"}
+            print(f"[JointHeterodimer] H-bond conditioning: select_hbond_acceptor=N5,N6")
+
+        # Run RFD3 with multi-chain contig
+        result = handle_rfd3(rfd3_input)
+
+        if result.get("status") != "completed":
+            print(f"[JointHeterodimer] Design {design_idx + 1} failed: {result.get('error')}")
+            continue
+
+        result_designs = result.get("result", {}).get("designs", [])
+        if not result_designs:
+            print(f"[JointHeterodimer] Design {design_idx + 1} produced no designs")
+            continue
+
+        pdb_content = result_designs[0].get("content") or result_designs[0].get("pdb_content")
+        if not pdb_content:
+            print(f"[JointHeterodimer] Design {design_idx + 1}: No PDB content")
+            continue
+
+        # Validate the heterodimer
+        validation = validate_cleaved_dimer(
+            pdb_content=pdb_content,
+            ligand_name="UNL",
+            ligand_smiles=ligand_smiles,
+            min_contacts_per_chain=2,
+        )
+
+        checks = validation.get("checks", {})
+        gnina_result = checks.get("gnina_result", {}).get("result", {})
+        affinity = gnina_result.get("best_affinity")
+
+        # Calculate sequence identity between chains
+        seq_identity = calculate_sequence_identity(pdb_content, "A", "B")
+        identity_pct = seq_identity.get("sequence_identity_percent", 100)
+
+        # Score homodimerization potential
+        homo_score = score_homodimerization(
+            pdb_content=pdb_content,
+            ligand_smiles=ligand_smiles,
+            ligand_name="UNL",
+        )
+
+        design_entry = {
+            "pdb_content": pdb_content,
+            "design_index": design_idx,
+            "validation": validation,
+            "metrics": {
+                "affinity": affinity,
+                "contacts_a": checks.get("contacts_a", 0),
+                "contacts_b": checks.get("contacts_b", 0),
+                "has_clashes": checks.get("clash_check", {}).get("has_clashes", False),
+                "separable": checks.get("separable", True),
+                "sequence_identity": identity_pct,
+                "is_heterodimer": identity_pct < 70,
+            },
+            "anti_homodimerization": homo_score,
+        }
+
+        # Score: prioritize heterodimer properties
+        score = 0
+        if affinity is not None and affinity < 0:
+            score += -affinity * 5  # Better affinity
+        if identity_pct < 70:
+            score += 20  # True heterodimer
+        if homo_score.get("passes_anti_homodimerization", False):
+            score += 30  # Anti-homo validated
+        if not design_entry["metrics"]["has_clashes"]:
+            score += 10
+
+        # H-bond bonus scoring for azobenzene N5/N6
+        n5_hbonds = checks.get("n5_hbonds", 0)
+        n6_hbonds = checks.get("n6_hbonds", 0)
+        total_ligand_hbonds = checks.get("total_ligand_hbonds", 0)
+        if n5_hbonds >= 1:
+            score += 10  # N5 has at least one H-bond
+        if n6_hbonds >= 1:
+            score += 10  # N6 has at least one H-bond
+        if n5_hbonds >= 1 and n6_hbonds >= 1:
+            score += 5  # Both azo nitrogens have H-bonds (extra bonus)
+
+        # Add H-bond metrics to design entry
+        design_entry["metrics"]["n5_hbonds"] = n5_hbonds
+        design_entry["metrics"]["n6_hbonds"] = n6_hbonds
+        design_entry["metrics"]["total_ligand_hbonds"] = total_ligand_hbonds
+
+        # Add comprehensive interaction analysis (from validation or compute fresh)
+        if validation.get("interactions"):
+            design_entry["interactions"] = validation["interactions"]
+            design_entry["key_binding_residues"] = validation.get("key_binding_residues", [])
+            design_entry["recommendations"] = validation.get("recommendations", [])
+            design_entry["interaction_summary"] = checks.get("interaction_summary", {})
+        elif SHARED_INTERACTION_ANALYSIS_AVAILABLE:
+            try:
+                interaction_result = analyze_all_interactions(pdb_content, "UNL")
+                design_entry["interactions"] = format_for_frontend(interaction_result)
+                design_entry["key_binding_residues"] = interaction_result.key_residues
+                design_entry["recommendations"] = generate_recommendations(
+                    interaction_result, ligand_has_aromatics=is_azobenzene
+                )
+                design_entry["interaction_summary"] = {
+                    "hydrogen_bonds": len(interaction_result.hydrogen_bonds),
+                    "hydrophobic_contacts": len(interaction_result.hydrophobic_contacts),
+                    "pi_stacking": len(interaction_result.pi_stacking),
+                    "salt_bridges": len(interaction_result.salt_bridges),
+                    "total": interaction_result.total_contacts,
+                }
+            except Exception as e:
+                print(f"[JointHeterodimer] Interaction analysis failed: {e}")
+
+        design_entry["score"] = score
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        print(f"[JointHeterodimer] Design {design_idx + 1}: affinity={affinity}, identity={identity_pct:.1f}%, anti_homo={homo_score.get('passes_anti_homodimerization', False)}")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid joint heterodimer designs produced",
+            "suggestions": [
+                "Try different chain lengths",
+                "Increase num_designs",
+                "Check if ligand SMILES is valid"
+            ]
+        }
+
+    return {
+        "status": "completed",
+        "result": {
+            "approach": "joint",
+            "designs": designs,
+            "best_design": best_design_idx,
+            "contig": contig,
+            "dimer": {
+                "pdb_content": designs[best_design_idx]["pdb_content"],
+                "metrics": designs[best_design_idx]["metrics"],
+                "anti_homodimerization": designs[best_design_idx].get("anti_homodimerization"),
+            }
+        }
+    }
+
+
+def _design_asymmetric_rasa_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design a heterodimer using Asymmetric RASA (Relative Accessible Surface Area)
+    conditioning for each chain.
+
+    Approach 7: Asymmetric RASA + Hotspot Differentiation
+    - Chain A buries one part of ligand, exposes the other
+    - Chain B buries the opposite part, exposes what A buried
+    - Results in complementary binding modes that prevent homodimerization
+
+    This builds on the existing asymmetric approach but enforces different
+    burial/exposure for each chain explicitly.
+    """
+    ligand_smiles = job_input.get("ligand_smiles")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    print(f"[AsymmetricRASA] Starting heterodimer design with complementary RASA...")
+
+    # Allow user to control H-bond vs hydrophobic balance
+    # Options: "hydrophobic", "balanced" (default), "hbond_focused"
+    binding_mode = job_input.get("binding_mode", "balanced")
+
+    # For azobenzene, define complementary RASA constraints
+    # RDKit atom naming for azobenzene "c1ccc(/N=N\\c2ccccc2)cc1":
+    # Ring 1: C1,C2,C3,C4,C13,C14 (first phenyl ring)
+    # Ring 2: C7,C8,C9,C10,C11,C12 (second phenyl ring)
+    # Azo: N5,N6
+    is_azobenzene = "N=N" in (ligand_smiles or "")
+    if is_azobenzene:
+        if binding_mode == "hydrophobic":
+            # Chain A: buries ring 1 + N5, exposes ring 2
+            buried_a = "C1,C2,C3,C4,C13,C14,N5"
+            exposed_a = "C7,C8,C9,C10,C11,C12"
+            # Chain B: buries ring 2 + N6, exposes ring 1
+            buried_b = "C7,C8,C9,C10,C11,C12,N6"
+            exposed_b = "C1,C2,C3,C4,C13,C14"
+            use_hbond_conditioning = False
+        else:  # "balanced" or "hbond_focused"
+            # Chain A: buries ring 1 (carbons only), exposes ring 2
+            buried_a = "C1,C2,C3,C4,C13,C14"
+            exposed_a = "C7,C8,C9,C10,C11,C12"
+            # Chain B: buries ring 2 (carbons only), exposes ring 1
+            buried_b = "C7,C8,C9,C10,C11,C12"
+            exposed_b = "C1,C2,C3,C4,C13,C14"
+            use_hbond_conditioning = True
+
+        print(f"[AsymmetricRASA] Binding mode: {binding_mode}")
+    else:
+        buried_a = ""
+        exposed_a = ""
+        buried_b = ""
+        exposed_b = ""
+        use_hbond_conditioning = False
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[AsymmetricRASA] Generating design {design_idx + 1}/{num_designs}...")
+
+        # Step 1: Design Chain A with RASA constraints
+        chain_a_input = {
+            "task": "rfd3",
+            "length": chain_length,
+            "ligand_smiles": ligand_smiles,
+            "seed": design_seed,
+            "num_designs": 1,
+            "is_non_loopy": True,
+        }
+        if buried_a:
+            chain_a_input["select_buried"] = {"UNL": buried_a}
+        if exposed_a:
+            chain_a_input["select_exposed"] = {"UNL": exposed_a}
+
+        # H-bond conditioning: Chain A targets N5 (first azo nitrogen)
+        if use_hbond_conditioning and is_azobenzene:
+            chain_a_input["select_hbond_acceptor"] = {"UNL": "N5"}
+            print(f"[AsymmetricRASA] Chain A H-bond conditioning: select_hbond_acceptor=N5")
+
+        result_a = handle_rfd3(chain_a_input)
+        if result_a.get("status") != "completed":
+            print(f"[AsymmetricRASA] Chain A design failed: {result_a.get('error')}")
+            continue
+
+        designs_a = result_a.get("result", {}).get("designs", [])
+        if not designs_a:
+            continue
+        pdb_a = designs_a[0].get("content") or designs_a[0].get("pdb_content")
+        if not pdb_a:
+            continue
+
+        # Extract ligand from Chain A output
+        ligand_a_pdb = _extract_ligand_pdb(pdb_a, "UNL")
+
+        # Step 2: Design Chain B WITH Chain A + ligand as context (FIXED!)
+        # Previous approach designed Chain B independently with its own ligand copy,
+        # resulting in spatial mismatch. Now we design Chain B in Chain A's coordinate frame.
+        #
+        # RFD3 Context Protein Feature:
+        # - Provide Chain A + ligand as pdb_content (input context)
+        # - Use contig "A1-{len},/0,{min}-{max}" to fix Chain A and design Chain B
+        # - Chain B naturally designs around the SAME ligand in the SAME coordinate frame
+
+        chain_a_len = _count_chain_residues(pdb_a, "A")
+        min_len, max_len = 50, 70  # Default range
+        if "-" in chain_length:
+            parts = chain_length.split("-")
+            min_len, max_len = int(parts[0]), int(parts[1])
+        else:
+            min_len = max_len = int(chain_length)
+
+        # Contig: fix Chain A residues 1-N, chain break, design new chain with length range
+        context_contig = f"A1-{chain_a_len},/0,{min_len}-{max_len}"
+        print(f"[AsymmetricRASA] Designing Chain B with context contig: {context_contig}")
+
+        chain_b_input = {
+            "task": "rfd3",
+            "pdb_content": pdb_a,        # Chain A + ligand as INPUT CONTEXT
+            "contig": context_contig,     # Fix A, design new chain B
+            "ligand": "UNL",              # Use existing ligand from Chain A PDB
+            "seed": design_seed + 1000 if design_seed else None,
+            "num_designs": 1,
+            "is_non_loopy": True,
+            # Center the design on the ligand to guide Chain B toward it
+            "ori_token": [0.0, 0.0, 0.0],
+        }
+        if buried_b:
+            chain_b_input["select_buried"] = {"UNL": buried_b}
+        if exposed_b:
+            chain_b_input["select_exposed"] = {"UNL": exposed_b}
+
+        # H-bond conditioning: Chain B targets N6 (second azo nitrogen)
+        if use_hbond_conditioning and is_azobenzene:
+            chain_b_input["select_hbond_acceptor"] = {"UNL": "N6"}
+            print(f"[AsymmetricRASA] Chain B H-bond conditioning: select_hbond_acceptor=N6")
+
+        result_b = handle_rfd3(chain_b_input)
+        if result_b.get("status") != "completed":
+            print(f"[AsymmetricRASA] Chain B design failed: {result_b.get('error')}")
+            continue
+
+        designs_b = result_b.get("result", {}).get("designs", [])
+        if not designs_b:
+            continue
+        pdb_b = designs_b[0].get("content") or designs_b[0].get("pdb_content")
+        if not pdb_b:
+            continue
+
+        # Step 3: Extract and relabel chains from the context-aware output
+        # The output from RFD3 context design already has both chains in the same coordinate frame!
+        # Chain A is preserved from input, Chain B is the newly designed chain
+        chain_a_protein = _relabel_chain(_extract_protein_pdb(pdb_b, "A"), "A")
+        chain_b_protein = _relabel_chain(_extract_protein_pdb(pdb_b, "B"), "B")
+
+        # No translation needed! Chain B was designed in Chain A's coordinate frame
+        print(f"[AsymmetricRASA] Chain B designed in context - no translation needed")
+
+        # Combine into final dimer (ligand is already in the output)
+        dimer_pdb = _combine_chains(chain_a_protein, chain_b_protein, ligand_a_pdb)
+
+        # Validate
+        validation = validate_cleaved_dimer(
+            pdb_content=dimer_pdb,
+            ligand_name="UNL",
+            ligand_smiles=ligand_smiles,
+            min_contacts_per_chain=2,
+        )
+
+        checks = validation.get("checks", {})
+        gnina_result = checks.get("gnina_result", {}).get("result", {})
+        affinity = gnina_result.get("best_affinity")
+
+        seq_identity = calculate_sequence_identity(dimer_pdb, "A", "B")
+        identity_pct = seq_identity.get("sequence_identity_percent", 100)
+
+        homo_score = score_homodimerization(
+            pdb_content=dimer_pdb,
+            ligand_smiles=ligand_smiles,
+            ligand_name="UNL",
+        )
+
+        design_entry = {
+            "pdb_content": dimer_pdb,
+            "design_index": design_idx,
+            "validation": validation,
+            "metrics": {
+                "affinity": affinity,
+                "contacts_a": checks.get("contacts_a", 0),
+                "contacts_b": checks.get("contacts_b", 0),
+                "has_clashes": checks.get("clash_check", {}).get("has_clashes", False),
+                "separable": True,
+                "sequence_identity": identity_pct,
+                "is_heterodimer": identity_pct < 70,
+                "rasa_a": {"buried": buried_a, "exposed": exposed_a},
+                "rasa_b": {"buried": buried_b, "exposed": exposed_b},
+            },
+            "anti_homodimerization": homo_score,
+        }
+
+        score = 0
+        if affinity is not None and affinity < 0:
+            score += -affinity * 5
+        if identity_pct < 70:
+            score += 20
+        if homo_score.get("passes_anti_homodimerization", False):
+            score += 30
+        if not design_entry["metrics"]["has_clashes"]:
+            score += 10
+
+        # H-bond bonus scoring for azobenzene N5/N6
+        n5_hbonds = checks.get("n5_hbonds", 0)
+        n6_hbonds = checks.get("n6_hbonds", 0)
+        total_ligand_hbonds = checks.get("total_ligand_hbonds", 0)
+        if n5_hbonds >= 1:
+            score += 10  # N5 has at least one H-bond
+        if n6_hbonds >= 1:
+            score += 10  # N6 has at least one H-bond
+        if n5_hbonds >= 1 and n6_hbonds >= 1:
+            score += 5  # Both azo nitrogens have H-bonds (extra bonus)
+
+        # Add H-bond metrics to design entry
+        design_entry["metrics"]["n5_hbonds"] = n5_hbonds
+        design_entry["metrics"]["n6_hbonds"] = n6_hbonds
+        design_entry["metrics"]["total_ligand_hbonds"] = total_ligand_hbonds
+
+        # Add comprehensive interaction analysis (from validation or compute fresh)
+        if validation.get("interactions"):
+            design_entry["interactions"] = validation["interactions"]
+            design_entry["key_binding_residues"] = validation.get("key_binding_residues", [])
+            design_entry["recommendations"] = validation.get("recommendations", [])
+            design_entry["interaction_summary"] = checks.get("interaction_summary", {})
+        elif SHARED_INTERACTION_ANALYSIS_AVAILABLE:
+            try:
+                interaction_result = analyze_all_interactions(pdb_content, "UNL")
+                design_entry["interactions"] = format_for_frontend(interaction_result)
+                design_entry["key_binding_residues"] = interaction_result.key_residues
+                design_entry["recommendations"] = generate_recommendations(
+                    interaction_result, ligand_has_aromatics=is_azobenzene
+                )
+                design_entry["interaction_summary"] = {
+                    "hydrogen_bonds": len(interaction_result.hydrogen_bonds),
+                    "hydrophobic_contacts": len(interaction_result.hydrophobic_contacts),
+                    "pi_stacking": len(interaction_result.pi_stacking),
+                    "salt_bridges": len(interaction_result.salt_bridges),
+                    "total": interaction_result.total_contacts,
+                }
+            except Exception as e:
+                print(f"[AsymmetricRASA] Interaction analysis failed: {e}")
+
+        design_entry["score"] = score
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        print(f"[AsymmetricRASA] Design {design_idx + 1}: affinity={affinity}, identity={identity_pct:.1f}%, n5_hbonds={n5_hbonds}, n6_hbonds={n6_hbonds}")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid asymmetric RASA heterodimer designs produced"
+        }
+
+    return {
+        "status": "completed",
+        "result": {
+            "approach": "asymmetric_rasa",
+            "designs": designs,
+            "best_design": best_design_idx,
+            "dimer": {
+                "pdb_content": designs[best_design_idx]["pdb_content"],
+                "metrics": designs[best_design_idx]["metrics"],
+                "anti_homodimerization": designs[best_design_idx].get("anti_homodimerization"),
+            }
+        }
+    }
+
+
+def _design_induced_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design an INDUCED heterodimer where Chain B only binds when ligand is present.
+
+    Approach 8: Induced Dimerization Scaffold
+    - Chain A binds the ligand directly
+    - Chain B binds the NEOSURFACE created by A+ligand complex
+    - Result: A+B only dimerize when ligand is present
+    - Mimics chemically-induced dimerization (CID) systems
+
+    This approach creates the most selective heterodimer where A-A, B-B,
+    and even A+B without ligand don't form stable dimers.
+    """
+    ligand_smiles = job_input.get("ligand_smiles")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # Allow user to control H-bond vs hydrophobic balance
+    # Options: "hydrophobic", "balanced" (default), "hbond_focused"
+    binding_mode = job_input.get("binding_mode", "balanced")
+
+    print(f"[InducedDimer] Starting induced heterodimer design...")
+    print(f"[InducedDimer] Binding mode: {binding_mode}")
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[InducedDimer] Generating design {design_idx + 1}/{num_designs}...")
+
+        # Step 1: Design Chain A as a standard small molecule binder
+        # Chain A should fully encapsulate its side of the ligand
+        chain_a_input = {
+            "task": "rfd3",
+            "length": chain_length,
+            "ligand_smiles": ligand_smiles,
+            "seed": design_seed,
+            "num_designs": 1,
+            "is_non_loopy": True,
+        }
+
+        # For azobenzene, A binds one ring completely
+        # RDKit naming: Ring 1 = C1,C2,C3,C4,C13,C14; Ring 2 = C7-C12; Azo = N5,N6
+        is_azobenzene = "N=N" in (ligand_smiles or "")
+        if is_azobenzene:
+            if binding_mode == "hydrophobic":
+                # Full hydrophobic burial including N5
+                chain_a_input["select_buried"] = {"UNL": "C1,C2,C3,C4,C13,C14,N5"}
+                chain_a_input["select_exposed"] = {"UNL": "C7,C8,C9,C10,C11,C12"}
+            else:  # "balanced" or "hbond_focused"
+                # N5 accessible for H-bonding
+                chain_a_input["select_buried"] = {"UNL": "C1,C2,C3,C4,C13,C14"}
+                chain_a_input["select_exposed"] = {"UNL": "C7,C8,C9,C10,C11,C12"}
+                # H-bond conditioning: Chain A targets N5 (azo nitrogen as H-bond acceptor)
+                chain_a_input["select_hbond_acceptor"] = {"UNL": "N5"}
+                print(f"[InducedDimer] Chain A H-bond conditioning: select_hbond_acceptor=N5")
+
+        result_a = handle_rfd3(chain_a_input)
+        if result_a.get("status") != "completed":
+            print(f"[InducedDimer] Chain A design failed")
+            continue
+
+        designs_a = result_a.get("result", {}).get("designs", [])
+        if not designs_a:
+            continue
+        pdb_a = designs_a[0].get("content") or designs_a[0].get("pdb_content")
+        if not pdb_a:
+            continue
+
+        # Step 2: Extract ligand from Chain A
+        ligand_a_pdb = _extract_ligand_pdb(pdb_a, "UNL")
+
+        # Step 3: Design Chain B WITH Chain A + ligand as context (FIXED!)
+        # Previous approach designed Chain B independently with its own ligand copy,
+        # resulting in spatial mismatch. Now we design Chain B in Chain A's coordinate frame.
+        #
+        # RFD3 Context Protein Feature:
+        # - Provide Chain A + ligand as pdb_content (input context)
+        # - Use contig "A1-{len},/0,{min}-{max}" to fix Chain A and design Chain B
+        # - Chain B naturally designs around the SAME ligand in the SAME coordinate frame
+
+        chain_a_len = _count_chain_residues(pdb_a, "A")
+        min_len, max_len = 50, 70  # Default range
+        if "-" in chain_length:
+            parts = chain_length.split("-")
+            min_len, max_len = int(parts[0]), int(parts[1])
+        else:
+            min_len = max_len = int(chain_length)
+
+        # Contig: fix Chain A residues 1-N, chain break, design new chain with length range
+        context_contig = f"A1-{chain_a_len},/0,{min_len}-{max_len}"
+        print(f"[InducedDimer] Designing Chain B with context contig: {context_contig}")
+
+        chain_b_input = {
+            "task": "rfd3",
+            "pdb_content": pdb_a,        # Chain A + ligand as INPUT CONTEXT
+            "contig": context_contig,     # Fix A, design new chain B
+            "ligand": "UNL",              # Use existing ligand from Chain A PDB
+            "seed": design_seed + 2000 if design_seed else None,
+            "num_designs": 1,
+            "is_non_loopy": True,
+            # Center the design on the ligand to guide Chain B toward it
+            "ori_token": [0.0, 0.0, 0.0],
+        }
+
+        # B binds opposite side of ligand (neosurface targeting)
+        # RDKit naming: Ring 1 = C1,C2,C3,C4,C13,C14; Ring 2 = C7-C12; Azo = N5,N6
+        if is_azobenzene:
+            if binding_mode == "hydrophobic":
+                # Full hydrophobic burial including N6
+                chain_b_input["select_buried"] = {"UNL": "C7,C8,C9,C10,C11,C12,N6"}
+                chain_b_input["select_exposed"] = {"UNL": "C1,C2,C3,C4,C13,C14"}
+            else:  # "balanced" or "hbond_focused"
+                # N6 accessible for H-bonding
+                chain_b_input["select_buried"] = {"UNL": "C7,C8,C9,C10,C11,C12"}
+                chain_b_input["select_exposed"] = {"UNL": "C1,C2,C3,C4,C13,C14"}
+                # H-bond conditioning: Chain B targets N6 (azo nitrogen as H-bond acceptor)
+                chain_b_input["select_hbond_acceptor"] = {"UNL": "N6"}
+                print(f"[InducedDimer] Chain B H-bond conditioning: select_hbond_acceptor=N6")
+
+        result_b = handle_rfd3(chain_b_input)
+        if result_b.get("status") != "completed":
+            print(f"[InducedDimer] Chain B design failed")
+            continue
+
+        designs_b = result_b.get("result", {}).get("designs", [])
+        if not designs_b:
+            continue
+        pdb_b = designs_b[0].get("content") or designs_b[0].get("pdb_content")
+        if not pdb_b:
+            continue
+
+        # Step 4: Extract and relabel chains from the context-aware output
+        # The output from RFD3 context design already has both chains in the same coordinate frame!
+        # Chain A is preserved from input, Chain B is the newly designed chain
+        chain_a_protein = _relabel_chain(_extract_protein_pdb(pdb_b, "A"), "A")
+        chain_b_protein = _relabel_chain(_extract_protein_pdb(pdb_b, "B"), "B")
+
+        # No translation needed! Chain B was designed in Chain A's coordinate frame
+        print(f"[InducedDimer] Chain B designed in context - no translation needed")
+
+        # Combine into final dimer (ligand is already in the output)
+        dimer_pdb = _combine_chains(chain_a_protein, chain_b_protein, ligand_a_pdb)
+
+        # Validate
+        validation = validate_cleaved_dimer(
+            pdb_content=dimer_pdb,
+            ligand_name="UNL",
+            ligand_smiles=ligand_smiles,
+            min_contacts_per_chain=2,
+        )
+
+        checks = validation.get("checks", {})
+        gnina_result = checks.get("gnina_result", {}).get("result", {})
+        affinity = gnina_result.get("best_affinity")
+
+        seq_identity = calculate_sequence_identity(dimer_pdb, "A", "B")
+        identity_pct = seq_identity.get("sequence_identity_percent", 100)
+
+        homo_score = score_homodimerization(
+            pdb_content=dimer_pdb,
+            ligand_smiles=ligand_smiles,
+            ligand_name="UNL",
+        )
+
+        design_entry = {
+            "pdb_content": dimer_pdb,
+            "design_index": design_idx,
+            "validation": validation,
+            "metrics": {
+                "affinity": affinity,
+                "contacts_a": checks.get("contacts_a", 0),
+                "contacts_b": checks.get("contacts_b", 0),
+                "has_clashes": checks.get("clash_check", {}).get("has_clashes", False),
+                "separable": True,
+                "sequence_identity": identity_pct,
+                "is_heterodimer": identity_pct < 70,
+                "induced_dimer": True,  # Mark as induced approach
+            },
+            "anti_homodimerization": homo_score,
+        }
+
+        score = 0
+        if affinity is not None and affinity < 0:
+            score += -affinity * 5
+        if identity_pct < 70:
+            score += 20
+        if homo_score.get("passes_anti_homodimerization", False):
+            score += 30
+        if not design_entry["metrics"]["has_clashes"]:
+            score += 10
+
+        # H-bond bonus scoring for azobenzene N5/N6
+        n5_hbonds = checks.get("n5_hbonds", 0)
+        n6_hbonds = checks.get("n6_hbonds", 0)
+        total_ligand_hbonds = checks.get("total_ligand_hbonds", 0)
+        if n5_hbonds >= 1:
+            score += 10  # N5 has at least one H-bond
+        if n6_hbonds >= 1:
+            score += 10  # N6 has at least one H-bond
+        if n5_hbonds >= 1 and n6_hbonds >= 1:
+            score += 5  # Both azo nitrogens have H-bonds (extra bonus)
+
+        # Add H-bond metrics to design entry
+        design_entry["metrics"]["n5_hbonds"] = n5_hbonds
+        design_entry["metrics"]["n6_hbonds"] = n6_hbonds
+        design_entry["metrics"]["total_ligand_hbonds"] = total_ligand_hbonds
+
+        # Add comprehensive interaction analysis (from validation or compute fresh)
+        if validation.get("interactions"):
+            design_entry["interactions"] = validation["interactions"]
+            design_entry["key_binding_residues"] = validation.get("key_binding_residues", [])
+            design_entry["recommendations"] = validation.get("recommendations", [])
+            design_entry["interaction_summary"] = checks.get("interaction_summary", {})
+        elif SHARED_INTERACTION_ANALYSIS_AVAILABLE:
+            try:
+                interaction_result = analyze_all_interactions(pdb_content, "UNL")
+                design_entry["interactions"] = format_for_frontend(interaction_result)
+                design_entry["key_binding_residues"] = interaction_result.key_residues
+                design_entry["recommendations"] = generate_recommendations(
+                    interaction_result, ligand_has_aromatics=is_azobenzene
+                )
+                design_entry["interaction_summary"] = {
+                    "hydrogen_bonds": len(interaction_result.hydrogen_bonds),
+                    "hydrophobic_contacts": len(interaction_result.hydrophobic_contacts),
+                    "pi_stacking": len(interaction_result.pi_stacking),
+                    "salt_bridges": len(interaction_result.salt_bridges),
+                    "total": interaction_result.total_contacts,
+                }
+            except Exception as e:
+                print(f"[InducedDimer] Interaction analysis failed: {e}")
+
+        design_entry["score"] = score
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        print(f"[InducedDimer] Design {design_idx + 1}: affinity={affinity}, identity={identity_pct:.1f}%, n5_hbonds={n5_hbonds}, n6_hbonds={n6_hbonds}")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid induced heterodimer designs produced"
+        }
+
+    return {
+        "status": "completed",
+        "result": {
+            "approach": "induced",
+            "designs": designs,
+            "best_design": best_design_idx,
+            "dimer": {
+                "pdb_content": designs[best_design_idx]["pdb_content"],
+                "metrics": designs[best_design_idx]["metrics"],
+                "anti_homodimerization": designs[best_design_idx].get("anti_homodimerization"),
+            }
+        }
+    }
 
 
 # ============== ESM3 Handlers ==============

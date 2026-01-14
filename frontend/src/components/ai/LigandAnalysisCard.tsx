@@ -39,6 +39,15 @@ export interface LigandAnalysis {
     core_atoms: string[];    // Buried atoms
     contact_potential: number;  // Estimated contact score
   };
+  // Interaction profile (from PLIP analysis)
+  interactions?: {
+    hbonds: number;
+    hydrophobic: number;
+    pi_stacking: number;
+    salt_bridges: number;
+    total: number;
+  };
+  key_binding_residues?: string[];
   // Design recommendations
   recommendations?: string[];
 }
@@ -235,6 +244,50 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
                   <div className="mt-2 flex items-center justify-between text-xs">
                     <span className="text-slate-500">Contact Potential</span>
                     <span className="font-medium text-purple-600">{analysis.atom_analysis.contact_potential.toFixed(1)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Interaction Profile (from PLIP analysis) */}
+            {analysis.interactions && (
+              <div className="bg-white/60 rounded-lg p-3">
+                <div className="text-xs text-slate-500 uppercase mb-2">Interaction Profile</div>
+                <div className="grid grid-cols-5 gap-2">
+                  <div className="text-center p-2 bg-blue-50 rounded">
+                    <div className="text-lg font-bold text-blue-600">{analysis.interactions.hbonds}</div>
+                    <div className="text-[10px] text-blue-500">H-bonds</div>
+                  </div>
+                  <div className="text-center p-2 bg-yellow-50 rounded">
+                    <div className="text-lg font-bold text-yellow-600">{analysis.interactions.hydrophobic}</div>
+                    <div className="text-[10px] text-yellow-500">Hydrophobic</div>
+                  </div>
+                  <div className="text-center p-2 bg-purple-50 rounded">
+                    <div className="text-lg font-bold text-purple-600">{analysis.interactions.pi_stacking}</div>
+                    <div className="text-[10px] text-purple-500">Pi-stack</div>
+                  </div>
+                  <div className="text-center p-2 bg-red-50 rounded">
+                    <div className="text-lg font-bold text-red-600">{analysis.interactions.salt_bridges}</div>
+                    <div className="text-[10px] text-red-500">Salt Bridge</div>
+                  </div>
+                  <div className="text-center p-2 bg-slate-100 rounded">
+                    <div className="text-lg font-bold text-slate-700">{analysis.interactions.total}</div>
+                    <div className="text-[10px] text-slate-500">Total</div>
+                  </div>
+                </div>
+                {analysis.key_binding_residues && analysis.key_binding_residues.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs text-slate-500 mb-1">Key Binding Residues</div>
+                    <div className="flex flex-wrap gap-1">
+                      {analysis.key_binding_residues.slice(0, 6).map((residue, idx) => (
+                        <span key={idx} className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
+                          {residue}
+                        </span>
+                      ))}
+                      {analysis.key_binding_residues.length > 6 && (
+                        <span className="text-xs text-slate-400">+{analysis.key_binding_residues.length - 6} more</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

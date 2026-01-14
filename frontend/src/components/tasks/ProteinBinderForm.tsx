@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
+import { LengthRangeInput } from './shared/LengthRangeInput';
+import { QualityPresetSelector, QualityPreset, QualityParams } from './shared/QualityPresetSelector';
+import { AdvancedOptionsWrapper } from './shared/AdvancedOptionsWrapper';
 import { QUALITY_PRESETS, RFD3Request, TaskFormProps } from './shared/types';
-
-type QualityPreset = keyof typeof QUALITY_PRESETS;
 
 interface HotspotResidue {
   chain: string;
@@ -64,9 +65,15 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
 
   // Quality & options
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Binder Optimized');
+  const [qualityParams, setQualityParams] = useState<QualityParams>(QUALITY_PRESETS['Binder Optimized']);
   const [isNonLoopy, setIsNonLoopy] = useState(true);
   const [numDesigns, setNumDesigns] = useState(4);  // Default to 4 for pipeline
   const [seed, setSeed] = useState<string>('');
+
+  const handleQualityChange = (preset: QualityPreset, params: QualityParams) => {
+    setQualityPreset(preset);
+    setQualityParams(params);
+  };
 
   // Pipeline mode toggle
   const [usePipeline, setUsePipeline] = useState(true);
@@ -91,8 +98,6 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
   };
 
   const handleSubmit = async () => {
-    const preset = QUALITY_PRESETS[qualityPreset];
-
     // Build hotspot selections
     const selectHotspots: Record<string, string> = {};
     if (hotspots.length > 0) {
@@ -135,9 +140,9 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
         pdb_content: pdbContent || undefined,
         num_designs: numDesigns,
         is_non_loopy: isNonLoopy,
-        num_timesteps: preset.num_timesteps,
-        step_scale: preset.step_scale,
-        gamma_0: preset.gamma_0,
+        num_timesteps: qualityParams.num_timesteps,
+        step_scale: qualityParams.step_scale,
+        gamma_0: qualityParams.gamma_0,
         infer_ori_strategy: 'hotspots',
         ...(Object.keys(selectHotspots).length > 0 && { select_hotspots: selectHotspots }),
         ...(seed && { seed: parseInt(seed, 10) }),
@@ -229,17 +234,17 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
         description="Specify the length of the designed binder protein"
         required
       >
-        <FormRow>
-          <FormField label="Length Range" required hint="e.g., 60-80 for flexible length">
-            <input
-              type="text"
+        <div className="flex gap-4 items-start">
+          <div className="flex-1">
+            <LengthRangeInput
               value={binderLength}
-              onChange={(e) => setBinderLength(e.target.value)}
+              onChange={setBinderLength}
+              label="Length Range"
               placeholder="60-80"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              hint="e.g., 60-80 for flexible length"
             />
-          </FormField>
-          <FormField label="# Designs">
+          </div>
+          <FormField label="# Designs" className="w-28">
             <input
               type="number"
               value={numDesigns}
@@ -249,7 +254,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
               className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
             />
           </FormField>
-        </FormRow>
+        </div>
       </FormSection>
 
       {/* Hotspots - Recommended */}
@@ -322,26 +327,11 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
           title="Quality Settings"
           description="Binder Optimized preset is recommended for most use cases"
         >
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).map((preset) => (
-              <button
-                key={preset}
-                onClick={() => setQualityPreset(preset)}
-                className={`p-3 rounded-lg border text-left transition-all ${
-                  qualityPreset === preset
-                    ? 'border-blue-400 bg-white shadow-sm'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
-                }`}
-              >
-                <div className={`font-medium text-sm ${qualityPreset === preset ? 'text-blue-700' : 'text-slate-800'}`}>
-                  {preset}
-                </div>
-                <div className="text-xs text-slate-500 mt-0.5">
-                  {QUALITY_PRESETS[preset].description}
-                </div>
-              </button>
-            ))}
-          </div>
+          <QualityPresetSelector
+            value={qualityPreset}
+            onChange={handleQualityChange}
+            showDescription
+          />
         </FormSection>
       )}
 
@@ -411,7 +401,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
       )}
 
       {/* Advanced Options */}
-      <FormSection title="Advanced" description="Additional options for fine-tuning">
+      <AdvancedOptionsWrapper title="Advanced Options">
         <FormRow>
           <FormField label="Random Seed" hint="For reproducible results">
             <input
@@ -423,14 +413,14 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
             />
           </FormField>
         </FormRow>
-      </FormSection>
+      </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
       <div className="pt-4 border-t border-slate-200">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
-          className={`w-full py-3 px-6 rounded-lg font-semibold text-white transition-all flex items-center justify-center gap-2 ${
+          className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
               ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
               : 'bg-slate-300 cursor-not-allowed'

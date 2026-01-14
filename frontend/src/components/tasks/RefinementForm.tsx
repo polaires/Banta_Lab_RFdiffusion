@@ -3,9 +3,9 @@
 import { useState } from 'react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
+import { QualityPresetSelector, QualityPreset, QualityParams } from './shared/QualityPresetSelector';
+import { AdvancedOptionsWrapper } from './shared/AdvancedOptionsWrapper';
 import { QUALITY_PRESETS, RFD3Request, TaskFormProps } from './shared/types';
-
-type QualityPreset = keyof typeof QUALITY_PRESETS;
 
 const NOISE_LEVELS = [
   { value: 5, label: 'Very Low', description: 'Minor local adjustments' },
@@ -23,20 +23,24 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
   // Optional
   const [contig, setContig] = useState('');
   const [qualityPreset, setQualityPreset] = useState<QualityPreset>('Balanced');
+  const [qualityParams, setQualityParams] = useState<QualityParams>(QUALITY_PRESETS.Balanced);
   const [numDesigns, setNumDesigns] = useState(1);
   const [seed, setSeed] = useState<string>('');
 
-  const handleSubmit = async () => {
-    const preset = QUALITY_PRESETS[qualityPreset];
+  const handleQualityChange = (preset: QualityPreset, params: QualityParams) => {
+    setQualityPreset(preset);
+    setQualityParams(params);
+  };
 
+  const handleSubmit = async () => {
     const request: RFD3Request = {
       pdb_content: pdbContent || undefined,
       contig: contig.trim() || undefined,
       num_designs: numDesigns,
       partial_t: partialT,
-      num_timesteps: preset.num_timesteps,
-      step_scale: preset.step_scale,
-      gamma_0: preset.gamma_0,
+      num_timesteps: qualityParams.num_timesteps,
+      step_scale: qualityParams.step_scale,
+      gamma_0: qualityParams.gamma_0,
     };
 
     if (seed) {
@@ -209,26 +213,11 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
         title="Quality Settings"
         description="Higher quality takes longer but produces better refinements"
       >
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {(Object.keys(QUALITY_PRESETS) as QualityPreset[]).filter(
-            (preset) => preset !== 'Binder Optimized'
-          ).map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setQualityPreset(preset)}
-              className={`p-3 rounded-xl border-2 text-left transition-all ${
-                qualityPreset === preset
-                  ? 'border-blue-400 bg-blue-50'
-                  : 'border-slate-200 hover:border-slate-300'
-              }`}
-            >
-              <div className="font-medium text-sm text-slate-900">{preset}</div>
-              <div className="text-xs text-slate-500 mt-0.5">
-                {QUALITY_PRESETS[preset].description}
-              </div>
-            </button>
-          ))}
-        </div>
+        <QualityPresetSelector
+          value={qualityPreset}
+          onChange={handleQualityChange}
+          showDescription
+        />
       </FormSection>
 
       {/* Submit Button */}

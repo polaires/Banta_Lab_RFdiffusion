@@ -148,7 +148,7 @@ export interface RFD3Request extends BaseRFD3Request {
 
   // Interface ligand design (separable dimer)
   task?: string;  // Task type for specialized handlers (e.g., 'interface_ligand_design', 'protein_binder_design')
-  approach?: 'asymmetric' | 'sequential' | 'full';  // Design approach
+  approach?: 'asymmetric' | 'sequential' | 'full' | 'joint' | 'asymmetric_rasa' | 'induced' | 'symmetric';  // Design approach
   ligand_smiles?: string;  // SMILES string for ligand
   chain_length?: string;  // Chain length range (e.g., "60-80")
   side?: 'left' | 'right';  // Which side of ligand to bind
@@ -177,4 +177,68 @@ export interface TaskFormProps {
   onSubmit: (request: RFD3Request) => Promise<void>;
   isSubmitting: boolean;
   health: HealthResponse | null;
+}
+
+// ====== PLIP Interaction Analysis Types ======
+
+// Filter mode for success criteria display
+export type FilterMode = 'heterodimer' | 'rfdiffusion3';
+
+// PLIP interaction profile from ligand analysis
+export interface InteractionProfile {
+  hydrogen_bonds: number;
+  hydrophobic_contacts: number;
+  pi_stacking: number;
+  salt_bridges: number;
+  halogen_bonds?: number;
+  total: number;
+}
+
+// Heterodimer-specific metrics (custom workflow)
+export interface HeterodimerMetrics {
+  affinity?: number;           // GNINA: < -5 = good (kcal/mol)
+  contacts_a?: number;         // ≥ 5 = good
+  contacts_b?: number;         // ≥ 5 = good
+  sequence_identity?: number;  // < 70% = true heterodimer
+  anti_homo_score?: number;    // > 60 = good (0-100 scale)
+  n5_hbonds?: number;          // ≥ 1 = azobenzene N5 satisfied
+  n6_hbonds?: number;          // ≥ 1 = azobenzene N6 satisfied
+  has_clashes?: boolean;       // false = good
+  is_heterodimer?: boolean;    // true = success
+}
+
+// Standard RFdiffusion3 metrics (Baker Lab reference)
+export interface RFD3Metrics {
+  pae_interaction?: number;  // < 10 = good
+  plddt?: number;            // > 80 = good, > 90 = excellent
+  ddg?: number;              // < -40 = good (Rosetta kcal/mol)
+  total_hbonds?: number;     // > 11 = good
+  shape_complementarity?: number; // > 0.65 = excellent
+}
+
+// Combined design metrics
+export interface DesignMetrics extends HeterodimerMetrics, RFD3Metrics {}
+
+// Design result with all possible fields
+export interface DesignResult {
+  pdb_content: string;
+  cif_content?: string;
+  sequence?: string;
+  metrics?: DesignMetrics;
+  interactions?: InteractionProfile;
+  key_binding_residues?: string[];
+  recommendations?: string[];
+  analysis_method?: 'plip' | 'distance_based';
+  interaction_summary?: string;
+}
+
+// Pipeline stage types
+export type PipelineStage = 'idle' | 'backbone' | 'ligandmpnn' | 'validation' | 'analysis' | 'complete' | 'error';
+
+// Stage details for pipeline progress
+export interface StageDetails {
+  backbone?: { progress?: number; message?: string };
+  ligandmpnn?: { sequences?: number; message?: string };
+  validation?: { message?: string };
+  analysis?: { message?: string };
 }

@@ -1598,6 +1598,153 @@ def calculate_unsaturated_hbonds(
         }
 
 
+# ============== Ligand-Specific H-bond Analysis ==============
+
+def analyze_ligand_hbonds(
+    pdb_content: str,
+    ligand_name: str = "UNL",
+    ligand_atoms: Optional[List[str]] = None,
+    hbond_distance: float = 3.5,
+) -> Dict[str, Any]:
+    """
+    Analyze hydrogen bonds to specific ligand atoms.
+
+    Tracks H-bonds between protein and ligand, with optional per-atom breakdown
+    for targeted ligand atoms (e.g., N5, N6 for azobenzene).
+
+    Args:
+        pdb_content: PDB file content as string
+        ligand_name: Ligand residue name (default "UNL")
+        ligand_atoms: List of specific ligand atoms to track (e.g., ["N5", "N6"])
+        hbond_distance: Maximum distance for H-bond detection (default 3.5 Å)
+
+    Returns:
+        Dict with:
+        - total_hbonds: Total H-bonds to ligand
+        - hbonds: List of H-bond details
+        - by_atom: Dict of {atom: [hbond_details]}
+        - saturation: Dict of {atom: {count, saturated}}
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+        import numpy as np
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get ligand atoms
+        ligand_mask = structure.res_name == ligand_name
+        ligand_struct = structure[ligand_mask]
+
+        if len(ligand_struct) == 0:
+            return {
+                "status": "error",
+                "error": f"Ligand {ligand_name} not found"
+            }
+
+        # Get protein atoms (non-HETATM)
+        protein_mask = ~structure.hetero
+        protein_struct = structure[protein_mask]
+
+        if len(protein_struct) == 0:
+            return {
+                "status": "error",
+                "error": "No protein atoms found"
+            }
+
+        # Donor/acceptor definitions
+        # Protein donors: N-H groups
+        protein_donor_atoms = ['N', 'NE', 'NH1', 'NH2', 'ND1', 'ND2', 'NE1', 'NE2', 'NZ', 'OG', 'OG1', 'OH', 'SG']
+        # Protein acceptors: O, N with lone pairs
+        protein_acceptor_atoms = ['O', 'OD1', 'OD2', 'OE1', 'OE2', 'OG', 'OG1', 'OH', 'ND1', 'NE2', 'SD']
+
+        # Ligand atoms that can be acceptors (N, O, S)
+        ligand_acceptor_types = ['N', 'O', 'S']  # First letter of element
+        # Ligand atoms that can be donors (N, O with H)
+        ligand_donor_types = ['N', 'O']
+
+        hbonds = []
+        hbonds_by_atom = {}
+
+        for i in range(len(ligand_struct)):
+            lig_atom = ligand_struct[i]
+            lig_atom_name = lig_atom.atom_name
+
+            # Skip if not in target atoms list (if specified)
+            if ligand_atoms and lig_atom_name not in ligand_atoms:
+                continue
+
+            # Determine if ligand atom can be donor or acceptor
+            element = lig_atom.element if hasattr(lig_atom, 'element') else lig_atom_name[0]
+            is_lig_acceptor = element in ligand_acceptor_types
+            is_lig_donor = element in ligand_donor_types
+
+            for j in range(len(protein_struct)):
+                prot_atom = protein_struct[j]
+                dist = np.linalg.norm(lig_atom.coord - prot_atom.coord)
+
+                if dist > hbond_distance:
+                    continue
+
+                prot_atom_name = prot_atom.atom_name
+                is_prot_donor = prot_atom_name in protein_donor_atoms
+                is_prot_acceptor = prot_atom_name in protein_acceptor_atoms
+
+                # Check if valid H-bond
+                is_hbond = False
+                hbond_type = None
+
+                if is_lig_acceptor and is_prot_donor:
+                    is_hbond = True
+                    hbond_type = "ligand_acceptor"
+                elif is_lig_donor and is_prot_acceptor:
+                    is_hbond = True
+                    hbond_type = "ligand_donor"
+
+                if is_hbond:
+                    hbond = {
+                        "ligand_atom": lig_atom_name,
+                        "protein_res": f"{prot_atom.res_name}{prot_atom.res_id}",
+                        "protein_chain": prot_atom.chain_id,
+                        "protein_atom": prot_atom_name,
+                        "distance": round(float(dist), 2),
+                        "type": hbond_type,
+                    }
+                    hbonds.append(hbond)
+
+                    if lig_atom_name not in hbonds_by_atom:
+                        hbonds_by_atom[lig_atom_name] = []
+                    hbonds_by_atom[lig_atom_name].append(hbond)
+
+        # Calculate saturation for requested atoms
+        saturation = {}
+        if ligand_atoms:
+            for atom in ligand_atoms:
+                count = len(hbonds_by_atom.get(atom, []))
+                saturation[atom] = {
+                    "count": count,
+                    "saturated": count >= 1,  # At least 1 H-bond
+                }
+
+        unsaturated_count = sum(1 for s in saturation.values() if not s.get("saturated", False)) if saturation else 0
+
+        return {
+            "status": "completed",
+            "total_hbonds": len(hbonds),
+            "hbonds": hbonds[:20],  # First 20
+            "by_atom": hbonds_by_atom,
+            "saturation": saturation,
+            "unsaturated_count": unsaturated_count,
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
 # ============== Interface Residue Count ==============
 
 def count_interface_residues(
@@ -1681,3 +1828,352 @@ BINDING_QUALITY_THRESHOLDS = {
         "pLDDT": {"good": 0.8, "moderate": 0.7, "poor": 0.5}
     }
 }
+
+
+# ============== Homodimerization Scoring (Anti-Homodimer Validation) ==============
+
+def score_homodimerization(
+    pdb_content: str,
+    ligand_smiles: str,
+    ligand_name: str = "UNL",
+    chain_a: str = "A",
+    chain_b: str = "B",
+    docking_box_size: float = 25.0,
+) -> Dict[str, Any]:
+    """
+    Score heterodimer vs homodimer binding to validate anti-homodimerization design.
+
+    For a true heterodimer design, we want:
+    - A-B heterodimer to bind strongly (affinity < -5 kcal/mol)
+    - A-A homodimer to bind weakly (affinity > -2 kcal/mol)
+    - B-B homodimer to bind weakly (affinity > -2 kcal/mol)
+    - Hetero/homo ratio > 2.5x
+
+    Args:
+        pdb_content: PDB content with heterodimer (chains A and B) and ligand
+        ligand_smiles: SMILES string for the ligand
+        ligand_name: Residue name for ligand in PDB (default "UNL")
+        chain_a: Chain ID for first chain
+        chain_b: Chain ID for second chain
+        docking_box_size: Size of docking box for GNINA
+
+    Returns:
+        Dict with scores for A-B, A-A, B-B dimers and anti-homodimerization metrics
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        # Parse original PDB
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Extract chains and ligand
+        chain_a_atoms = structure[structure.chain_id == chain_a]
+        chain_b_atoms = structure[structure.chain_id == chain_b]
+        ligand_atoms = structure[structure.res_name == ligand_name]
+
+        if len(chain_a_atoms) == 0 or len(chain_b_atoms) == 0:
+            return {"status": "error", "error": f"Chains {chain_a} or {chain_b} not found"}
+
+        if len(ligand_atoms) == 0:
+            return {"status": "error", "error": f"Ligand {ligand_name} not found"}
+
+        # Get ligand centroid for docking box
+        ligand_center = ligand_atoms.coord.mean(axis=0)
+
+        results = {}
+
+        # Convert SMILES to SDF for GNINA
+        ligand_sdf = smiles_to_sdf(ligand_smiles)
+        if not ligand_sdf:
+            return {"status": "error", "error": "Failed to convert ligand SMILES to SDF"}
+
+        # ===== 1. Score original A-B heterodimer =====
+        ab_result = run_gnina_scoring(
+            receptor_pdb=pdb_content,
+            ligand_sdf=ligand_sdf,
+            center=tuple(ligand_center.tolist()),
+            box_size=docking_box_size,
+        )
+        results["ab_heterodimer"] = ab_result.get("result", {})
+        ab_affinity = results["ab_heterodimer"].get("best_affinity", 0)
+
+        # ===== 2. Create and score A-A homodimer =====
+        aa_pdb = _create_homodimer_pdb(pdb_content, chain_a, ligand_name)
+        if aa_pdb:
+            aa_result = run_gnina_scoring(
+                receptor_pdb=aa_pdb,
+                ligand_sdf=ligand_sdf,
+                center=tuple(ligand_center.tolist()),
+                box_size=docking_box_size,
+            )
+            results["aa_homodimer"] = aa_result.get("result", {})
+        else:
+            results["aa_homodimer"] = {"error": "Failed to create A-A homodimer"}
+        aa_affinity = results["aa_homodimer"].get("best_affinity", 0)
+
+        # ===== 3. Create and score B-B homodimer =====
+        bb_pdb = _create_homodimer_pdb(pdb_content, chain_b, ligand_name)
+        if bb_pdb:
+            bb_result = run_gnina_scoring(
+                receptor_pdb=bb_pdb,
+                ligand_sdf=ligand_sdf,
+                center=tuple(ligand_center.tolist()),
+                box_size=docking_box_size,
+            )
+            results["bb_homodimer"] = bb_result.get("result", {})
+        else:
+            results["bb_homodimer"] = {"error": "Failed to create B-B homodimer"}
+        bb_affinity = results["bb_homodimer"].get("best_affinity", 0)
+
+        # ===== 4. Calculate anti-homodimerization metrics =====
+
+        # Hetero/homo ratio (higher is better)
+        # More negative affinity = stronger binding
+        # We want: ab_affinity << aa_affinity and ab_affinity << bb_affinity
+
+        # Avoid division by zero
+        if aa_affinity >= 0:
+            aa_ratio = float('inf') if ab_affinity < 0 else 0
+        else:
+            aa_ratio = ab_affinity / aa_affinity if aa_affinity != 0 else 0
+
+        if bb_affinity >= 0:
+            bb_ratio = float('inf') if ab_affinity < 0 else 0
+        else:
+            bb_ratio = ab_affinity / bb_affinity if bb_affinity != 0 else 0
+
+        # Selectivity: how much stronger is hetero vs best homo
+        best_homo_affinity = min(aa_affinity, bb_affinity)  # Less negative = weaker
+        selectivity = best_homo_affinity - ab_affinity  # Positive = heterodimer is stronger
+
+        # Anti-homodimerization score (0-100)
+        # Criteria:
+        # - ab_affinity < -5: heterodimer binds well
+        # - aa_affinity > -2: A-A doesn't bind
+        # - bb_affinity > -2: B-B doesn't bind
+        score = 0
+
+        if ab_affinity < -5:
+            score += 40  # Strong heterodimer binding
+        elif ab_affinity < -3:
+            score += 20
+
+        if aa_affinity > -2:
+            score += 25  # Weak A-A binding (good)
+        elif aa_affinity > -3:
+            score += 10
+
+        if bb_affinity > -2:
+            score += 25  # Weak B-B binding (good)
+        elif bb_affinity > -3:
+            score += 10
+
+        if selectivity > 3:
+            score += 10  # High selectivity bonus
+
+        # Determine if design passes anti-homodimerization criteria
+        passes_anti_homo = (
+            ab_affinity < -5 and  # Heterodimer binds
+            aa_affinity > -2 and  # A-A doesn't bind
+            bb_affinity > -2 and  # B-B doesn't bind
+            selectivity > 2.5     # Heterodimer at least 2.5 kcal/mol stronger
+        )
+
+        return {
+            "status": "completed",
+            "affinities": {
+                "ab_heterodimer": ab_affinity,
+                "aa_homodimer": aa_affinity,
+                "bb_homodimer": bb_affinity,
+            },
+            "ratios": {
+                "ab_vs_aa": aa_ratio,
+                "ab_vs_bb": bb_ratio,
+            },
+            "selectivity_kcal": selectivity,
+            "anti_homo_score": score,
+            "passes_anti_homodimerization": passes_anti_homo,
+            "detailed_results": results,
+            "thresholds": {
+                "heterodimer_target": "< -5 kcal/mol",
+                "homodimer_target": "> -2 kcal/mol",
+                "selectivity_target": "> 2.5 kcal/mol",
+            }
+        }
+
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+def _create_homodimer_pdb(
+    pdb_content: str,
+    source_chain: str,
+    ligand_name: str = "UNL",
+) -> Optional[str]:
+    """
+    Create a homodimer PDB by duplicating one chain and rotating 180 degrees.
+
+    Takes chain A (or B) from the original heterodimer, duplicates it,
+    rotates the copy 180 degrees around the ligand's Z-axis, and relabels
+    as chains A and B.
+
+    Args:
+        pdb_content: Original PDB with heterodimer
+        source_chain: Chain to duplicate (A or B)
+        ligand_name: Ligand residue name
+
+    Returns:
+        PDB content with homodimer (two copies of source chain) + ligand
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Get source chain and ligand
+        source_atoms = structure[structure.chain_id == source_chain]
+        ligand_atoms = structure[structure.res_name == ligand_name]
+
+        if len(source_atoms) == 0:
+            return None
+
+        # Get ligand centroid for rotation center
+        if len(ligand_atoms) > 0:
+            center = ligand_atoms.coord.mean(axis=0)
+        else:
+            center = source_atoms.coord.mean(axis=0)
+
+        # Create a copy of the source chain and rotate 180 degrees around Z
+        rotated_coords = source_atoms.coord.copy()
+        # Translate to center
+        rotated_coords -= center
+        # Rotate 180 degrees around Z: (x, y) -> (-x, -y)
+        rotated_coords[:, 0] = -rotated_coords[:, 0]
+        rotated_coords[:, 1] = -rotated_coords[:, 1]
+        # Translate back
+        rotated_coords += center
+
+        # Build homodimer PDB
+        lines = []
+        lines.append(f"REMARK  Homodimer of chain {source_chain}")
+
+        atom_num = 1
+
+        # Chain A = original source chain
+        for atom in source_atoms:
+            x, y, z = atom.coord
+            line = f"ATOM  {atom_num:5d}  {atom.atom_name:<4s}{atom.res_name:>3s} A{atom.res_id:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           {atom.element:>2s}"
+            lines.append(line)
+            atom_num += 1
+
+        # Chain B = rotated copy
+        for i, atom in enumerate(source_atoms):
+            x, y, z = rotated_coords[i]
+            line = f"ATOM  {atom_num:5d}  {atom.atom_name:<4s}{atom.res_name:>3s} B{atom.res_id:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           {atom.element:>2s}"
+            lines.append(line)
+            atom_num += 1
+
+        # Add ligand
+        for atom in ligand_atoms:
+            x, y, z = atom.coord
+            line = f"HETATM{atom_num:5d}  {atom.atom_name:<4s}{atom.res_name:>3s} L   1    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           {atom.element:>2s}"
+            lines.append(line)
+            atom_num += 1
+
+        lines.append("END")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        print(f"[_create_homodimer_pdb] Error: {e}")
+        return None
+
+
+def calculate_sequence_identity(
+    pdb_content: str,
+    chain_a: str = "A",
+    chain_b: str = "B",
+) -> Dict[str, Any]:
+    """
+    Calculate sequence identity between two chains.
+
+    For heterodimers, we expect lower identity (< 70%).
+    For homodimers (symmetric), identity would be 100%.
+
+    Args:
+        pdb_content: PDB content with both chains
+        chain_a: First chain ID
+        chain_b: Second chain ID
+
+    Returns:
+        Dict with sequence identity percentage and alignment details
+    """
+    try:
+        from biotite.structure.io.pdb import PDBFile
+        import io
+
+        # 3-letter to 1-letter amino acid codes
+        aa_map = {
+            'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E', 'PHE': 'F',
+            'GLY': 'G', 'HIS': 'H', 'ILE': 'I', 'LYS': 'K', 'LEU': 'L',
+            'MET': 'M', 'ASN': 'N', 'PRO': 'P', 'GLN': 'Q', 'ARG': 'R',
+            'SER': 'S', 'THR': 'T', 'VAL': 'V', 'TRP': 'W', 'TYR': 'Y',
+        }
+
+        pdb_file = PDBFile.read(io.StringIO(pdb_content))
+        structure = pdb_file.get_structure(model=1)
+
+        # Extract CA atoms to get sequence
+        ca_atoms_a = structure[(structure.chain_id == chain_a) & (structure.atom_name == "CA")]
+        ca_atoms_b = structure[(structure.chain_id == chain_b) & (structure.atom_name == "CA")]
+
+        # Build sequences
+        seq_a = "".join([aa_map.get(atom.res_name, 'X') for atom in ca_atoms_a])
+        seq_b = "".join([aa_map.get(atom.res_name, 'X') for atom in ca_atoms_b])
+
+        if len(seq_a) == 0 or len(seq_b) == 0:
+            return {"status": "error", "error": "Could not extract sequences"}
+
+        # Simple pairwise identity calculation
+        # For sequences of different lengths, align from start
+        min_len = min(len(seq_a), len(seq_b))
+        max_len = max(len(seq_a), len(seq_b))
+
+        matches = sum(1 for i in range(min_len) if seq_a[i] == seq_b[i])
+        identity = (matches / max_len) * 100 if max_len > 0 else 0
+
+        # More sophisticated: use Biopython for proper alignment if available
+        try:
+            from Bio import pairwise2
+            from Bio.pairwise2 import format_alignment
+
+            alignments = pairwise2.align.globalxx(seq_a, seq_b, one_alignment_only=True)
+            if alignments:
+                aligned_a, aligned_b, score, begin, end = alignments[0]
+                aligned_matches = sum(1 for a, b in zip(aligned_a, aligned_b) if a == b and a != '-')
+                aligned_len = len(aligned_a)
+                identity = (aligned_matches / aligned_len) * 100 if aligned_len > 0 else 0
+        except ImportError:
+            pass  # Use simple calculation
+
+        return {
+            "status": "completed",
+            "sequence_identity_percent": round(identity, 1),
+            "sequence_a": seq_a,
+            "sequence_b": seq_b,
+            "length_a": len(seq_a),
+            "length_b": len(seq_b),
+            "is_heterodimer": identity < 70,  # True heterodimer if < 70% identity
+        }
+
+    except Exception as e:
+        return {"status": "error", "error": str(e)}

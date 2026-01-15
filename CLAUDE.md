@@ -87,8 +87,28 @@ scripts/              # Utility scripts
 3. Push to `main` → RunPod auto-rebuilds
 4. Monitor build at RunPod console
 
-## File Conventions
+## File Organization Rules
 
-- **Tracked:** Source code, documentation, configuration
-- **Ignored:** PDB outputs, test results, temp files, archives
-- **Skills:** Use Claude skills for detailed references (docker-wsl, rfd3-reference, etc.)
+**New files go here:**
+| File Type | Location |
+|-----------|----------|
+| Backend Python code | `backend/serverless/` |
+| Backend Python tests | `backend/serverless/test_*.py` |
+| JS integration tests | `scripts/tests/` |
+| Demo scripts | `scripts/demos/` |
+| New experiments | `experiments/<project>/` |
+| Generated PDB outputs | `experiments/<project>/outputs/` (gitignored) |
+| Documentation | `docs/` |
+
+**Never put in root:**
+- Test files (use `scripts/tests/` or `backend/serverless/`)
+- PDB files (gitignored, use `experiments/`)
+- Temp files (gitignored)
+
+**Gitignored (don't track):**
+- `*.pdb` - Generated structures
+- `experiments/*/archive/` - Archived outputs
+- `tmpclaude-*` - Temp working files
+- `.env*.local` - Environment secrets
+
+**Skills:** Use Claude skills for detailed references (docker-wsl, rfd3-reference, etc.)

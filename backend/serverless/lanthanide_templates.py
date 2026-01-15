@@ -262,6 +262,59 @@ METAL_TEMPLATE_RECOMMENDATIONS = {
 
 
 # =============================================================================
+# Fixed Position Extraction for LigandMPNN
+# =============================================================================
+
+
+def get_template_fixed_positions(template_name: str) -> List[str]:
+    """
+    Extract coordinating residue positions from a template definition.
+
+    These positions should be passed to LigandMPNN's fixed_positions
+    to prevent mutation of metal-coordinating residues during sequence design.
+
+    CRITICAL: Without this, LigandMPNN may mutate the carefully positioned
+    Asp/Glu coordinating residues, destroying the metal binding geometry.
+
+    Args:
+        template_name: Name of template from TEMPLATE_LIBRARY (e.g., "caldwell_4")
+
+    Returns:
+        List of position strings like ["A15", "A25", "B15", "B25"]
+        Empty list if template not found.
+
+    Example:
+        >>> positions = get_template_fixed_positions("caldwell_4")
+        >>> print(positions)
+        ['A15', 'A25', 'B15', 'B25']
+
+        >>> # Use with LigandMPNN
+        >>> from handler import run_ligandmpnn_for_ligand_binding
+        >>> result = run_ligandmpnn_for_ligand_binding(
+        ...     pdb_content=scaffold_pdb,
+        ...     ligand_type="lanthanide",
+        ...     fixed_positions=positions,
+        ... )
+    """
+    if template_name not in TEMPLATE_LIBRARY:
+        logger.warning(f"Template '{template_name}' not found in TEMPLATE_LIBRARY")
+        return []
+
+    template = TEMPLATE_LIBRARY[template_name]
+    residues = template.get("residues", [])
+
+    positions = []
+    for res in residues:
+        chain = res.get("chain", "A")
+        resnum = res.get("resnum")
+        if resnum is not None:
+            positions.append(f"{chain}{resnum}")
+
+    logger.debug(f"Extracted {len(positions)} fixed positions from template '{template_name}': {positions}")
+    return positions
+
+
+# =============================================================================
 # NEW: Geometry Position Generators
 # =============================================================================
 

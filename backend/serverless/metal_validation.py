@@ -53,9 +53,9 @@ LANTHANIDE_CRITERIA = {
         "optimal": (2.3, 2.5),
     },
     "geometry_rmsd": {
-        "max": 20.0,  # degrees
-        "good": 15.0,
-        "excellent": 10.0,
+        "max": 15.0,       # degrees - tightened to match crystallographic standards
+        "good": 10.0,      # (was 15.0)
+        "excellent": 5.0,  # (was 10.0) - crystallographic metal sites have <10 deg deviation
     },
     "chain_contribution": {
         "min_per_chain": 2,  # Each chain should contribute at least 2 donors

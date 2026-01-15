@@ -248,8 +248,8 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
   const [chainBDonors, setChainBDonors] = useState(2);
 
   // Donor type preferences per chain
-  const [chainADonorTypes] = useState<string[]>(['His', 'His']);
-  const [chainBDonorTypes] = useState<string[]>(['Cys', 'Cys']);
+  const [chainADonorTypes, setChainADonorTypes] = useState<string[]>(['His', 'His']);
+  const [chainBDonorTypes, setChainBDonorTypes] = useState<string[]>(['Cys', 'Cys']);
 
   // Design parameters
   const [chainLength, setChainLength] = useState('60-80');
@@ -262,6 +262,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
   const [targetGeometry, setTargetGeometry] = useState<string>('auto');
   const [includeWaters, setIncludeWaters] = useState(false);
   const [secondMetal, setSecondMetal] = useState<MetalId | ''>('');
+  const [showAdvancedApproaches, setShowAdvancedApproaches] = useState(false);
 
   // Lanthanide-specific options (based on Caldwell et al. 2020)
   // NEW: Template library system with chemically realistic coordination
@@ -288,6 +289,26 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
     return metalProfile.category === 'Lanthanide';
   }, [metalProfile]);
 
+  // Validate chain length format: "min-max" or "value"
+  const isValidChainLength = useMemo(() => {
+    const trimmed = chainLength.trim();
+    if (!trimmed) return false;
+
+    // Match patterns: "60-80" or "100"
+    const rangePattern = /^\d+-\d+$/;
+    const singlePattern = /^\d+$/;
+
+    if (rangePattern.test(trimmed)) {
+      const [min, max] = trimmed.split('-').map(Number);
+      return min >= 20 && max <= 500 && min <= max;
+    }
+    if (singlePattern.test(trimmed)) {
+      const value = Number(trimmed);
+      return value >= 20 && value <= 500;
+    }
+    return false;
+  }, [chainLength]);
+
   // Update coordination when metal changes
   const handleMetalChange = (metalId: MetalId) => {
     setSelectedMetal(metalId);
@@ -297,11 +318,63 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
     setChainADonors(split);
     setChainBDonors(coord - split);
     setTargetGeometry('auto');
+
+    // Auto-populate donor types based on metal's preferred donors
+    const donorLabels = profile.donorLabels.slice(0, coord);
+    const splitA = donorLabels.slice(0, split);
+    const splitB = donorLabels.slice(split, coord);
+    setChainADonorTypes(splitA.length > 0 ? splitA : ['His', 'His']);
+    setChainBDonorTypes(splitB.length > 0 ? splitB : ['Cys', 'Cys']);
+
+    // Reset TEBL options when switching away from luminescent metals
+    const isLuminescent = 'special' in profile && profile.special === 'luminescent';
+    if (!isLuminescent) {
+      setAddTrpAntenna(false);
+    }
   };
 
   const handleQualityChange = (preset: QualityPreset, params: QualityParams) => {
     setQualityPreset(preset);
     setQualityParams(params);
+  };
+
+  // Mode switch handlers - clear irrelevant state when switching lanthanide template modes
+  const switchToTemplateLibrary = () => {
+    setUseParametricMode(false);
+    setUseLegacyMode(false);
+    // Reset parametric values to defaults
+    setParamCoordinationNumber(8);
+    setParamNumWaters(0);
+    setParamBidentateFraction(0.5);
+  };
+
+  const switchToParametric = () => {
+    setUseParametricMode(true);
+    setUseLegacyMode(false);
+    // Template library selection is cleared by mode flag
+  };
+
+  const switchToLegacy = () => {
+    setUseParametricMode(false);
+    setUseLegacyMode(true);
+    // Reset to legacy defaults
+    setTemplateType('ef_hand');
+    setDonorResidue('ASP');
+    setUseMotifScaffolding(true);
+  };
+
+  // When template changes, update coordination split to match template's CN
+  const handleTemplateChange = (templateId: TemplateLibraryId) => {
+    setTemplateName(templateId);
+
+    // Find the template and sync coordination
+    const template = TEMPLATE_LIBRARY_OPTIONS.find(t => t.id === templateId);
+    if (template && template.coordinationNumber) {
+      const cn = template.coordinationNumber;
+      const split = Math.floor(cn / 2);
+      setChainADonors(split);
+      setChainBDonors(cn - split);
+    }
   };
 
   const handleSubmit = async () => {
@@ -356,8 +429,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
       request.add_trp_antenna = addTrpAntenna;
       // @ts-expect-error - extended fields for metal design
       request.validate_coordination = validateCoordination;
-      // @ts-expect-error - extended fields for metal design
-      request.include_waters = includeWaters;
+      // Note: include_waters is already set in metal_config above
     }
 
     if (approach === 'bridging_metal' && secondMetal) {
@@ -372,7 +444,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
     await onSubmit(request);
   };
 
-  const isValid = chainLength.trim() !== '' && totalCoordination >= 4;
+  const isValid = isValidChainLength && totalCoordination >= 4;
 
   return (
     <div className="space-y-6">
@@ -470,7 +542,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
       {/* Design Approach */}
       <FormSection title="Design Approach" description="How to coordinate the metal between chains" required>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {APPROACHES.filter(a => !a.advanced || approach === a.id).map((app) => (
+          {APPROACHES.filter(a => !a.advanced || showAdvancedApproaches || approach === a.id).map((app) => (
             <button
               key={app.id}
               onClick={() => setApproach(app.id)}
@@ -501,10 +573,10 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
 
         {/* Show advanced approaches toggle */}
         <button
-          onClick={() => setApproach(approach === 'bridging_metal' ? 'joint_metal' : 'bridging_metal')}
+          onClick={() => setShowAdvancedApproaches(!showAdvancedApproaches)}
           className="text-xs text-amber-600 hover:underline mt-2"
         >
-          {APPROACHES.some(a => a.advanced && approach !== a.id) ? 'Show advanced approaches' : 'Hide advanced'}
+          {showAdvancedApproaches ? 'Hide advanced approaches' : 'Show advanced approaches'}
         </button>
       </FormSection>
 
@@ -630,6 +702,11 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                 placeholder="60-80"
                 hint="Per chain length range"
               />
+              {!isValidChainLength && chainLength.trim() !== '' && (
+                <p className="text-xs text-red-500 mt-1">
+                  Format: min-max (e.g., 60-80) or single value. Range: 20-500.
+                </p>
+              )}
             </div>
             <FormField label="# Designs" className="w-24">
               <input
@@ -670,7 +747,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
             {/* Mode Selection - Library vs Parametric vs Legacy */}
             <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
               <button
-                onClick={() => { setUseParametricMode(false); setUseLegacyMode(false); }}
+                onClick={switchToTemplateLibrary}
                 className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all ${
                   !useParametricMode && !useLegacyMode
                     ? 'bg-white text-purple-700 shadow-sm'
@@ -680,7 +757,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                 Template Library
               </button>
               <button
-                onClick={() => { setUseParametricMode(true); setUseLegacyMode(false); }}
+                onClick={switchToParametric}
                 className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all ${
                   useParametricMode
                     ? 'bg-white text-purple-700 shadow-sm'
@@ -690,7 +767,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                 Parametric
               </button>
               <button
-                onClick={() => { setUseParametricMode(false); setUseLegacyMode(true); }}
+                onClick={switchToLegacy}
                 className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-all ${
                   useLegacyMode
                     ? 'bg-white text-purple-700 shadow-sm'
@@ -714,7 +791,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                     return (
                       <button
                         key={template.id}
-                        onClick={() => setTemplateName(template.id)}
+                        onClick={() => handleTemplateChange(template.id)}
                         className={`p-3 rounded-lg border text-left transition-all ${
                           templateName === template.id
                             ? 'border-purple-400 bg-purple-50 ring-1 ring-purple-200'

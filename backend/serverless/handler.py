@@ -13,7 +13,7 @@ import runpod
 import os
 import sys
 import traceback
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # Import inference utilities
 from inference_utils import (
@@ -122,6 +122,8 @@ try:
         generate_template_from_library,
         generate_parametric_template,
         get_template_for_metal,
+        # Fixed position extraction for LigandMPNN
+        get_template_fixed_positions,
     )
     LANTHANIDE_TEMPLATES_AVAILABLE = True
 except ImportError:
@@ -444,6 +446,11 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     # Covalent modifications (enzyme design)
     covalent_bonds = job_input.get("covalent_bonds")
 
+    # Guiding potentials (auxiliary potentials for design optimization)
+    guiding_potentials = job_input.get("guiding_potentials")
+    guide_scale = job_input.get("guide_scale")
+    guide_decay = job_input.get("guide_decay")
+
     result = run_rfd3_inference(
         contig=contig,
         length=length,
@@ -482,6 +489,10 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
         select_hbond_acceptor=select_hbond_acceptor,
         # Covalent modifications
         covalent_bonds=covalent_bonds,
+        # Guiding potentials
+        guiding_potentials=guiding_potentials,
+        guide_scale=guide_scale,
+        guide_decay=guide_decay,
         # Mock mode
         use_mock=not FOUNDRY_AVAILABLE
     )
@@ -604,6 +615,7 @@ def run_ligandmpnn_for_ligand_binding(
     ligand_type: str = "small_molecule",
     num_sequences: int = 4,
     temperature: float = 0.1,
+    fixed_positions: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Run LigandMPNN with optimized settings for ligand binding design.
@@ -619,6 +631,9 @@ def run_ligandmpnn_for_ligand_binding(
         ligand_type: One of "small_molecule", "metal", "nucleotide", "protein", or "lanthanide"
         num_sequences: Number of sequences to generate (default: 4)
         temperature: Sampling temperature (default: 0.1)
+        fixed_positions: List of positions to keep fixed during design, e.g. ["A15", "A25"]
+                        These positions will NOT be redesigned. Critical for preserving
+                        metal-coordinating residues from templates.
 
     Returns:
         MPNN result with sequences and optional confidence metrics
@@ -717,8 +732,12 @@ def run_ligandmpnn_for_ligand_binding(
         "pack_with_ligand_context": preset["pack_with_ligand_context"],
         "number_of_packs_per_design": preset["number_of_packs_per_design"],
         "save_stats": preset["save_stats"],
+        # Fixed positions - prevent redesign of specified residues (e.g., metal coordinators)
+        "fixed_positions": fixed_positions,
     }
 
+    if fixed_positions:
+        print(f"[LigandMPNN] Fixed positions (will NOT be redesigned): {fixed_positions}")
     print(f"[LigandMPNN] Running with {ligand_type} preset: bias_AA={preset['bias_AA']}, cutoff={preset['ligand_cutoff_for_score']}Å")
 
     return handle_mpnn(mpnn_input)
@@ -5341,6 +5360,33 @@ def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     For lanthanides (TB, GD, EU, etc.), uses template-based design with pre-positioned
     coordinating Glu residues based on Caldwell et al. 2020 methodology.
+
+    Contig Format Reference:
+        - Comma (,): Separates contig elements
+        - /0: Chain break with zero gap (creates separate chain)
+        - X-Y: Design X to Y residues (range)
+        - ChainResnum: Keep specific residue from input (e.g., A10, B25)
+        Example: "60-80,/0,60-80" = Two chains of 60-80 residues each
+
+    Symmetry Options:
+        This function uses explicit 2-chain contig ("X,/0,X") rather than
+        RFdiffusion's C2 symmetry operator. Trade-offs:
+
+        **Current Approach (explicit 2-chain):**
+        - Pros: Each chain can have different template residues
+        - Pros: Works with asymmetric lanthanide coordination (3:1 splits)
+        - Cons: No guaranteed geometric symmetry
+        - Cons: May produce asymmetric interfaces
+
+        **Alternative (C2 symmetry operator):**
+        - Pros: Guaranteed geometric symmetry
+        - Pros: Metal exactly at symmetry axis
+        - Cons: Requires pre-symmetrized motifs
+        - Cons: Each chain must contribute identical coordination
+        - Use: `_design_symmetric_dimer()` for C2-symmetric designs
+
+        For applications requiring strict geometric symmetry, consider using
+        `_design_symmetric_dimer()` with `symmetry="C2"` parameter instead.
     """
     metal = job_input.get("metal", "ZN").upper()
     chain_length = job_input.get("chain_length", "60-80")
@@ -5512,6 +5558,16 @@ def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "seed": design_seed,
             "num_designs": 1,
             "is_non_loopy": True,  # Prefer structured elements near metal
+            # Guiding potentials for metal coordination optimization
+            # substrate_contacts: reinforces metal-protein proximity during diffusion
+            # monomer_ROG: encourages compact structures (prevents extended/unfolded designs)
+            # olig_contacts: optimizes inter-chain contacts at dimer interface
+            "guiding_potentials": [
+                "type:substrate_contacts,weight:5,s:1,r_0:8,d_0:4",
+                "type:monomer_ROG,weight:1,min_dist:15",
+                "type:olig_contacts,weight_intra:1,weight_inter:0.5",
+            ],
+            "guide_scale": 2,
         }
 
         # Add motif scaffolding parameters when using templates
@@ -5522,6 +5578,29 @@ def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
             if design_idx == 0:
                 print(f"[JointMetal] Added select_fixed_atoms for {len(fixed_atoms)} residues")
                 print(f"[JointMetal] Added select_hotspots: L1:all (ensure metal contact)")
+
+            # NEW: Add H-bond conditioning for secondary coordination sphere
+            # Carboxylate oxygens (OE1, OE2 for Glu; OD1, OD2 for Asp) are H-bond acceptors
+            # This reinforces the H-bond network around the metal site
+            # Research shows 11x activity boost from proper secondary sphere H-bonding
+            if template_used and template_type == "library" and LANTHANIDE_TEMPLATES_AVAILABLE:
+                hbond_acceptors = {}
+                template_def = TEMPLATE_LIBRARY.get(template_used, {})
+                for res in template_def.get("residues", []):
+                    chain = res.get("chain", "A")
+                    resnum = res.get("resnum")
+                    res_type = res.get("type", "GLU")
+                    if resnum:
+                        key = f"{chain}{resnum}"
+                        if res_type == "GLU":
+                            hbond_acceptors[key] = "OE1,OE2"
+                        elif res_type == "ASP":
+                            hbond_acceptors[key] = "OD1,OD2"
+
+                if hbond_acceptors:
+                    rfd3_input["select_hbond_acceptor"] = hbond_acceptors
+                    if design_idx == 0:
+                        print(f"[JointMetal] Added H-bond conditioning for {len(hbond_acceptors)} coordinating residues")
 
         # Run RFD3
         result = handle_rfd3(rfd3_input)
@@ -5551,6 +5630,15 @@ def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 from inference_utils import fix_pdb_for_mpnn
                 pdb_content = fix_pdb_for_mpnn(pdb_content)
 
+                # CRITICAL FIX: Extract fixed positions from template to preserve metal coordinators
+                # Without this, LigandMPNN may mutate the Asp/Glu residues positioned for
+                # metal coordination, destroying the carefully designed binding site geometry.
+                coord_fixed_positions = None
+                if template_used and LANTHANIDE_TEMPLATES_AVAILABLE:
+                    coord_fixed_positions = get_template_fixed_positions(template_used)
+                    if coord_fixed_positions:
+                        print(f"[JointMetal] Design {design_idx + 1}: Fixing coordinating residues: {coord_fixed_positions}")
+
                 # run_ligandmpnn_for_ligand_binding() automatically fixes incomplete backbone
                 # by adding missing O atoms with idealized geometry
                 mpnn_result = run_ligandmpnn_for_ligand_binding(
@@ -5558,6 +5646,7 @@ def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
                     ligand_type="lanthanide",
                     num_sequences=4,
                     temperature=0.1,
+                    fixed_positions=coord_fixed_positions,
                 )
                 if mpnn_result.get("status") == "completed":
                     result_data = mpnn_result.get("result", {})
@@ -5735,6 +5824,22 @@ def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 quality_rating = validation_result.get("quality_rating", "unknown")
                 coord_num = validation_result.get("coordination_number", 0)
                 print(f"[JointMetal] Validation: quality={quality_score:.1f} ({quality_rating}), coord={coord_num}/{target_coordination}")
+
+                # Add interface metrics if available
+                try:
+                    from binding_analysis import analyze_interface
+                    interface_result = analyze_interface(best_pdb)
+                    if interface_result.get("success"):
+                        validation_result["interface_metrics"] = {
+                            "contacts": interface_result.get("contacts", 0),
+                            "hbonds": interface_result.get("hbonds_int", 0),
+                            "buried_sasa": interface_result.get("dSASA_int", 0),
+                            "packstat": interface_result.get("packstat", 0),
+                        }
+                        print(f"[JointMetal] Interface: contacts={interface_result.get('contacts', 0)}, hbonds={interface_result.get('hbonds_int', 0)}")
+                except Exception as e:
+                    # Interface analysis is optional, don't fail validation
+                    validation_result["interface_metrics"] = {"error": str(e)}
 
                 # Add validation to best design's metrics
                 designs[best_design_idx]["validation"] = validation_result

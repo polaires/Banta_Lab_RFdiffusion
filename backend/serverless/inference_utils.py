@@ -1244,6 +1244,10 @@ def run_rfd3_inference(
     select_hbond_acceptor: Optional[Dict[str, str]] = None,
     # Covalent modifications (enzyme design)
     covalent_bonds: Optional[List[Dict[str, Any]]] = None,
+    # Guiding potentials (auxiliary potentials for design optimization)
+    guiding_potentials: Optional[List[str]] = None,
+    guide_scale: Optional[float] = None,
+    guide_decay: Optional[str] = None,
     # Mock mode
     use_mock: bool = False
 ) -> Dict[str, Any]:
@@ -1562,6 +1566,24 @@ def run_rfd3_inference(
             spec["struct_conn"] = struct_conn
             print(f"[RFD3] Added {len(struct_conn)} covalent bond(s) to spec")
 
+        # Guiding potentials for design optimization (e.g., substrate_contacts, monomer_ROG)
+        # NOTE: Foundry API may not support guiding_potentials in spec - store for config level
+        # These auxiliary potentials help guide the diffusion process toward better designs
+        # Example: guiding_potentials=["type:substrate_contacts,weight:5,s:1,r_0:8,d_0:4"]
+        _guiding_potentials_config = None
+        if guiding_potentials:
+            # Store for config level - NOT in spec (Foundry DesignInputSpecification rejects extras)
+            _guiding_potentials_config = {
+                "guiding_potentials": guiding_potentials,
+            }
+            if guide_scale is not None:
+                _guiding_potentials_config["guide_scale"] = guide_scale
+            if guide_decay is not None:
+                _guiding_potentials_config["guide_decay"] = guide_decay
+            print(f"[RFD3] Guiding potentials requested: {guiding_potentials}")
+            if guide_scale:
+                print(f"[RFD3] Guide scale: {guide_scale}, decay: {guide_decay or 'default'}")
+
         # Build inference sampler config for DIFFUSION parameters ONLY
         sampler_config: Dict[str, Any] = {}
         if num_timesteps is not None:
@@ -1607,6 +1629,21 @@ def run_rfd3_inference(
 
         print(f"[RFD3] Spec: {json.dumps({k: str(v)[:100] for k, v in spec.items()}, indent=2)}")
         print(f"[RFD3] Config: {json.dumps({k: str(v)[:100] for k, v in config_kwargs.items()}, indent=2)}")
+
+        # Try adding guiding_potentials at config level if requested
+        # Note: Foundry API may not support this - will fall back to design without potentials
+        if _guiding_potentials_config:
+            try:
+                # Try adding potentials to config (different possible locations)
+                test_config_kwargs = config_kwargs.copy()
+                test_config_kwargs["potentials"] = _guiding_potentials_config
+                test_config = RFD3InferenceConfig(**test_config_kwargs)
+                config_kwargs = test_config_kwargs
+                print(f"[RFD3] Added guiding_potentials to config.potentials")
+            except Exception as e:
+                # Foundry doesn't support guiding_potentials at config level either
+                print(f"[RFD3] WARNING: Foundry API does not support guiding_potentials ({type(e).__name__})")
+                print(f"[RFD3] Proceeding without guiding potentials - design will still work")
 
         # Create config and run
         config = RFD3InferenceConfig(**config_kwargs)

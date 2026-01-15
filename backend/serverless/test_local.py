@@ -6,15 +6,18 @@ Usage:
     python test_local.py [test_name]
 
 Tests:
-    health   - Check if server is running and GPU available
-    rfd3     - Test RFD3 protein design
-    rf3      - Test RF3 structure prediction
-    mpnn     - Test MPNN sequence design
-    all      - Run all tests
+    health                    - Check if server is running and GPU available
+    rfd3                      - Test RFD3 protein design
+    rf3                       - Test RF3 structure prediction
+    mpnn                      - Test MPNN sequence design
+    interface_metal_joint     - Test interface metal dimer (Zn, joint_metal)
+    interface_metal_lanthanide - Test lanthanide dimer (Tb, template library)
+    all                       - Run all tests
 
 Examples:
     python test_local.py health
     python test_local.py rfd3
+    python test_local.py interface_metal_joint
     python test_local.py all
 """
 
@@ -63,23 +66,23 @@ def call_api(task: str, params: dict = None, timeout: int = 300):
 
         # Check for errors
         if result.get("status") == "failed":
-            print(f"\n❌ FAILED: {result.get('error')}")
+            print(f"\n[FAILED] {result.get('error')}")
             if result.get("traceback"):
                 print(f"\nTraceback:\n{result.get('traceback')}")
             return False
         else:
-            print(f"\n✅ SUCCESS")
+            print(f"\n[SUCCESS]")
             return True
 
     except requests.exceptions.ConnectionError:
-        print(f"\n❌ Connection Error: Is the container running?")
+        print(f"\n[ERROR] Connection Error: Is the container running?")
         print(f"   Start with: docker-compose -f docker-compose.local.yml up")
         return False
     except requests.exceptions.Timeout:
-        print(f"\n❌ Timeout after {timeout}s")
+        print(f"\n[ERROR] Timeout after {timeout}s")
         return False
     except Exception as e:
-        print(f"\n❌ Error: {e}")
+        print(f"\n[ERROR] {e}")
         return False
 
 
@@ -143,6 +146,53 @@ END
     }, timeout=300)
 
 
+def test_interface_metal_joint():
+    """Test interface metal dimer design - joint_metal approach (mimics frontend)"""
+    return call_api("interface_metal_design", {
+        # Frontend InterfaceMetalForm.tsx default values
+        "metal": "ZN",
+        "approach": "joint_metal",
+        "chain_length": "60-80",
+        "num_designs": 1,
+        "num_timesteps": 50,
+        "step_scale": 1.0,
+        "gamma_0": 0.2,
+        # metal_config (from handleSubmit lines 331-337)
+        "metal_config": {
+            "coordination_split": [2, 2],
+            "geometry": "tetrahedral",
+            "chain_a_donors": ["His", "His"],
+            "chain_b_donors": ["Cys", "Cys"],
+            "include_waters": False,
+        },
+    }, timeout=900)
+
+
+def test_interface_metal_lanthanide():
+    """Test lanthanide metal dimer design with template library (mimics frontend)"""
+    return call_api("interface_metal_design", {
+        "metal": "TB",
+        "approach": "joint_metal",
+        "chain_length": "60-80",
+        "num_designs": 1,
+        "num_timesteps": 50,
+        "step_scale": 1.0,
+        "gamma_0": 0.2,
+        # Lanthanide-specific (from frontend isLanthanide block)
+        "template_name": "caldwell_4",
+        "add_trp_antenna": True,
+        "validate_coordination": True,
+        # metal_config
+        "metal_config": {
+            "coordination_split": [4, 4],  # CN=8 for caldwell_4
+            "geometry": "square_antiprismatic",
+            "chain_a_donors": ["Asp", "Asp", "Asp", "Asp"],
+            "chain_b_donors": ["Glu", "Glu", "Glu", "Glu"],
+            "include_waters": False,
+        },
+    }, timeout=900)
+
+
 def run_all_tests():
     """Run all tests"""
     results = {}
@@ -152,6 +202,8 @@ def run_all_tests():
         ("rfd3", test_rfd3),
         ("rf3", test_rf3),
         ("mpnn", test_mpnn),
+        ("interface_metal_joint", test_interface_metal_joint),
+        ("interface_metal_lanthanide", test_interface_metal_lanthanide),
     ]
 
     for name, test_fn in tests:
@@ -162,11 +214,11 @@ def run_all_tests():
     print("SUMMARY")
     print(f"{'='*60}")
     for name, passed in results.items():
-        status = "✅ PASS" if passed else "❌ FAIL"
+        status = "[PASS]" if passed else "[FAIL]"
         print(f"  {name}: {status}")
 
     all_passed = all(results.values())
-    print(f"\nOverall: {'✅ ALL TESTS PASSED' if all_passed else '❌ SOME TESTS FAILED'}")
+    print(f"\nOverall: {'[ALL TESTS PASSED]' if all_passed else '[SOME TESTS FAILED]'}")
     return all_passed
 
 
@@ -183,6 +235,8 @@ def main():
         "rfd3_binder": test_rfd3_binder,
         "rf3": test_rf3,
         "mpnn": test_mpnn,
+        "interface_metal_joint": test_interface_metal_joint,
+        "interface_metal_lanthanide": test_interface_metal_lanthanide,
         "all": run_all_tests,
     }
 

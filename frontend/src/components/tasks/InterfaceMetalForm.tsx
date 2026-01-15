@@ -710,7 +710,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {TEMPLATE_LIBRARY_OPTIONS.filter(t => !t.deprecated).map((template) => {
-                    const isRecommended = template.recommendedFor.includes(selectedMetal);
+                    const isRecommended = (template.recommendedFor as readonly string[]).includes(selectedMetal);
                     return (
                       <button
                         key={template.id}

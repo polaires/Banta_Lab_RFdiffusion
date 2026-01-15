@@ -129,6 +129,7 @@ const TEMPLATE_LIBRARY_OPTIONS = [
     recommendedFor: ['TB', 'EU'],
     icon: 'star',
     recommended: true,
+    deprecated: false,
   },
   {
     id: 'ef_hand_8',
@@ -138,6 +139,7 @@ const TEMPLATE_LIBRARY_OPTIONS = [
     geometry: 'distorted_square_antiprism',
     recommendedFor: ['GD', 'YB'],
     icon: 'hand_gesture',
+    deprecated: false,
   },
   {
     id: 'lanm_mixed',
@@ -147,6 +149,7 @@ const TEMPLATE_LIBRARY_OPTIONS = [
     geometry: 'tricapped_trigonal_prism',
     recommendedFor: ['TB', 'GD'],
     icon: 'water_drop',
+    deprecated: false,
   },
   {
     id: 'high_coord_9',
@@ -156,6 +159,7 @@ const TEMPLATE_LIBRARY_OPTIONS = [
     geometry: 'tricapped_trigonal_prism',
     recommendedFor: ['LA', 'CE'],
     icon: 'expand',
+    deprecated: false,
   },
   {
     id: 'legacy',

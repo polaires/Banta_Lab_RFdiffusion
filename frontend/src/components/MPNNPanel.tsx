@@ -29,6 +29,18 @@ export function MPNNPanel() {
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Advanced LigandMPNN parameters (Nature Methods 2025)
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [packSideChains, setPackSideChains] = useState(false);
+  const [packWithLigandContext, setPackWithLigandContext] = useState(true);
+  const [numberOfPacksPerDesign, setNumberOfPacksPerDesign] = useState(4);
+  const [biasAA, setBiasAA] = useState('');
+  const [omitAA, setOmitAA] = useState('');
+  const [modelNoiseLevel, setModelNoiseLevel] = useState<'005' | '010' | '020' | '030'>('010');
+  const [ligandCutoffForScore, setLigandCutoffForScore] = useState(8.0);
+  const [useSideChainContext, setUseSideChainContext] = useState(false);
+  const [saveStats, setSaveStats] = useState(false);
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -62,6 +74,16 @@ export function MPNNPanel() {
         temperature,
         model_type: modelType,
         remove_waters: removeWaters,
+        // Advanced LigandMPNN parameters (only include if set)
+        ...(packSideChains && { pack_side_chains: packSideChains }),
+        ...(packSideChains && { pack_with_ligand_context: packWithLigandContext }),
+        ...(packSideChains && { number_of_packs_per_design: numberOfPacksPerDesign }),
+        ...(biasAA && { bias_AA: biasAA }),
+        ...(omitAA && { omit_AA: omitAA }),
+        ...(modelNoiseLevel !== '010' && { model_noise_level: modelNoiseLevel }),
+        ...(ligandCutoffForScore !== 8.0 && { ligand_cutoff_for_score: ligandCutoffForScore }),
+        ...(useSideChainContext && { use_side_chain_context: useSideChainContext }),
+        ...(saveStats && { save_stats: saveStats }),
       };
       const response = await api.submitMPNNDesign(request);
 
@@ -281,6 +303,157 @@ export function MPNNPanel() {
               <p className="text-xs text-slate-500">Exclude water from structural context</p>
             </div>
           </label>
+
+          {/* Advanced Options Toggle */}
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-slate-600">tune</span>
+              <span className="text-sm font-medium text-slate-900">Advanced LigandMPNN Options</span>
+            </div>
+            <span className={`material-symbols-outlined text-slate-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>
+              expand_more
+            </span>
+          </button>
+
+          {/* Advanced Options Panel */}
+          {showAdvanced && (
+            <div className="space-y-4 p-4 bg-gradient-to-b from-violet-50 to-slate-50 rounded-xl border border-violet-100">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="material-symbols-outlined text-violet-600 text-sm">science</span>
+                <span className="text-xs font-bold text-violet-700 uppercase tracking-wider">LigandMPNN Settings (Nature Methods 2025)</span>
+              </div>
+
+              {/* Model Noise Level */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-700">Model Noise Level</label>
+                <select
+                  value={modelNoiseLevel}
+                  onChange={(e) => setModelNoiseLevel(e.target.value as '005' | '010' | '020' | '030')}
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none text-sm"
+                >
+                  <option value="005">0.05Å - High accuracy (may overfit)</option>
+                  <option value="010">0.10Å - Default (balanced)</option>
+                  <option value="020">0.20Å - Robust to backbone errors</option>
+                  <option value="030">0.30Å - Very robust (lower recovery)</option>
+                </select>
+              </div>
+
+              {/* Ligand Cutoff */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-700">Ligand Cutoff Distance: {ligandCutoffForScore}Å</label>
+                <input
+                  type="range"
+                  min={4}
+                  max={12}
+                  step={0.5}
+                  value={ligandCutoffForScore}
+                  onChange={(e) => setLigandCutoffForScore(parseFloat(e.target.value))}
+                  className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-violet-600"
+                />
+                <p className="text-xs text-slate-500">Distance for ligand-adjacent residue scoring (6Å recommended for small molecules)</p>
+              </div>
+
+              {/* AA Bias */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-700">Amino Acid Bias</label>
+                <input
+                  type="text"
+                  value={biasAA}
+                  onChange={(e) => setBiasAA(e.target.value)}
+                  placeholder="W:3.0,Y:2.0,F:1.5,C:-5.0"
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none text-sm font-mono"
+                />
+                <p className="text-xs text-slate-500">Positive = favor, Negative = penalize (e.g., favor aromatics for hydrophobic ligands)</p>
+              </div>
+
+              {/* Omit AA */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-slate-700">Omit Amino Acids</label>
+                <input
+                  type="text"
+                  value={omitAA}
+                  onChange={(e) => setOmitAA(e.target.value)}
+                  placeholder="C"
+                  className="w-full px-3 py-2 bg-white rounded-lg border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none text-sm font-mono"
+                />
+                <p className="text-xs text-slate-500">Completely exclude these residues (e.g., C to avoid disulfides)</p>
+              </div>
+
+              {/* Sidechain Packing */}
+              <div className="space-y-3 pt-2 border-t border-violet-200">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={packSideChains}
+                    onChange={(e) => setPackSideChains(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-slate-900">Enable Sidechain Packing</span>
+                    <p className="text-xs text-slate-500">Generate sidechain conformations (chi angles)</p>
+                  </div>
+                </label>
+
+                {packSideChains && (
+                  <div className="ml-7 space-y-3">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={packWithLigandContext}
+                        onChange={(e) => setPackWithLigandContext(e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                      />
+                      <span className="text-sm text-slate-700">Pack with ligand context</span>
+                    </label>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-700">Packs per design: {numberOfPacksPerDesign}</label>
+                      <input
+                        type="range"
+                        min={1}
+                        max={10}
+                        value={numberOfPacksPerDesign}
+                        onChange={(e) => setNumberOfPacksPerDesign(parseInt(e.target.value))}
+                        className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-violet-600"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Additional Options */}
+              <div className="space-y-2 pt-2 border-t border-violet-200">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useSideChainContext}
+                    onChange={(e) => setUseSideChainContext(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-slate-900">Use sidechain context</span>
+                    <p className="text-xs text-slate-500">Include fixed residue sidechains as design context</p>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={saveStats}
+                    onChange={(e) => setSaveStats(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-slate-900">Save confidence metrics</span>
+                    <p className="text-xs text-slate-500">Return ligand_confidence and overall_confidence scores</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Column - File Upload */}

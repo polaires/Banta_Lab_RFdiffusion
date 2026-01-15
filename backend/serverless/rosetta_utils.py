@@ -506,6 +506,289 @@ def clean_rosetta_pdb(pdb_content: str) -> str:
     return '\n'.join(cleaned_lines)
 
 
+def fastrelax_protein_only(
+    pdb_content: str,
+    max_iter: int = 200,
+    constrain_coords: bool = True,
+    repack_only: bool = False,
+) -> Dict[str, Any]:
+    """
+    Run FastRelax on protein structure (with optional HETATM preservation).
+
+    This function is designed for sidechain packing after MPNN sequence design,
+    following the BindCraft approach: MPNN for sequence, FastRelax for sidechains.
+
+    Metal ions (HETATM) are preserved at their original coordinates and not
+    parameterized - they're simply separated during relaxation and recombined.
+
+    Args:
+        pdb_content: PDB file content (protein + optional HETATM metals)
+        max_iter: Maximum minimization iterations (default 200, BindCraft uses 200)
+        constrain_coords: Constrain backbone to starting coordinates (default True)
+        repack_only: If True, only repack sidechains without minimization (faster)
+
+    Returns:
+        Dict with:
+            status: "completed" or "error"
+            relaxed_pdb: Relaxed PDB content (if successful)
+            energy_before: Rosetta energy before relaxation
+            energy_after: Rosetta energy after relaxation
+            error: Error message (if failed)
+    """
+    if not PYROSETTA_AVAILABLE:
+        return {
+            "status": "error",
+            "error": "PyRosetta not available"
+        }
+
+    if not init_pyrosetta():
+        return {
+            "status": "error",
+            "error": "Failed to initialize PyRosetta"
+        }
+
+    input_path = None
+    output_path = None
+
+    try:
+        # Separate protein and HETATM (metals, waters, etc.)
+        protein_lines = []
+        hetatm_lines = []
+
+        for line in pdb_content.split('\n'):
+            if line.startswith('ATOM'):
+                protein_lines.append(line)
+            elif line.startswith('HETATM'):
+                hetatm_lines.append(line)
+            elif line.startswith('TER') and protein_lines:
+                protein_lines.append(line)
+
+        protein_pdb = '\n'.join(protein_lines) + '\nEND\n'
+
+        print(f"[RosettaUtils] Protein: {len(protein_lines)} atoms, HETATM: {len(hetatm_lines)} atoms")
+
+        # Write protein-only PDB
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.pdb', delete=False
+        ) as f:
+            f.write(protein_pdb)
+            input_path = f.name
+
+        # Load pose
+        pose = pr.pose_from_pdb(input_path)
+        print(f"[RosettaUtils] Loaded pose with {pose.total_residue()} residues")
+
+        # Rebuild missing sidechain atoms using idealized geometry
+        # This is critical when loading backbone-only structures after sequence redesign
+        from pyrosetta.rosetta.protocols.simple_moves import ReturnSidechainMover
+        from pyrosetta.rosetta.core.pack.task import TaskFactory
+        from pyrosetta.rosetta.core.pack.task.operation import (
+            RestrictToRepacking, InitializeFromCommandline,
+            OperateOnResidueSubset, PreventRepackingRLT
+        )
+        from pyrosetta.rosetta.core.select.residue_selector import ResidueIndexSelector
+        from pyrosetta.rosetta.protocols.minimization_packing import PackRotamersMover
+
+        print("[RosettaUtils] Rebuilding missing sidechains...")
+
+        # Identify coordinating residues that should NOT be repacked
+        # They already have proper metal-coordinating geometry from the template
+        coordinating_residues = []
+        metal_coord_distance = 3.5  # Å
+
+        # Find metal positions from HETATM lines
+        metal_positions = []
+        for line in hetatm_lines:
+            res_name = line[17:20].strip().upper() if len(line) > 20 else ""
+            if res_name in {'TB', 'GD', 'EU', 'LA', 'CE', 'PR', 'ND', 'SM', 'DY', 'HO', 'ER', 'TM', 'YB', 'LU'}:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_positions.append((x, y, z))
+                except (ValueError, IndexError):
+                    pass
+
+        # Check which residues have carboxylate oxygens close to metal
+        for res_num in range(1, pose.total_residue() + 1):
+            residue = pose.residue(res_num)
+            res_name = residue.name3()
+
+            if res_name in ['ASP', 'GLU']:
+                # Check OD1/OD2 (Asp) or OE1/OE2 (Glu)
+                oxygen_names = ['OD1', 'OD2'] if res_name == 'ASP' else ['OE1', 'OE2']
+                for o_name in oxygen_names:
+                    if residue.has(o_name):
+                        o_idx = residue.atom_index(o_name)
+                        o_pos = residue.xyz(o_idx)
+
+                        for metal_pos in metal_positions:
+                            import math
+                            dist = math.sqrt(
+                                (o_pos.x - metal_pos[0])**2 +
+                                (o_pos.y - metal_pos[1])**2 +
+                                (o_pos.z - metal_pos[2])**2
+                            )
+                            if dist < metal_coord_distance:
+                                if res_num not in coordinating_residues:
+                                    coordinating_residues.append(res_num)
+                                    print(f"[RosettaUtils] Protecting coordinating residue {res_num} ({res_name}) from repacking (dist={dist:.2f}Å)")
+                                break
+
+        # Create a task that allows repacking of all residues EXCEPT coordinating ones
+        tf = TaskFactory()
+        tf.push_back(InitializeFromCommandline())
+        tf.push_back(RestrictToRepacking())  # Don't change sequence, just repack
+
+        # Prevent repacking of coordinating residues
+        if coordinating_residues:
+            print(f"[RosettaUtils] Protecting {len(coordinating_residues)} coordinating residues from repacking")
+            for res_num in coordinating_residues:
+                selector = ResidueIndexSelector(str(res_num))
+                # PreventRepackingRLT is a ResLvlTaskOperation (required by OperateOnResidueSubset)
+                prevent_op = OperateOnResidueSubset(PreventRepackingRLT(), selector)
+                tf.push_back(prevent_op)
+
+        scorefxn = get_score_function()
+
+        # Run a quick packing to build sidechains (except coordinating residues)
+        packer = PackRotamersMover()
+        packer.task_factory(tf)
+        packer.score_function(scorefxn)
+        packer.apply(pose)
+        print(f"[RosettaUtils] Sidechains rebuilt via packing (protected: {len(coordinating_residues)} residues)")
+
+        energy_before = float(scorefxn(pose))
+        print(f"[RosettaUtils] Energy before relaxation: {energy_before:.1f}")
+
+        # Create MoveMap
+        mmf = MoveMap()
+
+        if repack_only:
+            # Only allow sidechain movement (chi angles)
+            print("[RosettaUtils] Repack-only mode: sidechains only")
+            for res in range(1, pose.total_residue() + 1):
+                # Freeze chi angles for coordinating residues to preserve metal geometry
+                if res in coordinating_residues:
+                    mmf.set_chi(res, False)
+                    mmf.set_bb(res, False)
+                else:
+                    mmf.set_chi(res, True)
+                    mmf.set_bb(res, False)
+        else:
+            # Full relaxation: backbone + sidechains
+            print("[RosettaUtils] Full relax mode: backbone + sidechains")
+            for res in range(1, pose.total_residue() + 1):
+                # Freeze chi angles for coordinating residues to preserve metal geometry
+                if res in coordinating_residues:
+                    mmf.set_chi(res, False)
+                    mmf.set_bb(res, False)
+                else:
+                    mmf.set_chi(res, True)
+                    mmf.set_bb(res, True)
+
+        if coordinating_residues:
+            print(f"[RosettaUtils] Froze chi angles for {len(coordinating_residues)} coordinating residues")
+
+            # Add coordinate constraints for coordinating oxygen atoms
+            # This ensures OE1/OE2 atoms stay near the metal even if backbone shifts
+            from pyrosetta.rosetta.core.scoring.constraints import CoordinateConstraint
+            from pyrosetta.rosetta.core.scoring.func import HarmonicFunc
+            from pyrosetta.rosetta.core.id import AtomID
+            from pyrosetta.rosetta.numeric import xyzVector_double_t as V3
+
+            # Get virtual root atom for coordinate constraints
+            # Use CA of first residue as anchor
+            anchor_atom = AtomID(pose.residue(1).atom_index("CA"), 1)
+
+            for res_num in coordinating_residues:
+                residue = pose.residue(res_num)
+                res_name = residue.name3()
+
+                # Get oxygen atom names based on residue type
+                oxygen_names = ['OD1', 'OD2'] if res_name == 'ASP' else ['OE1', 'OE2']
+
+                for o_name in oxygen_names:
+                    if residue.has(o_name):
+                        o_idx = residue.atom_index(o_name)
+                        o_pos = residue.xyz(o_idx)
+
+                        # Create coordinate constraint with tight harmonic (sd=0.1 Å)
+                        constraint_atom = AtomID(o_idx, res_num)
+                        target_pos = V3(o_pos.x, o_pos.y, o_pos.z)
+                        harmonic = HarmonicFunc(0.0, 0.1)  # 0 distance, 0.1 Å std dev
+
+                        coord_constraint = CoordinateConstraint(
+                            constraint_atom, anchor_atom, target_pos, harmonic
+                        )
+                        pose.add_constraint(coord_constraint)
+
+            print(f"[RosettaUtils] Added coordinate constraints for coordinating oxygens")
+
+            # Enable coordinate constraints in scoring
+            from pyrosetta.rosetta.core.scoring import ScoreType
+            scorefxn.set_weight(ScoreType.coordinate_constraint, 10.0)
+
+        # No rigid body movements
+        mmf.set_jump(False)
+
+        # Setup FastRelax
+        fastrelax = FastRelax()
+        fastrelax.set_scorefxn(scorefxn)
+        fastrelax.set_movemap(mmf)
+        fastrelax.max_iter(max_iter)
+        fastrelax.min_type("lbfgs_armijo_nonmonotone")
+
+        if constrain_coords:
+            fastrelax.constrain_relax_to_start_coords(True)
+
+        # Run relaxation
+        print(f"[RosettaUtils] Running FastRelax (max_iter={max_iter}, repack_only={repack_only})...")
+        fastrelax.apply(pose)
+
+        # Score after
+        energy_after = float(scorefxn(pose))
+        print(f"[RosettaUtils] Energy after: {energy_after:.1f}, ΔE={energy_after - energy_before:.1f}")
+
+        # Output relaxed structure
+        output_path = input_path.replace('.pdb', '_relaxed.pdb')
+        pose.dump_pdb(output_path)
+
+        with open(output_path) as f:
+            relaxed_protein_pdb = f.read()
+
+        # Clean Rosetta metadata
+        relaxed_protein_pdb = clean_rosetta_pdb(relaxed_protein_pdb)
+
+        # Recombine with original HETATM
+        protein_cleaned = [l for l in relaxed_protein_pdb.split('\n')
+                          if not l.startswith('END') and l.strip()]
+
+        relaxed_pdb = '\n'.join(protein_cleaned + hetatm_lines + ['END'])
+
+        return {
+            "status": "completed",
+            "relaxed_pdb": relaxed_pdb,
+            "energy_before": energy_before,
+            "energy_after": energy_after,
+            "energy_change": energy_after - energy_before,
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+    finally:
+        if input_path and os.path.exists(input_path):
+            os.unlink(input_path)
+        if output_path and os.path.exists(output_path):
+            os.unlink(output_path)
+
+
 def score_interface(
     pdb_content: str,
     chain_a: str = "A",

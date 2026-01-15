@@ -11,7 +11,7 @@ import { TaskPanel } from '@/components/TaskPanel';
 import { RFD3Panel } from '@/components/RFD3Panel';
 import { RF3Panel } from '@/components/RF3Panel';
 import { MPNNPanel } from '@/components/MPNNPanel';
-import { JobsPanel } from '@/components/JobsPanel';
+import { DesignHistoryPanel } from '@/components/DesignHistoryPanel';
 import { NotificationToast } from '@/components/NotificationToast';
 
 export default function Home() {
@@ -51,7 +51,7 @@ export default function Home() {
           {activeTab === 'rfd3' && <RFD3Panel />}
           {activeTab === 'mpnn' && <MPNNPanel />}
           {activeTab === 'rf3' && <RF3Panel />}
-          {activeTab === 'jobs' && <JobsPanel />}
+          {activeTab === 'jobs' && <DesignHistoryPanel />}
         </div>
 
         {/* Collapsible Structure Viewer - shown for RFD3, RF3, and Jobs */}

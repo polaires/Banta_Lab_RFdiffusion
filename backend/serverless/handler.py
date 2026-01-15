@@ -104,19 +104,67 @@ from hotspot_detection import (
     format_hotspots_for_rfd3,
 )
 
+# Import lanthanide template generators and validation
+try:
+    from lanthanide_templates import (
+        generate_ef_hand_template,
+        generate_c4_symmetric_template,
+        get_template,
+        is_lanthanide,
+        LANTHANIDE_PARAMS,
+        TEMPLATE_TYPES,
+        # NEW: Template library system
+        TEMPLATE_LIBRARY,
+        METAL_TEMPLATE_RECOMMENDATIONS,
+        recommend_template,
+        get_template_info,
+        list_templates,
+        generate_template_from_library,
+        generate_parametric_template,
+        get_template_for_metal,
+    )
+    LANTHANIDE_TEMPLATES_AVAILABLE = True
+except ImportError:
+    LANTHANIDE_TEMPLATES_AVAILABLE = False
+    print("[Handler] Warning: lanthanide_templates not available")
+
+try:
+    from metal_validation import (
+        validate_lanthanide_site,
+        calculate_tebl_readiness,
+        get_refinement_parameters,
+        batch_validate,
+        LANTHANIDE_CRITERIA,
+    )
+    METAL_VALIDATION_AVAILABLE = True
+except ImportError:
+    METAL_VALIDATION_AVAILABLE = False
+    print("[Handler] Warning: metal_validation not available")
+
+try:
+    from tebl_analysis import (
+        predict_tebl_signal,
+        add_trp_antenna_to_design,
+    )
+    TEBL_ANALYSIS_AVAILABLE = True
+except ImportError:
+    TEBL_ANALYSIS_AVAILABLE = False
+    print("[Handler] Warning: tebl_analysis not available")
+
 # ============== Ligand H-bond Presets ==============
 
-# Azobenzene RDKit atom naming (canonical)
+# Azobenzene RDKit atom naming (canonical SMILES: c1ccc(\N=N\c2ccccc2)cc1)
+# RDKit generates atoms in order: Ring1 (C1-C6), Azo (N7,N8), Ring2 (C9-C14)
 AZOBENZENE_ATOMS = {
-    "ring1": ["C1", "C2", "C3", "C4", "C13", "C14"],
-    "ring2": ["C7", "C8", "C9", "C10", "C11", "C12"],
-    "azo": ["N5", "N6"],  # H-bond acceptor sites (sp2 nitrogen)
+    "ring1": ["C1", "C2", "C3", "C4", "C5", "C6"],
+    "ring2": ["C9", "C10", "C11", "C12", "C13", "C14"],
+    "azo": ["N7", "N8"],  # H-bond acceptor sites (sp2 nitrogen)
 }
 
 # H-bond presets for common ligands
 LIGAND_HBOND_PRESETS = {
     "azobenzene": {
-        "acceptors": {"UNL": "N5,N6"},  # Azo nitrogens are sp2 acceptors
+        "acceptors": {"UNL": "N7,N8"},  # Azo nitrogens are sp2 acceptors
         "donors": {},
     },
     "atp": {
@@ -272,6 +320,9 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Interface ligand design (separable dimer)
         elif task == "interface_ligand_design":
             return handle_interface_ligand_design(job_input)
+        # Interface metal design (metal-coordinated dimer)
+        elif task == "interface_metal_design":
+            return handle_interface_metal_design(job_input)
         # FastRelax for structure refinement
         elif task == "fastrelax":
             return handle_fastrelax(job_input)
@@ -287,7 +338,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -510,6 +561,12 @@ def handle_mpnn(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     # Advanced LigandMPNN parameters
     pack_side_chains = job_input.get("pack_side_chains", False)
+
+    # Fix incomplete backbone when sidechain packing is enabled
+    # LigandMPNN sidechain packer requires N, CA, C, O for each residue
+    if pack_side_chains:
+        from inference_utils import fix_incomplete_backbone
+        pdb_content = fix_incomplete_backbone(pdb_content)
     pack_with_ligand_context = job_input.get("pack_with_ligand_context", True)
     number_of_packs_per_design = job_input.get("number_of_packs_per_design", 4)
     bias_AA = job_input.get("bias_AA")  # e.g., "W:3.0,Y:2.0,C:-5.0"
@@ -554,9 +611,12 @@ def run_ligandmpnn_for_ligand_binding(
     This helper function provides preset configurations based on the Nature Methods
     2025 paper recommendations for different ligand types.
 
+    Automatically fixes incomplete backbone atoms (adds missing O atoms using
+    idealized geometry) as required by LigandMPNN's sidechain packer.
+
     Args:
         pdb_content: PDB content with ligand (HETATM records)
-        ligand_type: One of "small_molecule", "metal", "nucleotide", or "protein"
+        ligand_type: One of "small_molecule", "metal", "nucleotide", "protein", or "lanthanide"
         num_sequences: Number of sequences to generate (default: 4)
         temperature: Sampling temperature (default: 0.1)
 
@@ -570,6 +630,11 @@ def run_ligandmpnn_for_ligand_binding(
             num_sequences=4,
         )
     """
+    # Fix incomplete backbone atoms (LigandMPNN sidechain packer requires N, CA, C, O)
+    # This adds missing O atoms with idealized geometry following RFD3's approach
+    from inference_utils import fix_incomplete_backbone
+    pdb_content = fix_incomplete_backbone(pdb_content)
+
     # Preset configurations by ligand type (from Nature Methods 2025)
     presets = {
         "small_molecule": {
@@ -588,7 +653,7 @@ def run_ligandmpnn_for_ligand_binding(
             "bias_AA": "H:3.0,C:3.0,D:2.0,E:2.0",  # Metal-coordinating residues
             "omit_AA": None,  # Allow cysteine for metal coordination
             "ligand_cutoff_for_score": 4.0,  # Very tight for metals
-            "model_noise_level": "005",  # High accuracy for metals
+            "model_noise_level": "010",  # Default (005 checkpoint often not available)
             "pack_side_chains": True,
             "pack_with_ligand_context": True,
             "number_of_packs_per_design": 4,
@@ -615,6 +680,23 @@ def run_ligandmpnn_for_ligand_binding(
             "pack_with_ligand_context": False,
             "number_of_packs_per_design": 1,
             "save_stats": False,
+        },
+        "lanthanide": {
+            # For lanthanide metals (TB, GD, EU, LA, YB) - Caldwell et al. 2020
+            # Lanthanides strongly prefer carboxylate oxygen donors (Glu, Asp)
+            # 8-9 coordination typical, requires ~4 Glu/Asp per chain at interface
+            # Note: Asp (D) is preferred over Glu (E) for tighter coordination geometry
+            # EF-hand loop pattern: DxDxDGxIxxE shows more Asp than Glu
+            "bias_AA": "D:6.0,E:4.0,N:1.0,Q:1.0",  # Strong Asp bias (tighter coordination)
+            "omit_AA": "C,H",  # Avoid His/Cys (poor lanthanide donors)
+            "ligand_cutoff_for_score": 4.0,  # Tight for metal coordination
+            "model_noise_level": "005",  # Low noise for precise coordination
+            # NOTE: LigandMPNN atomize_side_chains is important for proper metal binding
+            # Fix atom name issues before MPNN to avoid NaN coordinates in output
+            "pack_side_chains": True,  # Enable proper sidechain packing with metal context
+            "pack_with_ligand_context": True,  # Use metal context for better packing
+            "number_of_packs_per_design": 4,  # Multiple packs to find best rotamers
+            "save_stats": True,
         },
     }
 
@@ -4006,7 +4088,7 @@ def _design_joint_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     # Determine atoms for asymmetric binding based on ligand
     # For cis-azobenzene, use different phenyl rings for each chain
-    # RDKit naming: C1-C4 + C13-C14 (first ring), C7-C12 (second ring), N5-N6 (azo)
+    # RDKit naming: Ring1 (C1-C6), Azo (N7,N8), Ring2 (C9-C14)
     is_azobenzene = "N=N" in (ligand_smiles or "")
 
     # Allow user to control H-bond vs hydrophobic balance
@@ -4015,23 +4097,23 @@ def _design_joint_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     if is_azobenzene:
         # Chain A binds Ring 1, Chain B binds Ring 2
-        hotspots_a = "C1,C2,C3,C4"  # First phenyl ring carbons
-        hotspots_b = "C7,C8,C9,C10,C11,C12"  # Second phenyl ring carbons
+        hotspots_a = "C1,C2,C3,C4,C5,C6"  # First phenyl ring carbons
+        hotspots_b = "C9,C10,C11,C12,C13,C14"  # Second phenyl ring carbons
 
         if binding_mode == "hydrophobic":
             # Full hydrophobic burial - best affinity, no H-bond specificity
-            burial_atoms = "C1,C2,C3,C4,C7,C8,C9,C10,C11,C12,N5,N6"
+            burial_atoms = "C1,C2,C3,C4,C5,C6,C9,C10,C11,C12,C13,C14,N7,N8"
             partial_burial_atoms = ""
             use_hbond_conditioning = False
         elif binding_mode == "hbond_focused":
             # H-bond focused - prioritize H-bonds over hydrophobic contacts
-            burial_atoms = "C4,C7"  # Only interface carbons
+            burial_atoms = "C6,C9"  # Only interface carbons (near azo)
             partial_burial_atoms = ""
             use_hbond_conditioning = True
         else:  # "balanced" (default)
             # Balance: phenyl rings buried, azo at interface for potential H-bonds
-            burial_atoms = "C1,C2,C3,C4,C7,C8,C9,C10,C11,C12"  # Phenyl carbons buried
-            partial_burial_atoms = "N5,N6"  # Azo at interface (can form H-bonds)
+            burial_atoms = "C1,C2,C3,C4,C5,C6,C9,C10,C11,C12,C13,C14"  # Phenyl carbons buried
+            partial_burial_atoms = "N7,N8"  # Azo at interface (can form H-bonds)
             use_hbond_conditioning = True
 
         print(f"[JointHeterodimer] Binding mode: {binding_mode}")
@@ -4071,8 +4153,8 @@ def _design_joint_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
         # Add H-bond conditioning (conditional based on binding mode)
         if use_hbond_conditioning and is_azobenzene:
-            rfd3_input["select_hbond_acceptor"] = {"UNL": "N5,N6"}
-            print(f"[JointHeterodimer] H-bond conditioning: select_hbond_acceptor=N5,N6")
+            rfd3_input["select_hbond_acceptor"] = {"UNL": "N7,N8"}
+            print(f"[JointHeterodimer] H-bond conditioning: select_hbond_acceptor=N7,N8")
 
         # Run RFD3 with multi-chain contig
         result = handle_rfd3(rfd3_input)
@@ -4141,20 +4223,20 @@ def _design_joint_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
         if not design_entry["metrics"]["has_clashes"]:
             score += 10
 
-        # H-bond bonus scoring for azobenzene N5/N6
-        n5_hbonds = checks.get("n5_hbonds", 0)
-        n6_hbonds = checks.get("n6_hbonds", 0)
+        # H-bond bonus scoring for azobenzene N7/N8 (azo nitrogens)
+        n7_hbonds = checks.get("n7_hbonds", 0)
+        n8_hbonds = checks.get("n8_hbonds", 0)
         total_ligand_hbonds = checks.get("total_ligand_hbonds", 0)
-        if n5_hbonds >= 1:
-            score += 10  # N5 has at least one H-bond
-        if n6_hbonds >= 1:
-            score += 10  # N6 has at least one H-bond
-        if n5_hbonds >= 1 and n6_hbonds >= 1:
+        if n7_hbonds >= 1:
+            score += 10  # N7 has at least one H-bond
+        if n8_hbonds >= 1:
+            score += 10  # N8 has at least one H-bond
+        if n7_hbonds >= 1 and n8_hbonds >= 1:
             score += 5  # Both azo nitrogens have H-bonds (extra bonus)
 
         # Add H-bond metrics to design entry
-        design_entry["metrics"]["n5_hbonds"] = n5_hbonds
-        design_entry["metrics"]["n6_hbonds"] = n6_hbonds
+        design_entry["metrics"]["n7_hbonds"] = n7_hbonds
+        design_entry["metrics"]["n8_hbonds"] = n8_hbonds
         design_entry["metrics"]["total_ligand_hbonds"] = total_ligand_hbonds
 
         # Add comprehensive interaction analysis (from validation or compute fresh)
@@ -4243,26 +4325,26 @@ def _design_asymmetric_rasa_heterodimer(job_input: Dict[str, Any]) -> Dict[str, 
 
     # For azobenzene, define complementary RASA constraints
     # RDKit atom naming for azobenzene "c1ccc(/N=N\\c2ccccc2)cc1":
-    # Ring 1: C1,C2,C3,C4,C13,C14 (first phenyl ring)
-    # Ring 2: C7,C8,C9,C10,C11,C12 (second phenyl ring)
-    # Azo: N5,N6
+    # Ring 1: C1,C2,C3,C4,C5,C6 (first phenyl ring)
+    # Ring 2: C9,C10,C11,C12,C13,C14 (second phenyl ring)
+    # Azo: N7,N8
     is_azobenzene = "N=N" in (ligand_smiles or "")
     if is_azobenzene:
         if binding_mode == "hydrophobic":
-            # Chain A: buries ring 1 + N5, exposes ring 2
-            buried_a = "C1,C2,C3,C4,C13,C14,N5"
-            exposed_a = "C7,C8,C9,C10,C11,C12"
-            # Chain B: buries ring 2 + N6, exposes ring 1
-            buried_b = "C7,C8,C9,C10,C11,C12,N6"
-            exposed_b = "C1,C2,C3,C4,C13,C14"
+            # Chain A: buries ring 1 + N7, exposes ring 2
+            buried_a = "C1,C2,C3,C4,C5,C6,N7"
+            exposed_a = "C9,C10,C11,C12,C13,C14"
+            # Chain B: buries ring 2 + N8, exposes ring 1
+            buried_b = "C9,C10,C11,C12,C13,C14,N8"
+            exposed_b = "C1,C2,C3,C4,C5,C6"
             use_hbond_conditioning = False
         else:  # "balanced" or "hbond_focused"
             # Chain A: buries ring 1 (carbons only), exposes ring 2
-            buried_a = "C1,C2,C3,C4,C13,C14"
-            exposed_a = "C7,C8,C9,C10,C11,C12"
+            buried_a = "C1,C2,C3,C4,C5,C6"
+            exposed_a = "C9,C10,C11,C12,C13,C14"
             # Chain B: buries ring 2 (carbons only), exposes ring 1
-            buried_b = "C7,C8,C9,C10,C11,C12"
-            exposed_b = "C1,C2,C3,C4,C13,C14"
+            buried_b = "C9,C10,C11,C12,C13,C14"
+            exposed_b = "C1,C2,C3,C4,C5,C6"
             use_hbond_conditioning = True
 
         print(f"[AsymmetricRASA] Binding mode: {binding_mode}")
@@ -4295,10 +4377,10 @@ def _design_asymmetric_rasa_heterodimer(job_input: Dict[str, Any]) -> Dict[str, 
         if exposed_a:
             chain_a_input["select_exposed"] = {"UNL": exposed_a}
 
-        # H-bond conditioning: Chain A targets N5 (first azo nitrogen)
+        # H-bond conditioning: Chain A targets N7 (first azo nitrogen)
         if use_hbond_conditioning and is_azobenzene:
-            chain_a_input["select_hbond_acceptor"] = {"UNL": "N5"}
-            print(f"[AsymmetricRASA] Chain A H-bond conditioning: select_hbond_acceptor=N5")
+            chain_a_input["select_hbond_acceptor"] = {"UNL": "N7"}
+            print(f"[AsymmetricRASA] Chain A H-bond conditioning: select_hbond_acceptor=N7")
 
         result_a = handle_rfd3(chain_a_input)
         if result_a.get("status") != "completed":
@@ -4352,10 +4434,10 @@ def _design_asymmetric_rasa_heterodimer(job_input: Dict[str, Any]) -> Dict[str, 
         if exposed_b:
             chain_b_input["select_exposed"] = {"UNL": exposed_b}
 
-        # H-bond conditioning: Chain B targets N6 (second azo nitrogen)
+        # H-bond conditioning: Chain B targets N8 (second azo nitrogen)
         if use_hbond_conditioning and is_azobenzene:
-            chain_b_input["select_hbond_acceptor"] = {"UNL": "N6"}
-            print(f"[AsymmetricRASA] Chain B H-bond conditioning: select_hbond_acceptor=N6")
+            chain_b_input["select_hbond_acceptor"] = {"UNL": "N8"}
+            print(f"[AsymmetricRASA] Chain B H-bond conditioning: select_hbond_acceptor=N8")
 
         result_b = handle_rfd3(chain_b_input)
         if result_b.get("status") != "completed":
@@ -4430,20 +4512,20 @@ def _design_asymmetric_rasa_heterodimer(job_input: Dict[str, Any]) -> Dict[str, 
         if not design_entry["metrics"]["has_clashes"]:
             score += 10
 
-        # H-bond bonus scoring for azobenzene N5/N6
-        n5_hbonds = checks.get("n5_hbonds", 0)
-        n6_hbonds = checks.get("n6_hbonds", 0)
+        # H-bond bonus scoring for azobenzene N7/N8 (azo nitrogens)
+        n7_hbonds = checks.get("n7_hbonds", 0)
+        n8_hbonds = checks.get("n8_hbonds", 0)
         total_ligand_hbonds = checks.get("total_ligand_hbonds", 0)
-        if n5_hbonds >= 1:
-            score += 10  # N5 has at least one H-bond
-        if n6_hbonds >= 1:
-            score += 10  # N6 has at least one H-bond
-        if n5_hbonds >= 1 and n6_hbonds >= 1:
+        if n7_hbonds >= 1:
+            score += 10  # N7 has at least one H-bond
+        if n8_hbonds >= 1:
+            score += 10  # N8 has at least one H-bond
+        if n7_hbonds >= 1 and n8_hbonds >= 1:
             score += 5  # Both azo nitrogens have H-bonds (extra bonus)
 
         # Add H-bond metrics to design entry
-        design_entry["metrics"]["n5_hbonds"] = n5_hbonds
-        design_entry["metrics"]["n6_hbonds"] = n6_hbonds
+        design_entry["metrics"]["n7_hbonds"] = n7_hbonds
+        design_entry["metrics"]["n8_hbonds"] = n8_hbonds
         design_entry["metrics"]["total_ligand_hbonds"] = total_ligand_hbonds
 
         # Add comprehensive interaction analysis (from validation or compute fresh)
@@ -4477,7 +4559,7 @@ def _design_asymmetric_rasa_heterodimer(job_input: Dict[str, Any]) -> Dict[str, 
             best_score = score
             best_design_idx = len(designs) - 1
 
-        print(f"[AsymmetricRASA] Design {design_idx + 1}: affinity={affinity}, identity={identity_pct:.1f}%, n5_hbonds={n5_hbonds}, n6_hbonds={n6_hbonds}")
+        print(f"[AsymmetricRASA] Design {design_idx + 1}: affinity={affinity}, identity={identity_pct:.1f}%, n7_hbonds={n7_hbonds}, n8_hbonds={n8_hbonds}")
 
     if not designs:
         return {
@@ -4545,20 +4627,20 @@ def _design_induced_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
         }
 
         # For azobenzene, A binds one ring completely
-        # RDKit naming: Ring 1 = C1,C2,C3,C4,C13,C14; Ring 2 = C7-C12; Azo = N5,N6
+        # RDKit naming: Ring 1 = C1-C6; Ring 2 = C9-C14; Azo = N7,N8
         is_azobenzene = "N=N" in (ligand_smiles or "")
         if is_azobenzene:
             if binding_mode == "hydrophobic":
-                # Full hydrophobic burial including N5
-                chain_a_input["select_buried"] = {"UNL": "C1,C2,C3,C4,C13,C14,N5"}
-                chain_a_input["select_exposed"] = {"UNL": "C7,C8,C9,C10,C11,C12"}
+                # Full hydrophobic burial including N7
+                chain_a_input["select_buried"] = {"UNL": "C1,C2,C3,C4,C5,C6,N7"}
+                chain_a_input["select_exposed"] = {"UNL": "C9,C10,C11,C12,C13,C14"}
             else:  # "balanced" or "hbond_focused"
-                # N5 accessible for H-bonding
-                chain_a_input["select_buried"] = {"UNL": "C1,C2,C3,C4,C13,C14"}
-                chain_a_input["select_exposed"] = {"UNL": "C7,C8,C9,C10,C11,C12"}
-                # H-bond conditioning: Chain A targets N5 (azo nitrogen as H-bond acceptor)
-                chain_a_input["select_hbond_acceptor"] = {"UNL": "N5"}
-                print(f"[InducedDimer] Chain A H-bond conditioning: select_hbond_acceptor=N5")
+                # N7 accessible for H-bonding
+                chain_a_input["select_buried"] = {"UNL": "C1,C2,C3,C4,C5,C6"}
+                chain_a_input["select_exposed"] = {"UNL": "C9,C10,C11,C12,C13,C14"}
+                # H-bond conditioning: Chain A targets N7 (azo nitrogen as H-bond acceptor)
+                chain_a_input["select_hbond_acceptor"] = {"UNL": "N7"}
+                print(f"[InducedDimer] Chain A H-bond conditioning: select_hbond_acceptor=N7")
 
         result_a = handle_rfd3(chain_a_input)
         if result_a.get("status") != "completed":
@@ -4609,19 +4691,19 @@ def _design_induced_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
         }
 
         # B binds opposite side of ligand (neosurface targeting)
-        # RDKit naming: Ring 1 = C1,C2,C3,C4,C13,C14; Ring 2 = C7-C12; Azo = N5,N6
+        # RDKit naming: Ring 1 = C1-C6; Ring 2 = C9-C14; Azo = N7,N8
         if is_azobenzene:
             if binding_mode == "hydrophobic":
-                # Full hydrophobic burial including N6
-                chain_b_input["select_buried"] = {"UNL": "C7,C8,C9,C10,C11,C12,N6"}
-                chain_b_input["select_exposed"] = {"UNL": "C1,C2,C3,C4,C13,C14"}
+                # Full hydrophobic burial including N8
+                chain_b_input["select_buried"] = {"UNL": "C9,C10,C11,C12,C13,C14,N8"}
+                chain_b_input["select_exposed"] = {"UNL": "C1,C2,C3,C4,C5,C6"}
             else:  # "balanced" or "hbond_focused"
-                # N6 accessible for H-bonding
-                chain_b_input["select_buried"] = {"UNL": "C7,C8,C9,C10,C11,C12"}
-                chain_b_input["select_exposed"] = {"UNL": "C1,C2,C3,C4,C13,C14"}
-                # H-bond conditioning: Chain B targets N6 (azo nitrogen as H-bond acceptor)
-                chain_b_input["select_hbond_acceptor"] = {"UNL": "N6"}
-                print(f"[InducedDimer] Chain B H-bond conditioning: select_hbond_acceptor=N6")
+                # N8 accessible for H-bonding
+                chain_b_input["select_buried"] = {"UNL": "C9,C10,C11,C12,C13,C14"}
+                chain_b_input["select_exposed"] = {"UNL": "C1,C2,C3,C4,C5,C6"}
+                # H-bond conditioning: Chain B targets N8 (azo nitrogen as H-bond acceptor)
+                chain_b_input["select_hbond_acceptor"] = {"UNL": "N8"}
+                print(f"[InducedDimer] Chain B H-bond conditioning: select_hbond_acceptor=N8")
 
         result_b = handle_rfd3(chain_b_input)
         if result_b.get("status") != "completed":
@@ -4695,20 +4777,20 @@ def _design_induced_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
         if not design_entry["metrics"]["has_clashes"]:
             score += 10
 
-        # H-bond bonus scoring for azobenzene N5/N6
-        n5_hbonds = checks.get("n5_hbonds", 0)
-        n6_hbonds = checks.get("n6_hbonds", 0)
+        # H-bond bonus scoring for azobenzene N7/N8 (azo nitrogens)
+        n7_hbonds = checks.get("n7_hbonds", 0)
+        n8_hbonds = checks.get("n8_hbonds", 0)
         total_ligand_hbonds = checks.get("total_ligand_hbonds", 0)
-        if n5_hbonds >= 1:
-            score += 10  # N5 has at least one H-bond
-        if n6_hbonds >= 1:
-            score += 10  # N6 has at least one H-bond
-        if n5_hbonds >= 1 and n6_hbonds >= 1:
+        if n7_hbonds >= 1:
+            score += 10  # N7 has at least one H-bond
+        if n8_hbonds >= 1:
+            score += 10  # N8 has at least one H-bond
+        if n7_hbonds >= 1 and n8_hbonds >= 1:
             score += 5  # Both azo nitrogens have H-bonds (extra bonus)
 
         # Add H-bond metrics to design entry
-        design_entry["metrics"]["n5_hbonds"] = n5_hbonds
-        design_entry["metrics"]["n6_hbonds"] = n6_hbonds
+        design_entry["metrics"]["n7_hbonds"] = n7_hbonds
+        design_entry["metrics"]["n8_hbonds"] = n8_hbonds
         design_entry["metrics"]["total_ligand_hbonds"] = total_ligand_hbonds
 
         # Add comprehensive interaction analysis (from validation or compute fresh)
@@ -4742,7 +4824,7 @@ def _design_induced_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
             best_score = score
             best_design_idx = len(designs) - 1
 
-        print(f"[InducedDimer] Design {design_idx + 1}: affinity={affinity}, identity={identity_pct:.1f}%, n5_hbonds={n5_hbonds}, n6_hbonds={n6_hbonds}")
+        print(f"[InducedDimer] Design {design_idx + 1}: affinity={affinity}, identity={identity_pct:.1f}%, n7_hbonds={n7_hbonds}, n8_hbonds={n8_hbonds}")
 
     if not designs:
         return {
@@ -4762,6 +4844,1188 @@ def _design_induced_heterodimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 "anti_homodimerization": designs[best_design_idx].get("anti_homodimerization"),
             }
         }
+    }
+
+
+# ============== Interface Metal Design Handler ==============
+
+# Metal coordination profiles
+METAL_PROFILES = {
+    "ZN": {
+        "name": "Zinc",
+        "coordination": [4, 5, 6],
+        "preferred_coord": 4,
+        "geometry": "tetrahedral",
+        "donors": ["His", "Cys", "Asp", "Glu"],
+        "distance": (2.0, 2.3),
+    },
+    "FE": {
+        "name": "Iron",
+        "coordination": [4, 5, 6],
+        "preferred_coord": 6,
+        "geometry": "octahedral",
+        "donors": ["His", "Cys", "Asp", "Glu", "Tyr"],
+        "distance": (1.9, 2.2),
+    },
+    "CU": {
+        "name": "Copper",
+        "coordination": [4, 5, 6],
+        "preferred_coord": 4,
+        "geometry": "square_planar",
+        "donors": ["His", "Cys", "Met"],
+        "distance": (1.9, 2.1),
+    },
+    "MN": {
+        "name": "Manganese",
+        "coordination": [6],
+        "preferred_coord": 6,
+        "geometry": "octahedral",
+        "donors": ["His", "Asp", "Glu"],
+        "distance": (2.1, 2.3),
+    },
+    "CA": {
+        "name": "Calcium",
+        "coordination": [6, 7, 8],
+        "preferred_coord": 7,
+        "geometry": "pentagonal_bipyramidal",
+        "donors": ["Asp", "Glu", "Asn"],
+        "distance": (2.3, 2.5),
+    },
+    "MG": {
+        "name": "Magnesium",
+        "coordination": [6],
+        "preferred_coord": 6,
+        "geometry": "octahedral",
+        "donors": ["Asp", "Glu"],
+        "distance": (2.0, 2.2),
+    },
+    "TB": {
+        "name": "Terbium",
+        "coordination": [8, 9],
+        "preferred_coord": 9,
+        "geometry": "tricapped_trigonal_prismatic",
+        "donors": ["Asp", "Glu", "Asn"],
+        "distance": (2.3, 2.5),
+        "special": "luminescent",
+    },
+    "GD": {
+        "name": "Gadolinium",
+        "coordination": [8, 9],
+        "preferred_coord": 9,
+        "geometry": "tricapped_trigonal_prismatic",
+        "donors": ["Asp", "Glu", "Asn"],
+        "distance": (2.3, 2.5),
+        "special": "paramagnetic",
+    },
+    "EU": {
+        "name": "Europium",
+        "coordination": [8, 9],
+        "preferred_coord": 9,
+        "geometry": "tricapped_trigonal_prismatic",
+        "donors": ["Asp", "Glu", "Asn"],
+        "distance": (2.3, 2.5),
+        "special": "luminescent",
+    },
+}
+
+
+def handle_interface_metal_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design protein heterodimers with metal coordination at the interface.
+
+    This extends the interface_ligand_design concept to metal ions, using
+    coordination chemistry instead of organic ligand binding.
+
+    Approaches:
+    1. "joint_metal" - Design both chains around central metal (RECOMMENDED)
+    2. "asymmetric_metal" - Different donor types per chain
+    3. "induced_metal" - Metal binding triggers dimerization
+    4. "bridging_metal" - Multiple metals bridging the interface
+    5. "redox_switch" - Oxidation state controls affinity
+
+    Input:
+        metal: str (required) - Metal ion code (ZN, FE, CA, TB, etc.)
+        approach: str (default: "joint_metal") - Design approach
+        chain_length: str (default: "60-80") - Chain length range
+        num_designs: int (default: 3) - Number of designs
+        coordination_split: [int, int] (default: [2, 2]) - Donors per chain
+        chain_a_donors: list[str] (optional) - Preferred donors for chain A
+        chain_b_donors: list[str] (optional) - Preferred donors for chain B
+        coordination_geometry: str (optional) - Target geometry
+        seed: int (optional) - Random seed
+
+        # NEW: Template Library System (chemically realistic templates)
+        template_name: str (optional) - Template from library:
+            - "caldwell_4": 4 bidentate Glu, CN=8 (highest affinity)
+            - "ef_hand_8": 4 mono Asp + 2 bi Glu, CN=8 (balanced)
+            - "lanm_mixed": 3 bi + 2 waters, CN=9 (natural-like)
+            - "high_coord_9": 4 bi Glu + 1 water, CN=9 (large lanthanides)
+            - Auto-selected based on metal if not specified
+
+        # LEGACY: template_type (for backward compatibility)
+        template_type: str (default: "ef_hand" for lanthanides, "none" otherwise)
+            - "ef_hand": Legacy 8-residue template
+            - "c4_symmetric": Legacy 4-residue template
+            - "none": No template (original behavior)
+
+        # Parametric mode (advanced - custom coordination)
+        parametric: dict (optional) - Custom coordination parameters:
+            - coordination_number: int (6-10)
+            - num_waters: int (0-4)
+            - bidentate_fraction: float (0.0-1.0)
+            - randomize: bool - generate stochastic variants
+            - num_variants: int - number of variants if randomize=True
+
+        include_waters: bool (default: False) - Include water molecules in coordination
+        add_trp_antenna: bool (default: False) - Add Trp for TEBL luminescence assay
+        validate_coordination: bool (default: True) - Run coordination.py validation
+        iterative_refinement: bool (default: False) - Refine until target coordination
+
+    Returns:
+        {
+            "status": "completed" | "failed",
+            "result": {
+                "designs": [...],
+                "approach": str,
+                "metal": str,
+                "best_design": int,
+                "validation": {...},  # If validate_coordination=True
+                "template_used": str  # Template name from library
+            }
+        }
+    """
+    metal = job_input.get("metal")
+    if not metal:
+        return {"status": "failed", "error": "Missing 'metal' parameter"}
+
+    metal = metal.upper()
+    if metal not in METAL_PROFILES:
+        return {
+            "status": "failed",
+            "error": f"Unknown metal: {metal}. Valid: {', '.join(METAL_PROFILES.keys())}"
+        }
+
+    approach = job_input.get("approach", "joint_metal")
+
+    # Check for lanthanide-specific options
+    is_lanthanide_metal = LANTHANIDE_TEMPLATES_AVAILABLE and is_lanthanide(metal)
+
+    # NEW: Template library system
+    template_name = job_input.get("template_name")
+    parametric_params = job_input.get("parametric")
+
+    # Legacy: template_type (backward compatibility)
+    template_type = job_input.get("template_type")
+
+    # Determine which template system to use
+    if template_name and LANTHANIDE_TEMPLATES_AVAILABLE:
+        # NEW: Use template library
+        job_input["_template_name"] = template_name
+        job_input["_use_library"] = True
+        template_type = "library"  # Signal to use library generator
+        print(f"[InterfaceMetal] Using template library: {template_name}")
+    elif parametric_params and LANTHANIDE_TEMPLATES_AVAILABLE:
+        # NEW: Use parametric mode
+        job_input["_parametric"] = parametric_params
+        job_input["_use_parametric"] = True
+        template_type = "parametric"
+        print(f"[InterfaceMetal] Using parametric mode: CN={parametric_params.get('coordination_number', 8)}")
+    elif template_type is None and is_lanthanide_metal:
+        # Auto-select from template library for lanthanides
+        template_name = recommend_template(metal) if LANTHANIDE_TEMPLATES_AVAILABLE else None
+        if template_name:
+            job_input["_template_name"] = template_name
+            job_input["_use_library"] = True
+            template_type = "library"
+            print(f"[InterfaceMetal] Auto-selected template: {template_name} for {metal}")
+        else:
+            template_type = "ef_hand"  # Fallback to legacy
+            print(f"[InterfaceMetal] Using legacy EF-hand template for lanthanide {metal}")
+    elif template_type is None:
+        template_type = "none"
+
+    # Store template settings in job_input for downstream functions
+    job_input["_template_type"] = template_type
+    job_input["_is_lanthanide"] = is_lanthanide_metal
+
+    print(f"[InterfaceMetal] Starting with approach={approach}, metal={metal}, template={template_type}...")
+
+    if approach == "joint_metal":
+        return _design_joint_metal_dimer(job_input)
+    elif approach == "asymmetric_metal":
+        return _design_asymmetric_metal_dimer(job_input)
+    elif approach == "induced_metal":
+        return _design_induced_metal_dimer(job_input)
+    elif approach == "bridging_metal":
+        return _design_bridging_metal_dimer(job_input)
+    elif approach == "redox_switch":
+        return _design_redox_switchable_dimer(job_input)
+    else:
+        return {
+            "status": "failed",
+            "error": f"Unknown approach: {approach}. Valid: joint_metal, asymmetric_metal, induced_metal, bridging_metal, redox_switch"
+        }
+
+
+def _generate_metal_pdb(metal: str, x: float = 50.0, y: float = 50.0, z: float = 50.0) -> str:
+    """
+    Generate a minimal PDB file with a single metal ion.
+
+    Args:
+        metal: Metal code (ZN, FE, CA, etc.)
+        x, y, z: Coordinates for the metal ion (default: 50,50,50 to match lanthanide templates
+                 and ensure protein designs wrap AROUND the metal, not radiate FROM it)
+
+    Returns:
+        PDB file content as string
+    """
+    # Metal element symbol (first 2 characters typically)
+    element = metal[:2].upper()
+
+    # Standard PDB HETATM format
+    pdb_lines = [
+        f"HETATM    1 {metal:>4s} {metal:>3s} L   1    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {element:>2s}",
+        "END",
+    ]
+
+    return "\n".join(pdb_lines)
+
+
+def _build_motif_contig(template_type: str, chain_length: str, donor_residue: str = "ASP") -> str:
+    """
+    Build contig that KEEPS template residues and designs scaffold around them.
+
+    This is the KEY to making templates work - instead of designing entirely new chains,
+    we tell RFD3 to preserve the pre-positioned coordinating residues and only design
+    the scaffold that connects them.
+
+    Args:
+        template_type: "ef_hand" or "c4_symmetric"
+        chain_length: Chain length range, e.g., "60-80"
+        donor_residue: "ASP", "GLU", or "MIXED" (affects contig comments only)
+
+    Returns:
+        Contig string with motif-preserving syntax
+
+    Contig format: "A10,5-15,A15,..." means:
+    - "A10" = keep residue 10 from chain A of input PDB
+    - "5-15" = design 5-15 new residues as scaffold
+    - This preserves template residues while designing around them
+    """
+    # Parse chain length
+    if "-" in str(chain_length):
+        min_len, max_len = map(int, str(chain_length).split("-"))
+    else:
+        min_len = max_len = int(chain_length)
+
+    # Calculate linker lengths to fill between motif positions
+    # EF-hand has residues at positions 10, 15, 20, 25 (5 apart)
+    # C4 has residues at positions 15, 25 (10 apart)
+
+    if template_type == "ef_hand":
+        # 8 coordinating residues: A10,A15,A20,A25 and B10,B15,B20,B25
+        # Need linkers between each and at N/C termini
+        # Total chain: N-term + A10 + link + A15 + link + A20 + link + A25 + C-term
+        # With 4 residues and ~50-70 total, linkers are ~10-15 each
+
+        # N-terminal linker length (design residues 1-9 before first motif)
+        nterm_len = "5-12"
+        # Inter-motif linkers (between positions 10→15→20→25, each 5 residues apart)
+        link_len = "3-8"
+        # C-terminal linker (after position 25)
+        cterm_len = "15-35"
+
+        # Build contig: keep motif residues, design linkers
+        # A10,link,A15,link,A20,link,A25,cterm,/0,B10,link,B15,link,B20,link,B25,cterm
+        contig = (
+            f"{nterm_len},A10,{link_len},A15,{link_len},A20,{link_len},A25,{cterm_len},"
+            f"/0,"
+            f"{nterm_len},B10,{link_len},B15,{link_len},B20,{link_len},B25,{cterm_len}"
+        )
+
+    elif template_type == "c4_symmetric":
+        # 4 coordinating residues: A15,A25 and B15,B25
+        # N-terminal linker before position 15
+        nterm_len = "8-18"
+        # Link between 15 and 25
+        link_len = "5-12"
+        # C-terminal after 25
+        cterm_len = "20-40"
+
+        contig = (
+            f"{nterm_len},A15,{link_len},A25,{cterm_len},"
+            f"/0,"
+            f"{nterm_len},B15,{link_len},B25,{cterm_len}"
+        )
+
+    else:
+        # No template - design de novo (original behavior)
+        contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+    return contig
+
+
+def _build_fixed_atoms(template_type: str, donor_residue: str = "ASP") -> Dict[str, str]:
+    """
+    Build select_fixed_atoms dict to lock coordinating oxygen atoms at their precise positions.
+
+    This ensures RFD3 preserves the exact geometry of the carboxylate oxygens
+    that were carefully positioned by the template generator.
+
+    Args:
+        template_type: "ef_hand" or "c4_symmetric"
+        donor_residue: "ASP" (OD1/OD2), "GLU" (OE1/OE2), or "MIXED"
+
+    Returns:
+        Dictionary mapping residue identifiers to atom names to fix
+    """
+    # Determine which oxygen atoms to fix based on residue type
+    if donor_residue.upper() == "ASP":
+        oxygen_atoms = "OD1,OD2"
+    elif donor_residue.upper() == "GLU":
+        oxygen_atoms = "OE1,OE2"
+    else:  # MIXED - need to specify per-residue
+        # For EF-hand MIXED: A10,A15,A20 = ASP, A25 = GLU, B10,B15 = ASP, B20,B25 = GLU
+        # For C4 MIXED: A15,B15 = ASP, A25,B25 = GLU
+        pass  # Handle below
+
+    if template_type == "ef_hand":
+        if donor_residue.upper() == "MIXED":
+            return {
+                "A10": "OD1,OD2", "A15": "OD1,OD2", "A20": "OD1,OD2", "A25": "OE1,OE2",
+                "B10": "OD1,OD2", "B15": "OD1,OD2", "B20": "OE1,OE2", "B25": "OE1,OE2",
+            }
+        else:
+            return {
+                "A10": oxygen_atoms, "A15": oxygen_atoms,
+                "A20": oxygen_atoms, "A25": oxygen_atoms,
+                "B10": oxygen_atoms, "B15": oxygen_atoms,
+                "B20": oxygen_atoms, "B25": oxygen_atoms,
+            }
+
+    elif template_type == "c4_symmetric":
+        if donor_residue.upper() == "MIXED":
+            return {
+                "A15": "OD1,OD2", "A25": "OE1,OE2",
+                "B15": "OD1,OD2", "B25": "OE1,OE2",
+            }
+        else:
+            return {
+                "A15": oxygen_atoms, "A25": oxygen_atoms,
+                "B15": oxygen_atoms, "B25": oxygen_atoms,
+            }
+
+    # No template - no atoms to fix
+    return {}
+
+
+def _build_motif_contig_from_library(template_name: str, chain_length: str) -> str:
+    """
+    Build motif-preserving contig from template library definition.
+
+    Dynamically constructs contig based on the residue positions defined
+    in the template library, allowing different templates to have different
+    residue arrangements.
+
+    Args:
+        template_name: Key from TEMPLATE_LIBRARY
+        chain_length: Chain length range, e.g., "60-80"
+
+    Returns:
+        Contig string with motif-preserving syntax
+    """
+    if not LANTHANIDE_TEMPLATES_AVAILABLE:
+        # Fall back to de novo if templates not available
+        if "-" in str(chain_length):
+            min_len, max_len = map(int, str(chain_length).split("-"))
+        else:
+            min_len = max_len = int(chain_length)
+        return f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+    template_def = TEMPLATE_LIBRARY.get(template_name)
+    if not template_def:
+        # Unknown template - fall back to de novo
+        if "-" in str(chain_length):
+            min_len, max_len = map(int, str(chain_length).split("-"))
+        else:
+            min_len = max_len = int(chain_length)
+        return f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+    # Extract residue positions for each chain
+    chain_a_residues = sorted(
+        [r["resnum"] for r in template_def["residues"] if r["chain"] == "A"]
+    )
+    chain_b_residues = sorted(
+        [r["resnum"] for r in template_def["residues"] if r["chain"] == "B"]
+    )
+
+    # Build contig for chain A
+    # Format: nterm_link, A{pos1}, link, A{pos2}, ..., cterm_link
+    nterm_len = "5-12"
+    link_len = "3-8"
+    cterm_len = "15-35"
+
+    # Chain A contig
+    chain_a_parts = [nterm_len]
+    for i, resnum in enumerate(chain_a_residues):
+        chain_a_parts.append(f"A{resnum}")
+        if i < len(chain_a_residues) - 1:
+            chain_a_parts.append(link_len)
+    chain_a_parts.append(cterm_len)
+    chain_a_contig = ",".join(chain_a_parts)
+
+    # Chain B contig
+    chain_b_parts = [nterm_len]
+    for i, resnum in enumerate(chain_b_residues):
+        chain_b_parts.append(f"B{resnum}")
+        if i < len(chain_b_residues) - 1:
+            chain_b_parts.append(link_len)
+    chain_b_parts.append(cterm_len)
+    chain_b_contig = ",".join(chain_b_parts)
+
+    # Combine with chain separator
+    return f"{chain_a_contig},/0,{chain_b_contig}"
+
+
+def _build_fixed_atoms_from_library(template_name: str) -> Dict[str, str]:
+    """
+    Build select_fixed_atoms dict from template library definition.
+
+    Dynamically determines which atoms to fix based on the residue types
+    and modes defined in the template.
+
+    Args:
+        template_name: Key from TEMPLATE_LIBRARY
+
+    Returns:
+        Dictionary mapping residue identifiers to atom names to fix
+    """
+    if not LANTHANIDE_TEMPLATES_AVAILABLE:
+        return {}
+
+    template_def = TEMPLATE_LIBRARY.get(template_name)
+    if not template_def:
+        return {}
+
+    fixed_atoms = {}
+    for residue in template_def["residues"]:
+        chain = residue["chain"]
+        resnum = residue["resnum"]
+        res_type = residue["type"]
+        mode = residue["mode"]
+
+        key = f"{chain}{resnum}"
+
+        # Determine which atoms to fix based on residue type
+        if res_type == "ASP":
+            if mode == "bidentate":
+                fixed_atoms[key] = "OD1,OD2"  # Both oxygens
+            else:  # monodentate
+                fixed_atoms[key] = "OD1"  # Only coordinating oxygen
+        elif res_type == "GLU":
+            if mode == "bidentate":
+                fixed_atoms[key] = "OE1,OE2"
+            else:  # monodentate
+                fixed_atoms[key] = "OE1"
+
+    return fixed_atoms
+
+
+def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design a metal-coordinated heterodimer by designing BOTH chains simultaneously
+    around a central metal ion.
+
+    Uses contig syntax "min-max,/0,min-max" to design two chains that co-evolve
+    around the metal during diffusion. Each chain contributes coordinating residues.
+
+    For lanthanides (TB, GD, EU, etc.), uses template-based design with pre-positioned
+    coordinating Glu residues based on Caldwell et al. 2020 methodology.
+    """
+    metal = job_input.get("metal", "ZN").upper()
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # Coordination parameters
+    coordination_split = job_input.get("coordination_split", [2, 2])
+    chain_a_donors = job_input.get("chain_a_donors")
+    chain_b_donors = job_input.get("chain_b_donors")
+
+    # Lanthanide-specific options (from handle_interface_metal_design)
+    template_type = job_input.get("_template_type", "none")
+    is_lanthanide_metal = job_input.get("_is_lanthanide", False)
+    include_waters = job_input.get("include_waters", False)
+    add_trp_antenna = job_input.get("add_trp_antenna", False)
+    validate_coordination = job_input.get("validate_coordination", True)
+    iterative_refinement = job_input.get("iterative_refinement", False)
+    donor_residue = job_input.get("donor_residue", "ASP")  # NEW: ASP recommended for lanthanides
+    use_motif_scaffolding = job_input.get("use_motif_scaffolding", True)  # NEW: use template as motif
+
+    profile = METAL_PROFILES[metal]
+    total_coord = sum(coordination_split)
+
+    # For lanthanides, expect higher coordination
+    if is_lanthanide_metal:
+        target_coordination = 8  # Lanthanides need 8-9 coordination
+        if total_coord < target_coordination:
+            print(f"[JointMetal] Adjusting lanthanide coordination target to {target_coordination}")
+            total_coord = target_coordination
+    else:
+        target_coordination = total_coord
+
+    # Validate coordination number
+    if total_coord not in profile["coordination"]:
+        print(f"[JointMetal] Warning: {metal} typically has {profile['coordination']}-coordinate, not {total_coord}")
+
+    # Parse chain length
+    if "-" in str(chain_length):
+        min_len, max_len = map(int, str(chain_length).split("-"))
+    else:
+        min_len = max_len = int(chain_length)
+
+    # Generate template PDB or simple metal PDB
+    # Use consistent metal position (50,50,50) for all approaches
+    metal_center = [50.0, 50.0, 50.0]
+    fixed_atoms = {}  # Will be populated for template motif scaffolding
+    template_used = None  # Track which template was used
+
+    # NEW: Template Library System
+    if template_type == "library" and LANTHANIDE_TEMPLATES_AVAILABLE:
+        # Use new template library with chemically realistic coordination
+        template_name = job_input.get("_template_name", "caldwell_4")
+        template_pdb = generate_template_from_library(
+            template_name=template_name,
+            metal=metal,
+            add_trp_antenna=add_trp_antenna,
+        )
+        template_info = get_template_info(template_name)
+        template_used = template_name
+        print(f"[JointMetal] Using template library: {template_name}")
+        print(f"[JointMetal] Template: CN={template_info['coordination_number']}, geometry={template_info['geometry']}")
+        metal_pdb = template_pdb
+
+        # Build motif-preserving contig based on template definition
+        if use_motif_scaffolding:
+            contig = _build_motif_contig_from_library(template_name, chain_length)
+            fixed_atoms = _build_fixed_atoms_from_library(template_name)
+            print(f"[JointMetal] MOTIF SCAFFOLDING from library template")
+            print(f"[JointMetal] Fixed atoms: {fixed_atoms}")
+        else:
+            contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+            print(f"[JointMetal] DE NOVO mode: template only provides metal position")
+
+    # NEW: Parametric Mode
+    elif template_type == "parametric" and LANTHANIDE_TEMPLATES_AVAILABLE:
+        parametric = job_input.get("_parametric", {})
+        templates = generate_parametric_template(
+            metal=metal,
+            coordination_number=parametric.get("coordination_number", 8),
+            num_waters=parametric.get("num_waters", 0),
+            bidentate_fraction=parametric.get("bidentate_fraction", 0.5),
+            preferred_donors=parametric.get("preferred_donors", ["ASP", "GLU"]),
+            randomize=parametric.get("randomize", False),
+            num_variants=parametric.get("num_variants", 1),
+            seed=seed,
+            pocket_radius=parametric.get("pocket_radius", 6.0),
+            add_trp_antenna=add_trp_antenna,
+        )
+        template_pdb = templates[0]  # Use first variant for now
+        template_used = f"parametric_cn{parametric.get('coordination_number', 8)}"
+        print(f"[JointMetal] Using parametric template: CN={parametric.get('coordination_number', 8)}")
+        metal_pdb = template_pdb
+
+        # For parametric, use de novo contig (template provides geometry only)
+        contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+    elif template_type != "none" and LANTHANIDE_TEMPLATES_AVAILABLE and is_lanthanide_metal:
+        # LEGACY: Use old template-based approach for lanthanides
+        # Templates already place metal at (50,50,50)
+        template_pdb = get_template(
+            template_type=template_type,
+            metal=metal,
+            donor_residue=donor_residue,  # NEW: support ASP, GLU, or MIXED
+            include_waters=include_waters,
+            add_trp_antenna=add_trp_antenna,
+        )
+        template_used = f"legacy_{template_type}"
+        print(f"[JointMetal] Using LEGACY {template_type} template for lanthanide {metal}")
+        print(f"[JointMetal] Template: donor_residue={donor_residue}, waters={include_waters}, Trp={add_trp_antenna}")
+        metal_pdb = template_pdb
+
+        # Build motif-preserving contig (KEY FIX: preserves template residues!)
+        if use_motif_scaffolding:
+            contig = _build_motif_contig(template_type, chain_length, donor_residue)
+            fixed_atoms = _build_fixed_atoms(template_type, donor_residue)
+            print(f"[JointMetal] MOTIF SCAFFOLDING: contig preserves template residues")
+            print(f"[JointMetal] Fixed atoms: {fixed_atoms}")
+        else:
+            # Original behavior - design new chains (ignores template residues)
+            contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+            print(f"[JointMetal] DE NOVO mode: template only provides metal position")
+    else:
+        # Generate a simple PDB with the metal ion at (50,50,50)
+        # This ensures protein designs wrap AROUND the metal, not radiate FROM it
+        metal_pdb = _generate_metal_pdb(metal, *metal_center)
+        template_used = "none"
+        # No template - design de novo
+        contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+    # Store template used for result
+    job_input["_template_used"] = template_used
+
+    print(f"[JointMetal] Metal={metal}, target_coordination={target_coordination}")
+    print(f"[JointMetal] Preferred donors: {profile['donors']}")
+    print(f"[JointMetal] Contig: {contig}")
+    print(f"[JointMetal] Metal center: {metal_center}")
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"[JointMetal] Generating design {design_idx + 1}/{num_designs}...")
+
+        # Build RFD3 config for metal-coordinated dimer
+        # We provide the metal PDB as input and use ligand code
+
+        # Calculate ori_token to position protein COM offset from metal
+        # Small Z offset ensures protein wraps around metal rather than centering on it
+        # User can override with custom ori_token if needed
+        user_ori_token = job_input.get("ori_token")
+        if user_ori_token:
+            ori_token = user_ori_token
+        else:
+            # Default: offset 3Å from metal center in Z direction
+            ori_token = [metal_center[0], metal_center[1], metal_center[2] + 3.0]
+
+        if design_idx == 0:
+            print(f"[JointMetal] Using ori_token: {ori_token} (user override: {user_ori_token is not None})")
+
+        rfd3_input = {
+            "task": "rfd3",
+            "contig": contig,
+            "pdb_content": metal_pdb,  # Provide metal PDB as input
+            "ligand": metal,  # Metal code as ligand
+            "ori_token": ori_token,  # Control protein COM positioning relative to metal
+            "seed": design_seed,
+            "num_designs": 1,
+            "is_non_loopy": True,  # Prefer structured elements near metal
+        }
+
+        # Add motif scaffolding parameters when using templates
+        if fixed_atoms:
+            rfd3_input["select_fixed_atoms"] = fixed_atoms
+            # Hotspot ensures designed residues contact the metal
+            rfd3_input["select_hotspots"] = {"L1": "all"}  # L is metal chain
+            if design_idx == 0:
+                print(f"[JointMetal] Added select_fixed_atoms for {len(fixed_atoms)} residues")
+                print(f"[JointMetal] Added select_hotspots: L1:all (ensure metal contact)")
+
+        # Run RFD3
+        result = handle_rfd3(rfd3_input)
+
+        if result.get("status") != "completed":
+            print(f"[JointMetal] Design {design_idx + 1} failed: {result.get('error')}")
+            continue
+
+        result_designs = result.get("result", {}).get("designs", [])
+        if not result_designs:
+            print(f"[JointMetal] Design {design_idx + 1} produced no designs")
+            continue
+
+        pdb_content = result_designs[0].get("content") or result_designs[0].get("pdb_content")
+        if not pdb_content:
+            print(f"[JointMetal] Design {design_idx + 1}: No PDB content")
+            continue
+
+        # Run LigandMPNN sequence redesign for lanthanides with carboxylate bias
+        # This uses D:6.0,E:4.0 bias to favor Asp/Glu coordinating residues
+        # LigandMPNN atomize_side_chains for proper metal binding context
+        if is_lanthanide_metal:
+            print(f"[JointMetal] Design {design_idx + 1}: Running LigandMPNN with lanthanide preset...")
+            try:
+                # Fix atom names/IDs before MPNN to avoid NaN issues
+                # (see: https://github.com/RosettaCommons/foundry/issues/123)
+                from inference_utils import fix_pdb_for_mpnn
+                pdb_content = fix_pdb_for_mpnn(pdb_content)
+
+                # run_ligandmpnn_for_ligand_binding() automatically fixes incomplete backbone
+                # by adding missing O atoms with idealized geometry
+                mpnn_result = run_ligandmpnn_for_ligand_binding(
+                    pdb_content=pdb_content,
+                    ligand_type="lanthanide",
+                    num_sequences=4,
+                    temperature=0.1,
+                )
+                if mpnn_result.get("status") == "completed":
+                    result_data = mpnn_result.get("result", {})
+                    # PDB structures are in packed_structures (when pack_side_chains=True)
+                    packed_structures = result_data.get("packed_structures", [])
+                    sequences = result_data.get("sequences", [])
+
+                    if packed_structures:
+                        # Use the first packed structure (best sequence with sidechains)
+                        redesigned_pdb = packed_structures[0].get("pdb_content")
+                        if redesigned_pdb:
+                            pdb_content = redesigned_pdb
+                            print(f"[JointMetal] Design {design_idx + 1}: Sequence redesigned with D/E bias + proper sidechains")
+                        else:
+                            # NaN case: atomize_side_chains produced NaN coordinates
+                            # Fall back to FastRelax sidechain packing (BindCraft approach)
+                            print(f"[JointMetal] Design {design_idx + 1}: MPNN sidechain atomization failed (NaN coords)")
+                            print(f"[JointMetal] Design {design_idx + 1}: Falling back to FastRelax sidechain packing...")
+
+                            # Get sequence from FASTA output
+                            if sequences:
+                                seq_content = sequences[0].get("content", "")
+                                seq_lines = [l for l in seq_content.split('\n') if l and not l.startswith('>')]
+                                if seq_lines:
+                                    first_seq = ''.join(seq_lines)
+                                    d_count = first_seq.count('D')
+                                    e_count = first_seq.count('E')
+                                    print(f"[JointMetal] Design {design_idx + 1}: Using MPNN sequence: {d_count} Asp, {e_count} Glu")
+
+                                    # Apply sequence to backbone and use FastRelax for sidechains
+                                    try:
+                                        from inference_utils import apply_sequence_to_pdb
+                                        from rosetta_utils import fastrelax_protein_only
+
+                                        # Apply MPNN sequence to the RFD backbone
+                                        # Preserve sidechains for coordinating residues (they have proper metal geometry)
+                                        seq_applied_pdb = apply_sequence_to_pdb(
+                                            pdb_content,
+                                            first_seq,
+                                            keep_sidechains=False,  # Strip for FastRelax
+                                            preserve_coordinating_residues=True,  # Keep coordinating residue sidechains
+                                            metal_coord_distance=3.5,  # Å threshold
+                                        )
+
+                                        # Run FastRelax to rebuild sidechains
+                                        relax_result = fastrelax_protein_only(
+                                            seq_applied_pdb,
+                                            max_iter=200,
+                                            constrain_coords=True,
+                                            repack_only=True  # Just repack sidechains, don't minimize backbone
+                                        )
+
+                                        if relax_result.get("status") == "completed":
+                                            pdb_content = relax_result.get("pdb_content", pdb_content)
+                                            print(f"[JointMetal] Design {design_idx + 1}: FastRelax sidechain packing successful")
+                                        else:
+                                            print(f"[JointMetal] Design {design_idx + 1}: FastRelax failed: {relax_result.get('error')}")
+                                            # Keep the sequence-applied backbone without sidechains
+                                            pdb_content = seq_applied_pdb
+                                    except Exception as relax_err:
+                                        print(f"[JointMetal] Design {design_idx + 1}: FastRelax error: {relax_err}")
+                            else:
+                                print(f"[JointMetal] Design {design_idx + 1}: No sequences available for fallback")
+                    else:
+                        # No packed structures - use sequences directly
+                        if sequences:
+                            seq_content = sequences[0].get("content", "")
+                            seq_lines = [l for l in seq_content.split('\n') if l and not l.startswith('>')]
+                            if seq_lines:
+                                first_seq = ''.join(seq_lines)
+                                d_count = first_seq.count('D')
+                                e_count = first_seq.count('E')
+                                print(f"[JointMetal] Design {design_idx + 1}: LigandMPNN sequence: {d_count} Asp, {e_count} Glu (no packed structures)")
+                        else:
+                            print(f"[JointMetal] Design {design_idx + 1}: LigandMPNN returned no packed structures, using original")
+                else:
+                    print(f"[JointMetal] Design {design_idx + 1}: LigandMPNN failed: {mpnn_result.get('error')}")
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                print(f"[JointMetal] Design {design_idx + 1}: LigandMPNN error: {e}")
+
+        # Analyze metal coordination
+        coord_analysis = _analyze_metal_coordination(pdb_content, metal)
+
+        # Calculate sequence identity between chains
+        seq_identity = calculate_sequence_identity(pdb_content, "A", "B")
+        identity_pct = seq_identity.get("sequence_identity_percent", 100)
+
+        design_entry = {
+            "pdb_content": pdb_content,
+            "design_index": design_idx,
+            "metrics": {
+                "coordination_number": coord_analysis.get("coordination_number", 0),
+                "chain_a_donors": coord_analysis.get("chain_a_donors", 0),
+                "chain_b_donors": coord_analysis.get("chain_b_donors", 0),
+                "donor_residues": coord_analysis.get("donor_residues", []),
+                "average_distance": coord_analysis.get("average_distance"),
+                "sequence_identity": identity_pct,
+                "is_heterodimer": identity_pct < 70,
+            },
+            "coordination_analysis": coord_analysis,
+        }
+
+        # Score based on metal coordination quality
+        score = 0
+        coord_num = coord_analysis.get("coordination_number", 0)
+
+        # Prefer correct coordination number
+        if coord_num in profile["coordination"]:
+            score += 30
+        elif coord_num > 0:
+            score += 10
+
+        # Prefer both chains contributing
+        if coord_analysis.get("chain_a_donors", 0) >= 1 and coord_analysis.get("chain_b_donors", 0) >= 1:
+            score += 20
+
+        # Prefer true heterodimer
+        if identity_pct < 70:
+            score += 20
+
+        # Prefer appropriate bond distances
+        avg_dist = coord_analysis.get("average_distance")
+        if avg_dist and profile["distance"][0] <= avg_dist <= profile["distance"][1]:
+            score += 15
+
+        design_entry["score"] = score
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        print(f"[JointMetal] Design {design_idx + 1}: coord={coord_num}, identity={identity_pct:.1f}%, score={score}")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid joint metal dimer designs produced"
+        }
+
+    # Post-design validation for lanthanides using metal_validation module
+    validation_result = None
+    tebl_result = None
+
+    # Find the actual metal residue number in the PDB (may differ from template)
+    def _find_metal_resnum(pdb_content: str, metal_code: str) -> int:
+        """Find the residue number of the metal in the PDB."""
+        for line in pdb_content.split('\n'):
+            if line.startswith('HETATM') and metal_code in line[17:20].strip():
+                try:
+                    return int(line[22:26].strip())
+                except ValueError:
+                    pass
+        return 1  # Default fallback
+
+    if validate_coordination and METAL_VALIDATION_AVAILABLE and is_lanthanide_metal:
+        best_pdb = designs[best_design_idx]["pdb_content"]
+        metal_resnum = _find_metal_resnum(best_pdb, metal)
+        print(f"[JointMetal] Running lanthanide validation on best design (metal at L:{metal_resnum})...")
+
+        try:
+            validation_result = validate_lanthanide_site(
+                pdb_content=best_pdb,
+                metal=metal,
+                metal_chain="L",
+                metal_resnum=metal_resnum,
+                target_coordination=target_coordination,
+                check_tebl=add_trp_antenna,
+            )
+
+            if validation_result.get("success"):
+                quality_score = validation_result.get("quality_score", 0)
+                quality_rating = validation_result.get("quality_rating", "unknown")
+                coord_num = validation_result.get("coordination_number", 0)
+                print(f"[JointMetal] Validation: quality={quality_score:.1f} ({quality_rating}), coord={coord_num}/{target_coordination}")
+
+                # Add validation to best design's metrics
+                designs[best_design_idx]["validation"] = validation_result
+
+                # Check TEBL readiness
+                if add_trp_antenna and "tebl_details" in validation_result:
+                    tebl_details = validation_result["tebl_details"]
+                    tebl_ready = tebl_details.get("has_antenna", False)
+                    trp_dist = tebl_details.get("trp_metal_distance", "N/A")
+                    print(f"[JointMetal] TEBL ready: {tebl_ready}, Trp distance: {trp_dist}Å")
+
+        except Exception as e:
+            print(f"[JointMetal] Validation error: {e}")
+            validation_result = {"error": str(e)}
+
+    # Add TEBL signal prediction if requested
+    if add_trp_antenna and TEBL_ANALYSIS_AVAILABLE and is_lanthanide_metal:
+        best_pdb = designs[best_design_idx]["pdb_content"]
+        metal_resnum = _find_metal_resnum(best_pdb, metal)
+        try:
+            tebl_result = predict_tebl_signal(
+                pdb_content=best_pdb,
+                metal=metal,
+                metal_chain="L",
+                metal_resnum=metal_resnum,
+            )
+            if tebl_result.get("has_antenna"):
+                signal = tebl_result.get("signal_strength", "unknown")
+                efficiency = tebl_result.get("predicted_efficiency", 0)
+                print(f"[JointMetal] TEBL prediction: signal={signal}, efficiency={efficiency:.3f}")
+                designs[best_design_idx]["tebl_prediction"] = tebl_result
+        except Exception as e:
+            print(f"[JointMetal] TEBL analysis error: {e}")
+
+    result = {
+        "status": "completed",
+        "result": {
+            "approach": "joint_metal",
+            "metal": metal,
+            "metal_profile": profile,
+            "designs": designs,
+            "best_design": best_design_idx,
+            "dimer": {
+                "pdb_content": designs[best_design_idx]["pdb_content"],
+                "metrics": designs[best_design_idx]["metrics"],
+                "coordination": designs[best_design_idx]["coordination_analysis"],
+            },
+            # Lanthanide-specific results
+            "template_type": template_type if is_lanthanide_metal else None,
+            "target_coordination": target_coordination if is_lanthanide_metal else None,
+        }
+    }
+
+    # Add validation results if available
+    if validation_result:
+        result["result"]["validation"] = validation_result
+    if tebl_result:
+        result["result"]["tebl_analysis"] = tebl_result
+
+    return result
+
+
+def _design_asymmetric_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design metal-coordinated heterodimer with different donor types per chain.
+
+    For example: Chain A provides His-His, Chain B provides Cys-Cys.
+    This creates asymmetric chemistry at the interface.
+    """
+    metal = job_input.get("metal", "ZN").upper()
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    chain_a_donors = job_input.get("chain_a_donors", ["His", "His"])
+    chain_b_donors = job_input.get("chain_b_donors", ["Cys", "Cys"])
+
+    profile = METAL_PROFILES[metal]
+
+    print(f"[AsymmetricMetal] Metal={metal}")
+    print(f"[AsymmetricMetal] Chain A donors: {chain_a_donors}")
+    print(f"[AsymmetricMetal] Chain B donors: {chain_b_donors}")
+
+    # For now, use joint design and rely on RFD3 to create variety
+    # A more sophisticated approach would use sequence constraints post-design
+    job_input["approach"] = "joint_metal"  # Fallback to joint
+    result = _design_joint_metal_dimer(job_input)
+
+    if result.get("status") == "completed":
+        result["result"]["approach"] = "asymmetric_metal"
+        result["result"]["target_donors"] = {
+            "chain_a": chain_a_donors,
+            "chain_b": chain_b_donors,
+        }
+
+    return result
+
+
+def _design_induced_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design monomers with incomplete coordination that only dimerize when metal binds.
+
+    Each monomer has partial coordination sites exposed. Metal binding completes
+    the coordination sphere by bringing the chains together.
+    """
+    metal = job_input.get("metal", "ZN").upper()
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    profile = METAL_PROFILES[metal]
+
+    print(f"[InducedMetal] Designing metal-induced dimerization with {metal}")
+
+    # Design using joint approach - the incomplete coordination creates
+    # energetic drive for dimerization
+    job_input["approach"] = "joint_metal"
+    result = _design_joint_metal_dimer(job_input)
+
+    if result.get("status") == "completed":
+        result["result"]["approach"] = "induced_metal"
+        result["result"]["mechanism"] = "incomplete_coordination_drives_assembly"
+
+    return result
+
+
+def _design_bridging_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design dimers with multiple metal ions bridging the interface.
+
+    Examples: Fe-Fe (hemerythrin-like), Cu-Cu (type 3 copper), Zn-Zn (metallo-β-lactamase)
+    """
+    metal = job_input.get("metal", "FE").upper()
+    second_metal = job_input.get("bridging_metal", metal).upper()
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    print(f"[BridgingMetal] Designing {metal}-{second_metal} bridged dimer")
+    print(f"[BridgingMetal] Note: Dinuclear site design is advanced - using single metal with larger interface")
+
+    # For now, design with single metal - dinuclear sites require specialized constraints
+    job_input["approach"] = "joint_metal"
+    result = _design_joint_metal_dimer(job_input)
+
+    if result.get("status") == "completed":
+        result["result"]["approach"] = "bridging_metal"
+        result["result"]["target_metals"] = [metal, second_metal]
+        result["result"]["note"] = "Dinuclear site requires post-design metal placement"
+
+    return result
+
+
+def _design_redox_switchable_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design dimers where metal oxidation state controls affinity.
+
+    For example: Fe²⁺ (tetrahedral) vs Fe³⁺ (octahedral) have different
+    preferred coordination, affecting dimer stability.
+    """
+    metal = job_input.get("metal", "FE").upper()
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # Check if metal is redox-active
+    redox_metals = {"FE", "CU", "MN", "CO"}
+    if metal not in redox_metals:
+        return {
+            "status": "failed",
+            "error": f"{metal} is not redox-active. Use Fe, Cu, Mn, or Co."
+        }
+
+    print(f"[RedoxSwitch] Designing redox-switchable dimer with {metal}")
+
+    # Design for the lower oxidation state (more stable coordination)
+    job_input["approach"] = "joint_metal"
+    result = _design_joint_metal_dimer(job_input)
+
+    if result.get("status") == "completed":
+        result["result"]["approach"] = "redox_switch"
+        result["result"]["redox_states"] = {
+            "reduced": f"{metal}²⁺",
+            "oxidized": f"{metal}³⁺",
+        }
+        result["result"]["mechanism"] = "coordination_geometry_change_on_oxidation"
+
+    return result
+
+
+def _analyze_metal_coordination(pdb_content: str, metal: str) -> Dict[str, Any]:
+    """
+    Analyze metal coordination in a PDB structure.
+
+    Returns coordination number, donor residues, distances, and per-chain breakdown.
+    """
+    import re
+
+    # Parse PDB
+    lines = pdb_content.strip().split("\n")
+
+    # Find metal atom(s)
+    metal_atoms = []
+    protein_atoms = []
+
+    for line in lines:
+        if line.startswith("HETATM") and metal in line[17:20]:
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+            metal_atoms.append({"x": x, "y": y, "z": z, "line": line})
+        elif line.startswith("ATOM"):
+            atom_name = line[12:16].strip()
+            res_name = line[17:20].strip()
+            chain = line[21]
+            res_num = int(line[22:26])
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+
+            # Check if this is a potential donor atom
+            is_donor = False
+            if atom_name in ["NE2", "ND1"] and res_name == "HIS":
+                is_donor = True
+            elif atom_name == "SG" and res_name == "CYS":
+                is_donor = True
+            elif atom_name in ["OD1", "OD2"] and res_name == "ASP":
+                is_donor = True
+            elif atom_name in ["OE1", "OE2"] and res_name == "GLU":
+                is_donor = True
+            elif atom_name == "OH" and res_name == "TYR":
+                is_donor = True
+            elif atom_name == "SD" and res_name == "MET":
+                is_donor = True
+            elif atom_name in ["OD1", "ND2"] and res_name == "ASN":
+                is_donor = True
+
+            if is_donor:
+                protein_atoms.append({
+                    "atom_name": atom_name,
+                    "res_name": res_name,
+                    "chain": chain,
+                    "res_num": res_num,
+                    "x": x, "y": y, "z": z,
+                })
+
+    if not metal_atoms:
+        return {
+            "coordination_number": 0,
+            "chain_a_donors": 0,
+            "chain_b_donors": 0,
+            "donor_residues": [],
+            "error": "No metal found in structure",
+        }
+
+    # Use first metal atom
+    metal_atom = metal_atoms[0]
+    mx, my, mz = metal_atom["x"], metal_atom["y"], metal_atom["z"]
+
+    # Find coordinating atoms (within 3.0 Å)
+    profile = METAL_PROFILES.get(metal, {})
+    max_dist = profile.get("distance", (2.0, 2.5))[1] + 0.5  # Add tolerance
+
+    coordinating = []
+    for atom in protein_atoms:
+        dist = ((atom["x"] - mx)**2 + (atom["y"] - my)**2 + (atom["z"] - mz)**2) ** 0.5
+        if dist <= max_dist:
+            coordinating.append({
+                "residue": f"{atom['chain']}{atom['res_num']}",
+                "res_name": atom["res_name"],
+                "atom": atom["atom_name"],
+                "chain": atom["chain"],
+                "distance": round(dist, 2),
+            })
+
+    # Sort by distance
+    coordinating.sort(key=lambda x: x["distance"])
+
+    # Count per chain
+    chain_a_count = sum(1 for c in coordinating if c["chain"] == "A")
+    chain_b_count = sum(1 for c in coordinating if c["chain"] == "B")
+
+    # Calculate average distance
+    avg_dist = sum(c["distance"] for c in coordinating) / len(coordinating) if coordinating else None
+
+    return {
+        "coordination_number": len(coordinating),
+        "chain_a_donors": chain_a_count,
+        "chain_b_donors": chain_b_count,
+        "donor_residues": coordinating,
+        "average_distance": round(avg_dist, 2) if avg_dist else None,
     }
 
 

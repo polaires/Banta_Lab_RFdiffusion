@@ -147,13 +147,27 @@ export interface RFD3Request extends BaseRFD3Request {
   }>;
 
   // Interface ligand design (separable dimer)
-  task?: string;  // Task type for specialized handlers (e.g., 'interface_ligand_design', 'protein_binder_design')
-  approach?: 'asymmetric' | 'sequential' | 'full' | 'joint' | 'asymmetric_rasa' | 'induced' | 'symmetric';  // Design approach
+  task?: string;  // Task type for specialized handlers (e.g., 'interface_ligand_design', 'interface_metal_design', 'protein_binder_design')
+  approach?:
+    // Interface ligand approaches
+    | 'asymmetric' | 'sequential' | 'full' | 'joint' | 'asymmetric_rasa' | 'induced' | 'symmetric'
+    // Interface metal approaches
+    | 'joint_metal' | 'asymmetric_metal' | 'induced_metal' | 'bridging_metal' | 'redox_switch' | 'lanthanide_sensor';  // Design approach
   ligand_smiles?: string;  // SMILES string for ligand
   chain_length?: string;  // Chain length range (e.g., "60-80")
   side?: 'left' | 'right';  // Which side of ligand to bind
   ori_offset?: number[];  // Offset from ligand center [x, y, z]
   use_ori_token?: boolean;  // Whether to use ori_token positioning
+
+  // Interface metal design (metal-coordinated dimer)
+  metal?: string;  // Metal ion code (ZN, FE, CA, TB, etc.)
+  coordination_split?: [number, number];  // [chain_a_donors, chain_b_donors]
+  coordination_geometry?: string;  // tetrahedral, octahedral, square_planar, etc.
+  chain_a_donors?: string[];  // Donor types for chain A (His, Cys, Asp, etc.)
+  chain_b_donors?: string[];  // Donor types for chain B
+  allow_waters?: boolean;  // Allow water molecules in coordination sphere
+  bridging_metal?: string;  // Second metal for bridging designs
+  enable_luminescence?: boolean;  // Enable luminescence for lanthanide designs
 
   // Protein binder design specific fields
   target_pdb?: string;  // PDB content for target protein
@@ -201,8 +215,8 @@ export interface HeterodimerMetrics {
   contacts_b?: number;         // ≥ 5 = good
   sequence_identity?: number;  // < 70% = true heterodimer
   anti_homo_score?: number;    // > 60 = good (0-100 scale)
-  n5_hbonds?: number;          // ≥ 1 = azobenzene N5 satisfied
-  n6_hbonds?: number;          // ≥ 1 = azobenzene N6 satisfied
+  n7_hbonds?: number;          // ≥ 1 = azobenzene N7 (azo) satisfied
+  n8_hbonds?: number;          // ≥ 1 = azobenzene N8 (azo) satisfied
   has_clashes?: boolean;       // false = good
   is_heterodimer?: boolean;    // true = success
 }

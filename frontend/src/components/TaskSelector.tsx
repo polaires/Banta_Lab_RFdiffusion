@@ -8,7 +8,8 @@ export type DesignTask =
   | 'enzyme'
   | 'symmetric'
   | 'refinement'
-  | 'interface_ligand';
+  | 'interface_ligand'
+  | 'interface_metal';
 
 interface TaskConfig {
   id: DesignTask;
@@ -74,6 +75,13 @@ const TASKS: TaskConfig[] = [
     description: 'Design separable protein dimers with ligand at the interface',
     icon: 'link',
     requirements: ['Ligand SMILES', 'Approach'],
+  },
+  {
+    id: 'interface_metal',
+    name: 'Interface Metal Dimer',
+    description: 'Design protein heterodimers with metal coordination at the interface',
+    icon: 'brightness_1',
+    requirements: ['Metal ion', 'Coordination split'],
   },
 ];
 

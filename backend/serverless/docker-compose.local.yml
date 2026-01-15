@@ -35,14 +35,29 @@ services:
       - ./topology_validation.py:/app/topology_validation.py
       - ./esm_utils.py:/app/esm_utils.py
       - ./esmfold_utils.py:/app/esmfold_utils.py
+      # Lanthanide design modules (Caldwell et al. 2020)
+      - ./lanthanide_templates.py:/app/lanthanide_templates.py
+      - ./metal_validation.py:/app/metal_validation.py
+      - ./tebl_analysis.py:/app/tebl_analysis.py
+      - ./hbplus_utils.py:/app/hbplus_utils.py
       # Mount utils directory for SASA calculations
       - ../utils:/app/utils
       - ../utils/dssp.py:/app/dssp.py
+      # Mount shared package (interaction analysis module)
+      - ./shared:/app/shared
+      # Mount CCD data for LigandMPNN
+      - /home/polaire/pdbsum1/data:/data/ccd
     environment:
       - CHECKPOINT_DIR=/runpod-volume/checkpoints
       - FOUNDRY_CHECKPOINT_DIRS=/runpod-volume/checkpoints
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
       - HF_TOKEN=${HF_TOKEN:-}
+      # CCD and PDB mirrors for LigandMPNN ligand handling
+      - CCD_MIRROR_PATH=/data/ccd
+      - PDB_MIRROR_PATH=/data/pdb
+      # HBPLUS for hydrogen bond analysis (RFD3 design-time constraints)
+      - HBPLUS_PATH=/usr/local/bin/hbplus
     # Override command to start local API server
     command: ["python", "-u", "handler.py", "--rp_serve_api", "--rp_api_host", "0.0.0.0"]
     # GPU access - requires nvidia-docker2

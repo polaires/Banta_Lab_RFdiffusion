@@ -11,8 +11,8 @@ export interface HeterodimerMetrics {
   contacts_b?: number;         // ≥ 5 = good
   sequence_identity?: number;  // < 70% = true heterodimer
   anti_homo_score?: number;    // > 60 = good (0-100 scale)
-  n5_hbonds?: number;          // ≥ 1 = azobenzene N5 satisfied
-  n6_hbonds?: number;          // ≥ 1 = azobenzene N6 satisfied
+  n7_hbonds?: number;          // ≥ 1 = azobenzene N7 (azo) satisfied
+  n8_hbonds?: number;          // ≥ 1 = azobenzene N8 (azo) satisfied
   has_clashes?: boolean;       // false = good
   is_heterodimer?: boolean;    // true = success
 }
@@ -43,8 +43,8 @@ const THRESHOLDS = {
     contacts_b: { excellent: 10, good: 5, poor: 2, unit: '', lowerBetter: false },
     sequence_identity: { excellent: 40, good: 70, poor: 90, unit: '%', lowerBetter: true },
     anti_homo_score: { excellent: 80, good: 60, poor: 40, unit: '/100', lowerBetter: false },
-    n5_hbonds: { excellent: 2, good: 1, poor: 0, unit: '', lowerBetter: false },
-    n6_hbonds: { excellent: 2, good: 1, poor: 0, unit: '', lowerBetter: false },
+    n7_hbonds: { excellent: 2, good: 1, poor: 0, unit: '', lowerBetter: false },
+    n8_hbonds: { excellent: 2, good: 1, poor: 0, unit: '', lowerBetter: false },
   },
   rfdiffusion3: {
     pae_interaction: { excellent: 5, good: 10, poor: 15, unit: '', lowerBetter: true },
@@ -62,8 +62,8 @@ const METRIC_LABELS = {
   contacts_b: { name: 'Chain B Contacts', icon: 'link' },
   sequence_identity: { name: 'Sequence Identity', icon: 'fingerprint' },
   anti_homo_score: { name: 'Anti-Homo Score', icon: 'shield' },
-  n5_hbonds: { name: 'N5 H-bonds', icon: 'humidity_percentage' },
-  n6_hbonds: { name: 'N6 H-bonds', icon: 'humidity_percentage' },
+  n7_hbonds: { name: 'N7 H-bonds', icon: 'humidity_percentage' },
+  n8_hbonds: { name: 'N8 H-bonds', icon: 'humidity_percentage' },
   // RFdiffusion3
   pae_interaction: { name: 'pAE (Interface)', icon: 'hub' },
   plddt: { name: 'pLDDT', icon: 'psychology' },
@@ -185,7 +185,7 @@ export function SuccessCriteriaCard({
   // Get metrics to display based on mode
   const heterodimerKeys: (keyof HeterodimerMetrics)[] = [
     'affinity', 'contacts_a', 'contacts_b', 'sequence_identity',
-    'anti_homo_score', 'n5_hbonds', 'n6_hbonds'
+    'anti_homo_score', 'n7_hbonds', 'n8_hbonds'
   ];
   const rfd3Keys: (keyof RFD3Metrics)[] = [
     'pae_interaction', 'plddt', 'ddg', 'total_hbonds', 'shape_complementarity'

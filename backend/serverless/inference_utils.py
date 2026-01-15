@@ -336,6 +336,550 @@ def pdb_to_atom_array(content: str):
         return pdb_file.get_structure(model=1)
 
 
+def apply_sequence_to_pdb(
+    pdb_content: str,
+    sequence: str,
+    chain: str = None,
+    keep_sidechains: bool = True,
+    preserve_coordinating_residues: bool = False,
+    metal_coord_distance: float = 3.5,
+) -> str:
+    """
+    Apply a new sequence to a PDB structure by mutating residue identities.
+
+    By default, keeps all atoms including sidechains (for analysis).
+    Set keep_sidechains=False to strip sidechains (requires FastRelax rebuild).
+
+    Args:
+        pdb_content: Original PDB content
+        sequence: New sequence (one-letter codes)
+        chain: Optional chain ID. If None, applies to all protein chains.
+        keep_sidechains: If True, keep all atoms; if False, only backbone (N, CA, C, O)
+        preserve_coordinating_residues: If True and keep_sidechains=False, preserve
+            sidechains for residues coordinating the metal ion
+        metal_coord_distance: Distance threshold (Å) for identifying coordinating residues
+
+    Returns:
+        Modified PDB content with new residue identities
+    """
+    # Map one-letter to three-letter codes
+    aa_1to3 = {
+        'A': 'ALA', 'C': 'CYS', 'D': 'ASP', 'E': 'GLU', 'F': 'PHE',
+        'G': 'GLY', 'H': 'HIS', 'I': 'ILE', 'K': 'LYS', 'L': 'LEU',
+        'M': 'MET', 'N': 'ASN', 'P': 'PRO', 'Q': 'GLN', 'R': 'ARG',
+        'S': 'SER', 'T': 'THR', 'V': 'VAL', 'W': 'TRP', 'Y': 'TYR',
+    }
+
+    # Backbone atoms to keep when stripping sidechains
+    backbone_atoms = {'N', 'CA', 'C', 'O'}
+
+    # Identify coordinating residues if needed
+    coordinating_residues = set()  # (chain_id, res_num) tuples
+    if preserve_coordinating_residues and not keep_sidechains:
+        import math
+        # First pass: find metal position(s) and coordinating residues
+        metal_positions = []
+        atom_positions = {}  # (chain, resnum, atom_name) -> (x, y, z)
+
+        for line in pdb_content.split('\n'):
+            if line.startswith('HETATM'):
+                # Check for lanthanide metals
+                res_name = line[17:20].strip().upper()
+                if res_name in {'TB', 'GD', 'EU', 'LA', 'CE', 'PR', 'ND', 'SM', 'DY', 'HO', 'ER', 'TM', 'YB', 'LU'}:
+                    try:
+                        x = float(line[30:38])
+                        y = float(line[38:46])
+                        z = float(line[46:54])
+                        metal_positions.append((x, y, z))
+                    except ValueError:
+                        pass
+            elif line.startswith('ATOM'):
+                try:
+                    atom_name = line[12:16].strip()
+                    chain_id = line[21]
+                    res_num = int(line[22:26])
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    atom_positions[(chain_id, res_num, atom_name)] = (x, y, z)
+                except ValueError:
+                    pass
+
+        # Find residues with atoms close to metal
+        for metal_pos in metal_positions:
+            for (chain_id, res_num, atom_name), (x, y, z) in atom_positions.items():
+                # Check carboxylate oxygens specifically
+                if atom_name in {'OD1', 'OD2', 'OE1', 'OE2'}:
+                    dist = math.sqrt(
+                        (x - metal_pos[0])**2 +
+                        (y - metal_pos[1])**2 +
+                        (z - metal_pos[2])**2
+                    )
+                    if dist < metal_coord_distance:
+                        coordinating_residues.add((chain_id, res_num))
+                        print(f"[ApplySeq] Preserving coordinating residue {chain_id}:{res_num} (dist={dist:.2f}Å)")
+
+        if coordinating_residues:
+            print(f"[ApplySeq] Found {len(coordinating_residues)} coordinating residues to preserve")
+
+    lines = pdb_content.split('\n')
+    new_lines = []
+    seq_idx = 0
+    current_resnum = None
+    current_chain = None
+
+    for line in lines:
+        if not line.startswith('ATOM'):
+            # Keep HETATM, TER, END, etc.
+            new_lines.append(line)
+            continue
+
+        # Parse PDB ATOM line
+        atom_name = line[12:16].strip()
+        chain_id = line[21]
+        try:
+            res_num = int(line[22:26])
+        except ValueError:
+            new_lines.append(line)
+            continue
+
+        # Skip if chain filter is set and doesn't match
+        if chain is not None and chain_id != chain:
+            new_lines.append(line)
+            continue
+
+        # Track residue changes
+        if res_num != current_resnum or chain_id != current_chain:
+            current_resnum = res_num
+            current_chain = chain_id
+            # Only count protein residues (not HETATM)
+            if seq_idx < len(sequence):
+                seq_idx += 1
+
+        # Filter atoms if not keeping sidechains
+        # Exception: preserve sidechains for coordinating residues (they have proper metal geometry)
+        is_coordinating = (chain_id, res_num) in coordinating_residues
+        if not keep_sidechains and atom_name not in backbone_atoms and not is_coordinating:
+            continue
+
+        # Apply new residue identity
+        if seq_idx > 0 and seq_idx <= len(sequence):
+            new_aa = sequence[seq_idx - 1]
+            new_res_name = aa_1to3.get(new_aa, 'ALA')
+            line = line[:17] + new_res_name + line[20:]
+
+        new_lines.append(line)
+
+    return '\n'.join(new_lines)
+
+
+def fix_incomplete_backbone(pdb_content: str) -> str:
+    """
+    Fix residues with incomplete backbone atoms by adding missing O atoms.
+
+    Following RFD3/Foundry's approach (input_parsing.py lines 907-946):
+    - If residue has N, CA, C but missing O: Generate O with idealized geometry
+    - Only skip residues truly missing N, CA, or C (essential backbone)
+
+    This preserves all residues instead of removing them.
+
+    Args:
+        pdb_content: PDB file content
+
+    Returns:
+        PDB content with complete backbone atoms (N, CA, C, O) for all residues
+    """
+    import numpy as np
+
+    lines = pdb_content.split('\n')
+
+    # First pass: collect atom coordinates per residue
+    residue_data = {}  # (chain, resnum) -> {atom_name: (x, y, z, line)}
+    residue_info = {}  # (chain, resnum) -> (resname, insertion_code)
+    max_serial = 0
+
+    for line in lines:
+        if line.startswith('ATOM'):
+            atom_name = line[12:16].strip()
+            chain_id = line[21]
+            res_name = line[17:20].strip()
+            try:
+                res_num = int(line[22:26])
+                serial = int(line[6:11].strip())
+            except ValueError:
+                continue
+            ins_code = line[26] if len(line) > 26 else ' '
+
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+            except (ValueError, IndexError):
+                continue
+
+            key = (chain_id, res_num)
+            if key not in residue_data:
+                residue_data[key] = {}
+                residue_info[key] = (res_name, ins_code)
+
+            residue_data[key][atom_name] = (x, y, z, line)
+            max_serial = max(max_serial, serial)
+
+    # Second pass: identify residues needing O atom generation
+    atoms_to_add = {}  # (chain, resnum) -> list of new ATOM lines
+    atom_serial = max_serial + 1
+
+    for key, atoms in residue_data.items():
+        chain_id, res_num = key
+        res_name, ins_code = residue_info[key]
+
+        has_n = 'N' in atoms
+        has_ca = 'CA' in atoms
+        has_c = 'C' in atoms
+        has_o = 'O' in atoms
+
+        # Skip if missing essential backbone atoms (N, CA, C)
+        if not (has_n and has_ca and has_c):
+            continue
+
+        # Generate O atom if missing (from N, CA, C positions)
+        if not has_o:
+            n_coord = np.array(atoms['N'][:3])
+            ca_coord = np.array(atoms['CA'][:3])
+            c_coord = np.array(atoms['C'][:3])
+
+            o_coord = _generate_o_atom(n_coord, ca_coord, c_coord)
+
+            o_line = _format_atom_line(
+                serial=atom_serial,
+                atom_name='O',
+                res_name=res_name,
+                chain_id=chain_id,
+                res_num=res_num,
+                ins_code=ins_code,
+                x=o_coord[0],
+                y=o_coord[1],
+                z=o_coord[2],
+                element='O'
+            )
+            atoms_to_add[key] = [o_line]
+            atom_serial += 1
+
+    # Third pass: reconstruct PDB with added atoms
+    result_lines = []
+    processed_residues = set()
+
+    for line in lines:
+        if line.startswith('ATOM'):
+            chain_id = line[21]
+            try:
+                res_num = int(line[22:26])
+            except ValueError:
+                result_lines.append(line)
+                continue
+
+            key = (chain_id, res_num)
+
+            # Check if this residue has essential backbone
+            if key in residue_data:
+                atoms = residue_data[key]
+                if not ('N' in atoms and 'CA' in atoms and 'C' in atoms):
+                    # Skip residues missing essential backbone
+                    continue
+
+            result_lines.append(line)
+
+            # Add generated O atom after C atom (standard PDB ordering: N, CA, C, O, ...)
+            atom_name = line[12:16].strip()
+            if atom_name == 'C' and key in atoms_to_add and key not in processed_residues:
+                for new_line in atoms_to_add[key]:
+                    result_lines.append(new_line)
+                processed_residues.add(key)
+        else:
+            result_lines.append(line)
+
+    return '\n'.join(result_lines)
+
+
+def _generate_o_atom(n_coord, ca_coord, c_coord):
+    """
+    Generate O atom coordinates from N, CA, C backbone atoms.
+
+    Uses idealized peptide geometry:
+    - C=O bond length: 1.23 Å
+    - CA-C-O angle: ~120°
+    - O is placed in the peptide plane, opposite to CA from C
+
+    Args:
+        n_coord: N atom coordinates as numpy array
+        ca_coord: CA atom coordinates as numpy array
+        c_coord: C atom coordinates as numpy array
+
+    Returns:
+        O atom coordinates as numpy array
+    """
+    import numpy as np
+
+    # Bond length and angle
+    co_bond_length = 1.23  # Å
+    ca_c_o_angle = 120.0 * np.pi / 180.0  # radians
+
+    # Vector from C to CA
+    c_to_ca = ca_coord - c_coord
+    c_to_ca_norm = np.linalg.norm(c_to_ca)
+    if c_to_ca_norm < 1e-6:
+        c_to_ca = np.array([1.0, 0.0, 0.0])
+    else:
+        c_to_ca = c_to_ca / c_to_ca_norm
+
+    # Vector from C to N (for peptide plane)
+    c_to_n = n_coord - c_coord
+    c_to_n_norm = np.linalg.norm(c_to_n)
+    if c_to_n_norm < 1e-6:
+        c_to_n = np.array([0.0, 1.0, 0.0])
+    else:
+        c_to_n = c_to_n / c_to_n_norm
+
+    # Normal to peptide plane
+    normal = np.cross(c_to_ca, c_to_n)
+    normal_norm = np.linalg.norm(normal)
+    if normal_norm < 1e-6:
+        # Degenerate case - use arbitrary perpendicular
+        normal = np.array([0.0, 0.0, 1.0])
+    else:
+        normal = normal / normal_norm
+
+    # O direction: rotate c_to_ca by (180 - angle) around normal
+    # O is roughly opposite to CA but at 120° angle
+    rotation_angle = np.pi - ca_c_o_angle
+
+    # Rodrigues rotation formula
+    c_to_o = (c_to_ca * np.cos(rotation_angle) +
+              np.cross(normal, c_to_ca) * np.sin(rotation_angle) +
+              normal * np.dot(normal, c_to_ca) * (1 - np.cos(rotation_angle)))
+
+    o_coord = c_coord + c_to_o * co_bond_length
+
+    return o_coord
+
+
+def _format_atom_line(serial: int, atom_name: str, res_name: str, chain_id: str,
+                      res_num: int, ins_code: str, x: float, y: float, z: float,
+                      element: str, occupancy: float = 1.0, b_factor: float = 0.0) -> str:
+    """
+    Format an ATOM line in PDB format.
+
+    Args:
+        serial: Atom serial number
+        atom_name: Atom name (e.g., 'O', 'CB')
+        res_name: Residue name (e.g., 'ALA')
+        chain_id: Chain identifier
+        res_num: Residue number
+        ins_code: Insertion code
+        x, y, z: Coordinates
+        element: Element symbol
+        occupancy: Occupancy (default 1.0)
+        b_factor: B-factor (default 0.0)
+
+    Returns:
+        Formatted ATOM line
+    """
+    # Atom name formatting: 4 characters, left-justified for 1-char elements
+    if len(atom_name) < 4:
+        if len(element) == 1:
+            atom_name_fmt = f" {atom_name:<3}"
+        else:
+            atom_name_fmt = f"{atom_name:<4}"
+    else:
+        atom_name_fmt = atom_name[:4]
+
+    return (f"ATOM  {serial:5d} {atom_name_fmt}{res_name:>3} {chain_id}{res_num:4d}{ins_code}   "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}{occupancy:6.2f}{b_factor:6.2f}          {element:>2}  ")
+
+
+def fix_pdb_for_mpnn(pdb_content: str) -> str:
+    """
+    Fix PDB atom names and serial numbers before running LigandMPNN.
+
+    RFdiffusion3 output may have issues that cause NaN coordinates in LigandMPNN's
+    atomize_side_chains feature (see GitHub issues #123, #148, #120):
+    1. Duplicate atom serial numbers
+    2. Duplicate atom names within residues
+    3. Malformed ATOM/HETATM lines
+
+    This function fixes these issues by:
+    1. Renumbering all atom serial numbers sequentially (1, 2, 3, ...)
+    2. Ensuring unique atom names within each residue
+    3. Re-formatting lines to strict PDB specification
+
+    Args:
+        pdb_content: PDB file content (possibly from RFdiffusion3)
+
+    Returns:
+        Fixed PDB content safe for LigandMPNN atomize_side_chains
+    """
+    lines = pdb_content.split('\n')
+    result_lines = []
+    atom_serial = 1
+
+    # Track atom names per residue to detect duplicates
+    # Key: (chain_id, res_num, ins_code) -> set of atom names seen
+    residue_atom_names: dict = {}
+
+    for line in lines:
+        if line.startswith('ATOM') or line.startswith('HETATM'):
+            try:
+                record_type = line[:6].strip()
+                atom_name = line[12:16].strip()
+                alt_loc = line[16] if len(line) > 16 else ' '
+                res_name = line[17:20].strip()
+                chain_id = line[21] if len(line) > 21 else 'A'
+                res_num = int(line[22:26]) if len(line) > 25 else 1
+                ins_code = line[26] if len(line) > 26 else ' '
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+
+                # Check for NaN coordinates - skip these atoms
+                import math
+                if math.isnan(x) or math.isnan(y) or math.isnan(z):
+                    print(f"[fix_pdb_for_mpnn] Skipping atom with NaN coords: {atom_name} in {res_name}{res_num}")
+                    continue
+
+                occupancy = float(line[54:60]) if len(line) > 59 else 1.0
+                b_factor = float(line[60:66]) if len(line) > 65 else 0.0
+                element = line[76:78].strip() if len(line) > 77 else atom_name[0]
+
+            except (ValueError, IndexError) as e:
+                # Malformed line - skip it
+                print(f"[fix_pdb_for_mpnn] Skipping malformed line: {line[:30]}... ({e})")
+                continue
+
+            # Check for duplicate atom names within residue
+            residue_key = (chain_id, res_num, ins_code)
+            if residue_key not in residue_atom_names:
+                residue_atom_names[residue_key] = set()
+
+            if atom_name in residue_atom_names[residue_key]:
+                # Duplicate atom name - rename with suffix
+                # This handles cases like two "O" atoms or duplicate sidechain atoms
+                base_name = atom_name[:3] if len(atom_name) >= 3 else atom_name
+                suffix = 2
+                new_name = f"{base_name}{suffix}"
+                while new_name in residue_atom_names[residue_key]:
+                    suffix += 1
+                    new_name = f"{base_name}{suffix}"
+                    if suffix > 9:
+                        # Give up, skip this atom
+                        print(f"[fix_pdb_for_mpnn] Too many duplicate atoms: {atom_name} in {res_name}{res_num}, skipping")
+                        continue
+                atom_name = new_name[:4]  # Truncate to 4 chars max
+
+            residue_atom_names[residue_key].add(atom_name)
+
+            # Format atom name for PDB (4 characters, proper alignment)
+            if len(atom_name) < 4:
+                if len(element) == 1:
+                    atom_name_fmt = f" {atom_name:<3}"
+                else:
+                    atom_name_fmt = f"{atom_name:<4}"
+            else:
+                atom_name_fmt = atom_name[:4]
+
+            # Reconstruct line with new serial number and proper formatting
+            if record_type == 'HETATM':
+                new_line = f"HETATM{atom_serial:5d} {atom_name_fmt}{alt_loc}{res_name:>3} {chain_id}{res_num:4d}{ins_code}   {x:8.3f}{y:8.3f}{z:8.3f}{occupancy:6.2f}{b_factor:6.2f}          {element:>2}  "
+            else:
+                new_line = f"ATOM  {atom_serial:5d} {atom_name_fmt}{alt_loc}{res_name:>3} {chain_id}{res_num:4d}{ins_code}   {x:8.3f}{y:8.3f}{z:8.3f}{occupancy:6.2f}{b_factor:6.2f}          {element:>2}  "
+
+            result_lines.append(new_line)
+            atom_serial += 1
+
+        elif line.startswith('TER'):
+            # TER record - renumber and keep
+            result_lines.append(f"TER   {atom_serial:5d}")
+            atom_serial += 1
+
+        elif line.startswith('END') or line.startswith('CONECT') or line.startswith('MASTER'):
+            # Skip connectivity records (will be regenerated if needed)
+            continue
+
+        elif line.strip():
+            # Keep other non-empty lines (REMARK, CRYST1, etc.)
+            result_lines.append(line)
+
+    # Add END record
+    result_lines.append("END")
+
+    return '\n'.join(result_lines)
+
+
+def strip_metal_from_pdb(pdb_content: str, metal_codes: List[str] = None) -> Tuple[str, List[str]]:
+    """
+    Remove metal HETATM records from PDB content.
+
+    Args:
+        pdb_content: PDB file content
+        metal_codes: List of metal codes to strip. If None, strips common metals.
+
+    Returns:
+        Tuple of (pdb_without_metal, list_of_metal_lines)
+    """
+    if metal_codes is None:
+        metal_codes = ['ZN', 'FE', 'CA', 'MG', 'MN', 'CU', 'CO', 'NI', 'NA', 'K',
+                       'TB', 'GD', 'EU', 'LA', 'YB', 'CE', 'ND', 'SM', 'DY', 'HO']
+
+    metal_codes_upper = [m.upper() for m in metal_codes]
+
+    lines = pdb_content.split('\n')
+    protein_lines = []
+    metal_lines = []
+
+    for line in lines:
+        if line.startswith('HETATM'):
+            # Check if this is a metal atom
+            res_name = line[17:20].strip().upper()
+            if res_name in metal_codes_upper:
+                metal_lines.append(line)
+                continue
+        protein_lines.append(line)
+
+    return '\n'.join(protein_lines), metal_lines
+
+
+def restore_metal_to_pdb(pdb_content: str, metal_lines: List[str]) -> str:
+    """
+    Add metal HETATM records back to PDB content.
+
+    Args:
+        pdb_content: PDB file content without metal
+        metal_lines: List of metal HETATM lines to restore
+
+    Returns:
+        PDB content with metal atoms restored
+    """
+    if not metal_lines:
+        return pdb_content
+
+    lines = pdb_content.split('\n')
+    result_lines = []
+
+    # Find where to insert metal (before END or at end of ATOM/HETATM records)
+    inserted = False
+    for line in lines:
+        if line.startswith('END') and not inserted:
+            # Insert metal lines before END
+            result_lines.extend(metal_lines)
+            inserted = True
+        result_lines.append(line)
+
+    # If no END found, append at end
+    if not inserted:
+        result_lines.extend(metal_lines)
+
+    return '\n'.join(result_lines)
+
+
 def _generate_seed_for_symmetry(symmetry_id: str, offset: float = 10.0) -> str:
     """
     Generate seed residue(s) positioned for symmetric interface design.
@@ -1893,6 +2437,28 @@ def run_mpnn_cli(
                     elif filename.endswith(".pdb") and pack_side_chains:
                         with open(filepath) as f:
                             packed_structures.append({"filename": filename, "pdb_content": f.read()})
+                    elif filename.endswith(".cif") and pack_side_chains:
+                        # Convert CIF to PDB format for consistency
+                        try:
+                            from biotite.structure.io import pdbx, pdb
+                            import io
+                            cif_file = pdbx.CIFFile.read(filepath)
+                            atom_array = pdbx.get_structure(cif_file, model=1)
+                            pdb_file = pdb.PDBFile()
+                            pdb.set_structure(pdb_file, atom_array)
+                            pdb_str = io.StringIO()
+                            pdb_file.write(pdb_str)
+                            pdb_content = pdb_str.getvalue()
+                            packed_structures.append({
+                                "filename": filename.replace(".cif", ".pdb"),
+                                "pdb_content": pdb_content
+                            })
+                            print(f"[MPNN] Converted {filename} to PDB format")
+                        except Exception as e:
+                            print(f"[MPNN] Warning: Could not convert CIF {filename}: {e}")
+                            # Still include CIF content as fallback
+                            with open(filepath) as f:
+                                packed_structures.append({"filename": filename, "cif_content": f.read()})
                     elif filename.endswith("_stats.json") and save_stats:
                         import json
                         with open(filepath) as f:

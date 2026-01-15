@@ -12,3 +12,6 @@ anthropic>=0.30.0       # Claude API for LLM integration (optional)
 # freesasa>=2.0.0       # SASA calculation (needs C compiler)
 # mdtraj>=1.9.0         # DSSP secondary structure
 # biotite>=0.37.0       # Structure manipulation (included in foundry)
+
+# Protein-Ligand Interaction Analysis (optional - used by serverless)
+# plip>=2.3.0           # PLIP for comprehensive interaction profiling

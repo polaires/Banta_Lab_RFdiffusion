@@ -10,9 +10,28 @@ from typing import Optional, List, Dict, Any
 import subprocess
 import tempfile
 import os
+import sys
 import json
 import uuid
 from datetime import datetime
+
+# Add serverless directory to path for shared module access
+serverless_dir = os.path.join(os.path.dirname(__file__), '..', 'serverless')
+if serverless_dir not in sys.path:
+    sys.path.insert(0, serverless_dir)
+
+# Import shared interaction analysis module (if available)
+try:
+    from shared.interaction_analysis import (
+        analyze_all_interactions,
+        format_for_frontend,
+        format_for_ai_assistant,
+        generate_recommendations,
+    )
+    INTERACTION_ANALYSIS_AVAILABLE = True
+except ImportError:
+    INTERACTION_ANALYSIS_AVAILABLE = False
+    print("[API] Warning: shared.interaction_analysis not available")
 
 app = FastAPI(
     title="Foundry Protein Design API",
@@ -85,6 +104,26 @@ class HealthResponse(BaseModel):
     status: str
     gpu_available: bool
     models_loaded: List[str]
+
+
+class InteractionAnalysisRequest(BaseModel):
+    """Protein-ligand interaction analysis request"""
+    pdb_content: str
+    ligand_name: str = "UNL"
+    include_visualization: bool = True
+    include_recommendations: bool = True
+    ligand_has_aromatics: bool = False
+
+
+class InteractionAnalysisResponse(BaseModel):
+    """Interaction analysis response"""
+    status: str
+    interactions: Dict[str, Any]
+    key_residues: List[str]
+    recommendations: Optional[List[str]] = None
+    visualization: Optional[Dict[str, Any]] = None
+    analysis_method: str
+    ai_summary: Optional[str] = None
 
 
 # ============ Helper Functions ============
@@ -421,6 +460,72 @@ async def delete_job(job_id: str):
 
     del jobs[job_id]
     return {"message": "Job deleted"}
+
+
+@app.post("/api/analyze/interactions", response_model=InteractionAnalysisResponse)
+async def analyze_interactions(request: InteractionAnalysisRequest):
+    """
+    Analyze protein-ligand interactions using PLIP.
+
+    Detects multiple interaction types:
+    - Hydrogen bonds (with D-H-A angle validation)
+    - Hydrophobic contacts
+    - Pi-stacking (face-to-face and edge-to-face)
+    - Salt bridges
+    - Halogen bonds
+
+    Returns interaction data formatted for frontend visualization.
+    """
+    if not INTERACTION_ANALYSIS_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Interaction analysis module not available. Install with: pip install plip"
+        )
+
+    try:
+        # Run comprehensive interaction analysis
+        summary = analyze_all_interactions(
+            pdb_content=request.pdb_content,
+            ligand_name=request.ligand_name,
+            include_visualization_data=request.include_visualization,
+        )
+
+        if summary.status == "error":
+            raise HTTPException(
+                status_code=500,
+                detail=f"Analysis failed: {summary.error}"
+            )
+
+        # Format response
+        frontend_data = format_for_frontend(summary)
+
+        response = InteractionAnalysisResponse(
+            status="completed",
+            interactions=frontend_data["interactions"],
+            key_residues=summary.key_residues,
+            analysis_method=summary.analysis_method,
+            visualization=frontend_data.get("visualization") if request.include_visualization else None,
+        )
+
+        # Add recommendations if requested
+        if request.include_recommendations:
+            response.recommendations = generate_recommendations(
+                summary,
+                ligand_has_aromatics=request.ligand_has_aromatics
+            )
+
+        # Add AI summary
+        response.ai_summary = format_for_ai_assistant(summary)
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Interaction analysis failed: {str(e)}"
+        )
 
 
 if __name__ == "__main__":

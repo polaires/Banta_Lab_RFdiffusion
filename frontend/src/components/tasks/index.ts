@@ -7,6 +7,11 @@ export { EnzymeForm } from './EnzymeForm';
 export { SymmetricForm } from './SymmetricForm';
 export { RefinementForm } from './RefinementForm';
 export { InterfaceLigandForm } from './InterfaceLigandForm';
+export { InterfaceMetalForm } from './InterfaceMetalForm';
+
+// Results panels
+export { InterfaceLigandResultsPanel } from './InterfaceLigandResultsPanel';
+export type { InterfaceLigandDesign, InterfaceLigandJobResult } from './InterfaceLigandResultsPanel';
 
 // Pipeline progress component
 export { PipelineProgress } from './PipelineProgress';

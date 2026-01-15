@@ -121,6 +121,19 @@ export interface ProteinMPNNRequest {
   temperature?: number;
   model_type?: 'ligand_mpnn' | 'protein_mpnn';
   remove_waters?: boolean;
+  fixed_positions?: string[];  // e.g., ["A35", "A36", "B35"]
+
+  // Advanced LigandMPNN parameters (Nature Methods 2025)
+  pack_side_chains?: boolean;  // Enable sidechain packing
+  pack_with_ligand_context?: boolean;  // Include ligand when packing
+  number_of_packs_per_design?: number;  // Packing samples per sequence
+  bias_AA?: string;  // e.g., "W:3.0,Y:2.0,C:-5.0"
+  omit_AA?: string;  // e.g., "C" to omit cysteine
+  model_noise_level?: '005' | '010' | '020' | '030';  // Model noise level
+  ligand_cutoff_for_score?: number;  // Angstroms (default 8.0)
+  use_side_chain_context?: boolean;  // Use fixed sidechains as context
+  save_stats?: boolean;  // Return confidence metrics
+
   config?: Record<string, unknown>;
 }
 

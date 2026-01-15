@@ -29,7 +29,20 @@ from binding_analysis import (
     run_gnina_scoring,
     smiles_to_sdf,
     to_python_types,
+    analyze_ligand_hbonds,
 )
+
+# Import shared interaction analysis module
+try:
+    from shared.interaction_analysis import (
+        analyze_all_interactions,
+        format_for_frontend,
+        generate_recommendations,
+    )
+    SHARED_ANALYSIS_AVAILABLE = True
+except ImportError:
+    SHARED_ANALYSIS_AVAILABLE = False
+    print("[CleavageUtils] Warning: shared.interaction_analysis not available, using basic analysis")
 
 
 @dataclass
@@ -603,9 +616,97 @@ def validate_cleaved_dimer(
     else:
         results["checks"]["affinity_pass"] = None
 
+    # Check 7: Ligand-specific H-bond analysis (for azobenzene N5/N6)
+    try:
+        # Detect if this is azobenzene (has N=N in SMILES)
+        is_azobenzene = ligand_smiles and "N=N" in ligand_smiles
+        ligand_atoms_to_track = ["N5", "N6"] if is_azobenzene else None
+
+        ligand_hbond_result = analyze_ligand_hbonds(
+            pdb_content=pdb_content,
+            ligand_name=ligand_name,
+            ligand_atoms=ligand_atoms_to_track,
+            hbond_distance=3.5,
+        )
+
+        results["checks"]["total_ligand_hbonds"] = ligand_hbond_result.get("total_hbonds", 0)
+        results["checks"]["ligand_hbond_details"] = ligand_hbond_result.get("hbonds", [])
+
+        # Track per-atom H-bonds for azobenzene
+        # RDKit atom naming: Ring1 (C1-C6), Azo (N7,N8), Ring2 (C9-C14)
+        if is_azobenzene:
+            by_atom = ligand_hbond_result.get("by_atom", {})
+            results["checks"]["n7_hbonds"] = len(by_atom.get("N7", []))
+            results["checks"]["n8_hbonds"] = len(by_atom.get("N8", []))
+
+            # Saturation check - ideally both azo nitrogens have H-bonds
+            n7_saturated = ligand_hbond_result.get("saturation", {}).get("N7", {}).get("saturated", False)
+            n8_saturated = ligand_hbond_result.get("saturation", {}).get("N8", {}).get("saturated", False)
+            results["checks"]["azo_hbond_saturation"] = {
+                "n7_saturated": n7_saturated,
+                "n8_saturated": n8_saturated,
+                "both_saturated": n7_saturated and n8_saturated,
+            }
+
+            # H-bond pass: at least one H-bond to either N7 or N8
+            results["checks"]["hbond_pass"] = (
+                results["checks"]["n7_hbonds"] >= 1 or
+                results["checks"]["n8_hbonds"] >= 1
+            )
+        else:
+            # For non-azobenzene ligands, just check total H-bonds
+            results["checks"]["hbond_pass"] = results["checks"]["total_ligand_hbonds"] >= 1
+
+    except Exception as e:
+        print(f"[ValidateDimer] H-bond analysis failed: {e}")
+        results["checks"]["hbond_pass"] = None
+        results["checks"]["total_ligand_hbonds"] = 0
+
+    # Check 8: Comprehensive interaction analysis using PLIP (if available)
+    if SHARED_ANALYSIS_AVAILABLE:
+        try:
+            # Check if ligand has aromatic rings (for recommendations)
+            ligand_has_aromatics = ligand_smiles and (
+                "c1" in ligand_smiles.lower() or  # aromatic ring
+                "C1=C" in ligand_smiles or  # phenyl pattern
+                "N=N" in ligand_smiles  # azobenzene has phenyl rings
+            )
+
+            interaction_summary = analyze_all_interactions(
+                pdb_content=pdb_content,
+                ligand_name=ligand_name,
+                include_visualization_data=True,
+            )
+
+            # Add comprehensive interaction data to results
+            results["interactions"] = format_for_frontend(interaction_summary)
+            results["key_binding_residues"] = interaction_summary.key_residues
+            results["interaction_analysis_method"] = interaction_summary.analysis_method
+
+            # Add AI-friendly recommendations
+            results["recommendations"] = generate_recommendations(
+                interaction_summary,
+                ligand_has_aromatics=ligand_has_aromatics
+            )
+
+            # Summary counts for quick access
+            results["checks"]["interaction_summary"] = {
+                "hydrogen_bonds": len(interaction_summary.hydrogen_bonds),
+                "hydrophobic_contacts": len(interaction_summary.hydrophobic_contacts),
+                "pi_stacking": len(interaction_summary.pi_stacking),
+                "salt_bridges": len(interaction_summary.salt_bridges),
+                "halogen_bonds": len(interaction_summary.halogen_bonds),
+                "total": interaction_summary.total_contacts,
+            }
+
+        except Exception as e:
+            print(f"[ValidateDimer] Comprehensive interaction analysis failed: {e}")
+            results["interactions"] = None
+            results["interaction_analysis_method"] = "failed"
+
     # Overall pass
     required_checks = ["length_pass", "contact_pass", "clash_pass"]
-    optional_checks = ["symmetry_pass", "affinity_pass"]
+    optional_checks = ["symmetry_pass", "affinity_pass", "hbond_pass"]
 
     all_required = all(results["checks"].get(c, False) for c in required_checks)
     results["overall_pass"] = all_required

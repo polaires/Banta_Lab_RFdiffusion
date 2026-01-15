@@ -240,14 +240,14 @@ cd G:\Github_local_repo\Banta_Lab_RFdiffusion
 # Ensure the RFD3 server is running on localhost:8000
 
 # Run demo with natural mode (best affinity results)
-node demo_azobenzene_interface.js
+node scripts/demos/demo_azobenzene_interface.js
 
 # Run demo with binder mode (H-bond conditioning)
-node demo_azobenzene_interface.js binder
+node scripts/demos/demo_azobenzene_interface.js binder
 
 # Customize number of designs
-node demo_azobenzene_interface.js natural 5
-node demo_azobenzene_interface.js binder 10
+node scripts/demos/demo_azobenzene_interface.js natural 5
+node scripts/demos/demo_azobenzene_interface.js binder 10
 ```
 
 ### Expected Output

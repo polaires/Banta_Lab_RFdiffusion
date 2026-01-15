@@ -46,3 +46,16 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Temporary Claude working files
+tmpclaude-*
+
+# Experiment archives (large outputs)
+experiments/*/archive/
+
+# Environment files
+.env*.local
+
+# Build artifacts
+frontend/.next/
+frontend/tsconfig.tsbuildinfo

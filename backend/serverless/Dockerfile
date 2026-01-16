@@ -132,6 +132,8 @@ RUN pip install --only-binary=:all: "openbabel-wheel>=3.1.1.22" lxml && \
 # Copy handler code
 COPY handler.py /app/
 COPY inference_utils.py /app/
+COPY design_types.py /app/
+COPY design_orchestrator.py /app/
 COPY binding_analysis.py /app/
 COPY conformer_utils.py /app/
 COPY cleavage_utils.py /app/

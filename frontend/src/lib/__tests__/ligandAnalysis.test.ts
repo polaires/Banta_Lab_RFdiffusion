@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   extractPharmacophoreFeatures,
+  classifyShellResidues,
   type LigandContact,
   type PharmacophoreFeature,
   type PharmacophoreType,
+  type ShellAnalysis,
 } from '../ligandAnalysis';
 
 describe('extractPharmacophoreFeatures', () => {
@@ -369,6 +371,297 @@ describe('extractPharmacophoreFeatures', () => {
       // Should still produce a feature based on atom type (C = hydrophobic)
       expect(features).toHaveLength(1);
       expect(features[0].type).toBe('hydrophobic');
+    });
+  });
+});
+
+describe('classifyShellResidues', () => {
+  describe('Primary shell classification', () => {
+    it('should classify residues within 4A as primary shell', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'SER10',
+          chain: 'A',
+          atom: 'OG',
+          distance: 2.5,
+          interactionType: 'hydrogen_bond',
+        },
+        {
+          residue: 'LEU20',
+          chain: 'A',
+          atom: 'CD1',
+          distance: 3.5,
+          interactionType: 'hydrophobic',
+        },
+        {
+          residue: 'PHE30',
+          chain: 'A',
+          atom: 'CG',
+          distance: 3.9,
+          interactionType: 'pi_stacking',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.primary).toHaveLength(3);
+      expect(result.secondary).toHaveLength(0);
+      expect(result.stats.primaryCount).toBe(3);
+      expect(result.stats.secondaryCount).toBe(0);
+    });
+
+    it('should not include 4A exactly in primary shell', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'ALA15',
+          chain: 'A',
+          atom: 'CB',
+          distance: 4.0,
+          interactionType: 'hydrophobic',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.primary).toHaveLength(0);
+      expect(result.secondary).toHaveLength(1);
+    });
+  });
+
+  describe('Secondary shell classification', () => {
+    it('should classify residues 4-6A as secondary shell', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'VAL40',
+          chain: 'A',
+          atom: 'CG1',
+          distance: 4.0,
+          interactionType: 'hydrophobic',
+        },
+        {
+          residue: 'ILE50',
+          chain: 'A',
+          atom: 'CD1',
+          distance: 5.0,
+          interactionType: 'other',
+        },
+        {
+          residue: 'MET60',
+          chain: 'A',
+          atom: 'CE',
+          distance: 6.0,
+          interactionType: 'other',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.primary).toHaveLength(0);
+      expect(result.secondary).toHaveLength(3);
+      expect(result.stats.secondaryCount).toBe(3);
+    });
+
+    it('should exclude residues beyond 6A', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'GLY70',
+          chain: 'A',
+          atom: 'CA',
+          distance: 6.1,
+          interactionType: 'other',
+        },
+        {
+          residue: 'ALA80',
+          chain: 'A',
+          atom: 'CB',
+          distance: 8.0,
+          interactionType: 'other',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.primary).toHaveLength(0);
+      expect(result.secondary).toHaveLength(0);
+      expect(result.stats.totalCount).toBe(0);
+    });
+  });
+
+  describe('Shell statistics', () => {
+    it('should calculate average distances correctly', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'SER10',
+          chain: 'A',
+          atom: 'OG',
+          distance: 2.0,
+          interactionType: 'hydrogen_bond',
+        },
+        {
+          residue: 'LEU20',
+          chain: 'A',
+          atom: 'CD1',
+          distance: 3.0,
+          interactionType: 'hydrophobic',
+        },
+        {
+          residue: 'VAL40',
+          chain: 'A',
+          atom: 'CG1',
+          distance: 4.5,
+          interactionType: 'other',
+        },
+        {
+          residue: 'ILE50',
+          chain: 'A',
+          atom: 'CD1',
+          distance: 5.5,
+          interactionType: 'other',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.stats.primaryCount).toBe(2);
+      expect(result.stats.secondaryCount).toBe(2);
+      expect(result.stats.totalCount).toBe(4);
+      expect(result.stats.avgPrimaryDistance).toBe(2.5); // (2.0 + 3.0) / 2
+      expect(result.stats.avgSecondaryDistance).toBe(5.0); // (4.5 + 5.5) / 2
+    });
+
+    it('should return correct total count', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'SER10',
+          chain: 'A',
+          atom: 'OG',
+          distance: 3.0,
+          interactionType: 'hydrogen_bond',
+        },
+        {
+          residue: 'VAL40',
+          chain: 'A',
+          atom: 'CG1',
+          distance: 5.0,
+          interactionType: 'other',
+        },
+        {
+          residue: 'GLY70',
+          chain: 'A',
+          atom: 'CA',
+          distance: 7.0,
+          interactionType: 'other',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      // Only 2 contacts within cutoff (1 primary, 1 secondary)
+      expect(result.stats.totalCount).toBe(2);
+    });
+  });
+
+  describe('Edge cases', () => {
+    it('should return empty arrays for empty contacts', () => {
+      const result = classifyShellResidues([]);
+
+      expect(result.primary).toHaveLength(0);
+      expect(result.secondary).toHaveLength(0);
+      expect(result.stats.primaryCount).toBe(0);
+      expect(result.stats.secondaryCount).toBe(0);
+      expect(result.stats.totalCount).toBe(0);
+      expect(result.stats.avgPrimaryDistance).toBe(0);
+      expect(result.stats.avgSecondaryDistance).toBe(0);
+    });
+
+    it('should return 0 for avgPrimaryDistance when primary shell is empty', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'VAL40',
+          chain: 'A',
+          atom: 'CG1',
+          distance: 5.0,
+          interactionType: 'other',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.primary).toHaveLength(0);
+      expect(result.stats.avgPrimaryDistance).toBe(0);
+      expect(result.stats.avgSecondaryDistance).toBe(5.0);
+    });
+
+    it('should return 0 for avgSecondaryDistance when secondary shell is empty', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'SER10',
+          chain: 'A',
+          atom: 'OG',
+          distance: 3.0,
+          interactionType: 'hydrogen_bond',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.secondary).toHaveLength(0);
+      expect(result.stats.avgSecondaryDistance).toBe(0);
+      expect(result.stats.avgPrimaryDistance).toBe(3.0);
+    });
+
+    it('should handle all contacts in one shell', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'SER10',
+          chain: 'A',
+          atom: 'OG',
+          distance: 2.0,
+          interactionType: 'hydrogen_bond',
+        },
+        {
+          residue: 'LEU20',
+          chain: 'A',
+          atom: 'CD1',
+          distance: 3.0,
+          interactionType: 'hydrophobic',
+        },
+        {
+          residue: 'PHE30',
+          chain: 'A',
+          atom: 'CG',
+          distance: 3.5,
+          interactionType: 'pi_stacking',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.primary).toHaveLength(3);
+      expect(result.secondary).toHaveLength(0);
+      expect(result.stats.totalCount).toBe(3);
+      expect(result.stats.avgSecondaryDistance).toBe(0);
+    });
+
+    it('should preserve contact data in classified arrays', () => {
+      const contacts: LigandContact[] = [
+        {
+          residue: 'ARG100',
+          chain: 'B',
+          atom: 'NH1',
+          distance: 3.2,
+          interactionType: 'salt_bridge',
+        },
+      ];
+
+      const result = classifyShellResidues(contacts);
+
+      expect(result.primary).toHaveLength(1);
+      expect(result.primary[0].residue).toBe('ARG100');
+      expect(result.primary[0].chain).toBe('B');
+      expect(result.primary[0].atom).toBe('NH1');
+      expect(result.primary[0].distance).toBe(3.2);
+      expect(result.primary[0].interactionType).toBe('salt_bridge');
     });
   });
 });

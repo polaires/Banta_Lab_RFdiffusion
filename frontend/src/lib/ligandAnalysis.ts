@@ -16,6 +16,22 @@ export type InteractionType = 'hydrogen_bond' | 'hydrophobic' | 'salt_bridge' | 
 
 export type PharmacophoreType = 'donor' | 'acceptor' | 'aromatic' | 'hydrophobic' | 'positive' | 'negative';
 
+// Shell analysis cutoffs
+const PRIMARY_SHELL_CUTOFF = 4.0;   // Direct contacts
+const SECONDARY_SHELL_CUTOFF = 6.0;  // Extended environment
+
+export interface ShellAnalysis {
+  primary: LigandContact[];   // < 4A: direct binding
+  secondary: LigandContact[]; // 4-6A: extended shell
+  stats: {
+    primaryCount: number;
+    secondaryCount: number;
+    totalCount: number;
+    avgPrimaryDistance: number;
+    avgSecondaryDistance: number;
+  };
+}
+
 export interface PharmacophoreFeature {
   type: PharmacophoreType;
   residue: string;
@@ -469,4 +485,46 @@ export function extractPharmacophoreFeatures(
   }
 
   return features;
+}
+
+/**
+ * Classify contacts into primary and secondary shells based on distance
+ *
+ * Primary shell (<4Å): Direct binding contacts
+ * Secondary shell (4-6Å): Extended environment contacts
+ * Contacts beyond 6Å are excluded
+ */
+export function classifyShellResidues(contacts: LigandContact[]): ShellAnalysis {
+  const primary: LigandContact[] = [];
+  const secondary: LigandContact[] = [];
+
+  for (const contact of contacts) {
+    if (contact.distance < PRIMARY_SHELL_CUTOFF) {
+      primary.push(contact);
+    } else if (contact.distance >= PRIMARY_SHELL_CUTOFF && contact.distance <= SECONDARY_SHELL_CUTOFF) {
+      secondary.push(contact);
+    }
+    // Contacts beyond SECONDARY_SHELL_CUTOFF are excluded
+  }
+
+  // Calculate average distances
+  const avgPrimaryDistance = primary.length > 0
+    ? primary.reduce((sum, c) => sum + c.distance, 0) / primary.length
+    : 0;
+
+  const avgSecondaryDistance = secondary.length > 0
+    ? secondary.reduce((sum, c) => sum + c.distance, 0) / secondary.length
+    : 0;
+
+  return {
+    primary,
+    secondary,
+    stats: {
+      primaryCount: primary.length,
+      secondaryCount: secondary.length,
+      totalCount: primary.length + secondary.length,
+      avgPrimaryDistance,
+      avgSecondaryDistance,
+    },
+  };
 }

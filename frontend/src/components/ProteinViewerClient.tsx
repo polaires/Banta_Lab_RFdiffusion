@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import type { MetalCoordination } from '@/lib/metalAnalysis';
-import type { LigandData } from '@/lib/ligandAnalysis';
+import type { LigandData, PharmacophoreFeature } from '@/lib/ligandAnalysis';
 
 // Types for Mol* that we'll import dynamically
 type PluginUIContext = any;
@@ -16,9 +16,22 @@ interface ProteinViewerClientProps {
   focusedLigandIndex?: number | null;
   metalCoordination?: MetalCoordination[] | null;
   ligandData?: { ligandDetails: LigandData[] } | null;
+  // Pharmacophore visualization
+  pharmacophoreFeatures?: PharmacophoreFeature[];
+  showPharmacophores?: boolean;
   // Callbacks
   onReady?: () => void;
 }
+
+// Pharmacophore feature colors
+const PHARMACOPHORE_COLORS: Record<string, number> = {
+  donor: 0x3B82F6,      // Blue
+  acceptor: 0xEF4444,   // Red
+  aromatic: 0xA855F7,   // Purple
+  hydrophobic: 0x22C55E, // Green
+  positive: 0x0EA5E9,   // Cyan
+  negative: 0xF97316,   // Orange
+};
 
 export interface ProteinViewerHandle {
   resetView: () => void;
@@ -67,6 +80,8 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       focusedLigandIndex,
       metalCoordination,
       ligandData,
+      pharmacophoreFeatures,
+      showPharmacophores,
       onReady,
     },
     ref
@@ -380,6 +395,67 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       }
     }, [pdbContent, ligandData]);
 
+    // Render pharmacophore features as colored spheres
+    const renderPharmacophores = useCallback(async (features: PharmacophoreFeature[]) => {
+      if (!globalPlugin || !globalStructureRef) {
+        console.log('[ProteinViewer] Cannot render pharmacophores: plugin or structure not ready');
+        return;
+      }
+
+      await loadMolstarModules();
+      const plugin = globalPlugin;
+
+      try {
+        console.log(`[ProteinViewer] Rendering ${features.length} pharmacophore features`);
+
+        for (const feature of features) {
+          // Extract residue number from feature.residue (e.g., "ASP45" -> 45)
+          const resNumMatch = feature.residue.match(/\d+/);
+          if (!resNumMatch) {
+            console.warn(`[ProteinViewer] Could not extract residue number from ${feature.residue}`);
+            continue;
+          }
+          const resNum = parseInt(resNumMatch[0], 10);
+
+          // Extract residue name (e.g., "ASP45" -> "ASP")
+          const resName = feature.residue.replace(/\d+/g, '');
+
+          // Create Mol* selection expression for this residue/atom
+          const pharmacophoreExpression = MS.struct.generator.atomGroups({
+            'residue-test': MS.core.logic.and([
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), resName]),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), feature.chain]),
+              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), resNum]),
+            ]),
+            'atom-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_atom_id(), feature.atom]),
+          });
+
+          // Get color for this pharmacophore type
+          const color = PHARMACOPHORE_COLORS[feature.type] || 0x808080;
+
+          // Create component and add spacefill representation
+          const pharmacophoreComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            globalStructureRef,
+            pharmacophoreExpression,
+            `pharmacophore-${feature.type}-${feature.residue}-${feature.atom}`
+          );
+
+          if (pharmacophoreComp) {
+            await plugin.builders.structure.representation.addRepresentation(pharmacophoreComp, {
+              type: 'spacefill',
+              color: 'uniform',
+              colorParams: { value: Color(color) },
+              typeParams: { sizeFactor: 0.8, alpha: 0.7 },
+            });
+          }
+        }
+
+        console.log('[ProteinViewer] Pharmacophore features rendered');
+      } catch (err) {
+        console.error('[ProteinViewer] Failed to render pharmacophores:', err);
+      }
+    }, []);
+
     // Reset view to default
     const resetView = useCallback(async () => {
       if (!globalPlugin || !pdbContent) return;
@@ -639,6 +715,13 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
       handleFocusChange();
     }, [focusedMetalIndex, focusedLigandIndex, isReady, pdbContent, metalCoordination, ligandData, focusOnMetal, focusOnLigand, resetView]);
+
+    // Render pharmacophore features when enabled
+    useEffect(() => {
+      if (showPharmacophores && pharmacophoreFeatures && pharmacophoreFeatures.length > 0) {
+        renderPharmacophores(pharmacophoreFeatures);
+      }
+    }, [showPharmacophores, pharmacophoreFeatures, renderPharmacophores]);
 
     return (
       <div className={`relative bg-gray-100 rounded-lg overflow-hidden ${className}`}>

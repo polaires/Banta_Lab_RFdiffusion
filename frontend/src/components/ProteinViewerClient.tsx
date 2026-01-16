@@ -395,6 +395,35 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       }
     }, [pdbContent, ligandData]);
 
+    // Clear all pharmacophore representations
+    const clearPharmacophores = useCallback(async () => {
+      if (!globalPlugin || !globalStructureRef) return;
+
+      try {
+        const state = globalPlugin.state.data;
+        // Find and remove all pharmacophore components
+        const toRemove: string[] = [];
+        state.cells.forEach((cell: any, ref: string) => {
+          if (cell.obj?.label?.startsWith('pharmacophore-')) {
+            toRemove.push(ref);
+          }
+        });
+
+        for (const ref of toRemove) {
+          const cell = state.cells.get(ref);
+          if (cell) {
+            await globalPlugin.build().delete(ref).commit();
+          }
+        }
+
+        if (toRemove.length > 0) {
+          console.log(`[ProteinViewer] Cleared ${toRemove.length} pharmacophore components`);
+        }
+      } catch (err) {
+        console.error('[ProteinViewer] Failed to clear pharmacophores:', err);
+      }
+    }, []);
+
     // Render pharmacophore features as colored spheres
     const renderPharmacophores = useCallback(async (features: PharmacophoreFeature[]) => {
       if (!globalPlugin || !globalStructureRef) {
@@ -406,6 +435,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       const plugin = globalPlugin;
 
       try {
+        // Clear existing pharmacophores first
+        await clearPharmacophores();
+
         console.log(`[ProteinViewer] Rendering ${features.length} pharmacophore features`);
 
         for (const feature of features) {
@@ -454,7 +486,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       } catch (err) {
         console.error('[ProteinViewer] Failed to render pharmacophores:', err);
       }
-    }, []);
+    }, [clearPharmacophores]);
 
     // Reset view to default
     const resetView = useCallback(async () => {
@@ -716,12 +748,14 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       handleFocusChange();
     }, [focusedMetalIndex, focusedLigandIndex, isReady, pdbContent, metalCoordination, ligandData, focusOnMetal, focusOnLigand, resetView]);
 
-    // Render pharmacophore features when enabled
+    // Render pharmacophore features when enabled, clear when disabled
     useEffect(() => {
       if (showPharmacophores && pharmacophoreFeatures && pharmacophoreFeatures.length > 0) {
         renderPharmacophores(pharmacophoreFeatures);
+      } else if (!showPharmacophores) {
+        clearPharmacophores();
       }
-    }, [showPharmacophores, pharmacophoreFeatures, renderPharmacophores]);
+    }, [showPharmacophores, pharmacophoreFeatures, renderPharmacophores, clearPharmacophores]);
 
     return (
       <div className={`relative bg-gray-100 rounded-lg overflow-hidden ${className}`}>

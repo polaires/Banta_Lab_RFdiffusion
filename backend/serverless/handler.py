@@ -153,6 +153,10 @@ except ImportError:
     TEBL_ANALYSIS_AVAILABLE = False
     print("[Handler] Warning: tebl_analysis not available")
 
+# Import design types and orchestrator for unified design endpoint
+from design_types import DesignType, infer_design_type
+from design_orchestrator import DesignOrchestrator
+
 # ============== Ligand H-bond Presets ==============
 
 # Azobenzene RDKit atom naming (canonical SMILES: c1ccc(\N=N\c2ccccc2)cc1)
@@ -337,10 +341,13 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Interaction analysis (PLIP or distance-based)
         elif task == "interaction_analysis":
             return handle_interaction_analysis(job_input)
+        # Unified design endpoint with intelligent tool selection
+        elif task == "design":
+            return handle_unified_design(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -377,6 +384,139 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             "traceback": traceback.format_exc(),
             "context": error_context
         }
+
+
+def infer_design_type_from_request(request: Dict[str, Any]) -> DesignType:
+    """
+    Infer design type from request parameters.
+
+    Args:
+        request: API request dict
+
+    Returns:
+        Inferred DesignType
+    """
+    has_metal = "metal" in request
+    has_ligand = "ligand" in request or "ligand_smiles" in request
+    has_nucleotide = "dna" in request or "rna" in request
+    has_target = "target_pdb" in request
+    is_symmetric = "symmetry" in request
+    has_motif = "motif" in request or "catalytic_residues" in request
+
+    return infer_design_type(
+        has_ligand=has_ligand,
+        has_metal=has_metal,
+        has_nucleotide=has_nucleotide,
+        has_target_protein=has_target,
+        is_symmetric=is_symmetric,
+        has_motif=has_motif,
+    )
+
+
+def handle_unified_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Unified design endpoint with intelligent tool selection.
+
+    This endpoint automatically selects the appropriate backbone,
+    sequence design, relaxation, and validation tools based on
+    the design requirements.
+
+    Input:
+        pdb_content: str (required) - Input PDB content
+        metal: str (optional) - Metal ion code (ZN, FE, TB, etc.)
+        ligand: str (optional) - Ligand CCD code
+        target_pdb: str (optional) - Target protein for binder design
+        symmetry: str (optional) - Symmetry type (C2, C3, D2, etc.)
+        design_type: str (optional) - Force specific design type
+        temperature: float (optional) - Override temperature
+        num_sequences: int (optional) - Override sequence count
+        bias_AA: str (optional) - Override AA bias
+
+    Returns:
+        {
+            "status": "completed",
+            "design_type": str,
+            "workflow": {...},
+            "sequences": [...],
+            "config_used": {...}
+        }
+    """
+    pdb_content = job_input.get("pdb_content")
+    if not pdb_content:
+        return {"status": "failed", "error": "Missing pdb_content"}
+
+    # Infer or use explicit design type
+    if "design_type" in job_input:
+        try:
+            design_type = DesignType[job_input["design_type"].upper()]
+        except KeyError:
+            return {
+                "status": "failed",
+                "error": f"Unknown design_type: {job_input['design_type']}"
+            }
+    else:
+        design_type = infer_design_type_from_request(job_input)
+
+    # Get metal type if applicable
+    metal_type = job_input.get("metal", "").lower() or None
+    if metal_type:
+        # Map common metal codes to preset names
+        metal_map = {
+            "zn": "zinc", "fe": "iron", "cu": "copper", "ca": "calcium",
+            "tb": "lanthanide", "gd": "lanthanide", "eu": "lanthanide",
+        }
+        metal_type = metal_map.get(metal_type, metal_type)
+
+    # Build config overrides
+    overrides = {}
+    if "temperature" in job_input:
+        overrides["temperature"] = job_input["temperature"]
+    if "num_sequences" in job_input:
+        overrides["num_sequences"] = job_input["num_sequences"]
+    if "bias_AA" in job_input:
+        overrides["bias_AA"] = job_input["bias_AA"]
+    if "sequence_tool" in job_input:
+        overrides["sequence_tool"] = job_input["sequence_tool"]
+
+    # Create orchestrator
+    orchestrator = DesignOrchestrator(
+        design_type=design_type,
+        metal_type=metal_type,
+        **overrides,
+    )
+
+    # Build and run MPNN request
+    mpnn_request = orchestrator.build_mpnn_request(
+        pdb_content,
+        fixed_positions=job_input.get("fixed_positions"),
+    )
+
+    # Run sequence design
+    mpnn_result = run_mpnn_inference(**mpnn_request)
+
+    if mpnn_result.get("status") != "completed":
+        return mpnn_result
+
+    # Build response
+    result = {
+        "status": "completed",
+        "design_type": design_type.name,
+        "workflow": orchestrator.get_workflow_summary(),
+        "sequences": mpnn_result.get("result", {}).get("sequences", []),
+        "config_used": {
+            "sequence_tool": orchestrator.config.sequence_tool,
+            "temperature": orchestrator.config.temperature,
+            "bias_AA": orchestrator.config.bias_AA,
+            "fixed_positions": mpnn_request.get("fixed_positions"),
+        },
+    }
+
+    # Add packed structures if available
+    packed = mpnn_result.get("result", {}).get("packed_structures")
+    if packed:
+        result["packed_structures"] = packed
+
+    return result
 
 
 def handle_health() -> Dict[str, Any]:

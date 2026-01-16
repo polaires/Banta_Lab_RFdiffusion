@@ -189,10 +189,7 @@ class MetalCoordinationSite:
 
     def get_fixed_positions_string(self) -> str:
         """Generate fixed_positions string for LigandMPNN."""
-        positions = sorted(set(
-            f"{r.chain}{r.resnum}" for r in self.coordinating_residues
-        ))
-        return ",".join(positions)
+        return ",".join(self.get_fixed_positions_list())
 
     def get_fixed_positions_list(self) -> List[str]:
         """Generate fixed_positions list for LigandMPNN."""
@@ -229,6 +226,10 @@ def detect_coordinating_residues(
     Returns:
         List of MetalCoordinationSite objects
     """
+    # Validate cutoff
+    if cutoff <= 0:
+        raise ValueError(f"cutoff must be positive, got {cutoff}")
+
     if metal_codes is None:
         metal_codes = list(METAL_CODES)
 

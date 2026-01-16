@@ -41,3 +41,35 @@ def test_get_fixed_positions_string():
 
     assert "A63" in fixed
     assert "B39" in fixed
+
+
+def test_detect_coordinating_residues_empty_pdb():
+    """Should return empty list for empty PDB."""
+    from inference_utils import detect_coordinating_residues
+
+    sites = detect_coordinating_residues("", cutoff=4.0)
+    assert sites == []
+
+
+def test_detect_coordinating_residues_no_metal():
+    """Should return empty list when no metals present."""
+    from inference_utils import detect_coordinating_residues
+
+    pdb_no_metal = """
+ATOM      1  N   ALA A   1      10.000  10.000  10.000  1.00 50.00           N
+ATOM      2  CA  ALA A   1      11.000  10.000  10.000  1.00 50.00           C
+END
+"""
+    sites = detect_coordinating_residues(pdb_no_metal, cutoff=4.0)
+    assert sites == []
+
+
+def test_detect_coordinating_residues_invalid_cutoff():
+    """Should raise ValueError for invalid cutoff."""
+    from inference_utils import detect_coordinating_residues
+
+    with pytest.raises(ValueError, match="cutoff must be positive"):
+        detect_coordinating_residues(ZINC_PDB, cutoff=0)
+
+    with pytest.raises(ValueError, match="cutoff must be positive"):
+        detect_coordinating_residues(ZINC_PDB, cutoff=-1.0)

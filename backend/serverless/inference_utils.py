@@ -8,9 +8,11 @@ Extracted from main.py for use in serverless environment.
 import os
 import io
 import json
+import math
 import random
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from typing import Dict, Any, Optional, List, Tuple
 
 
@@ -166,6 +168,143 @@ def detect_metal_in_pdb(pdb_content: str) -> Optional[str]:
         except (ValueError, IndexError):
             continue
     return None
+
+
+@dataclass
+class CoordinatingResidue:
+    """A residue coordinating a metal ion."""
+    chain: str
+    resnum: int
+    resname: str
+    atom_name: str
+    distance: float
+
+
+@dataclass
+class MetalCoordinationSite:
+    """A metal coordination site with coordinating residues."""
+    metal_code: str
+    metal_coords: Tuple[float, float, float]
+    coordinating_residues: List["CoordinatingResidue"]
+
+    def get_fixed_positions_string(self) -> str:
+        """Generate fixed_positions string for LigandMPNN."""
+        positions = sorted(set(
+            f"{r.chain}{r.resnum}" for r in self.coordinating_residues
+        ))
+        return ",".join(positions)
+
+    def get_fixed_positions_list(self) -> List[str]:
+        """Generate fixed_positions list for LigandMPNN."""
+        return sorted(set(
+            f"{r.chain}{r.resnum}" for r in self.coordinating_residues
+        ))
+
+
+# Atoms that typically coordinate metals
+COORDINATING_ATOMS = {
+    "ND1", "NE2",  # Histidine imidazole
+    "SG",          # Cysteine thiolate
+    "OD1", "OD2",  # Aspartate carboxylate
+    "OE1", "OE2",  # Glutamate carboxylate
+    "OG", "OG1",   # Serine/Threonine hydroxyl
+    "SD",          # Methionine thioether
+    "NZ",          # Lysine amine (rare)
+}
+
+
+def detect_coordinating_residues(
+    pdb_content: str,
+    cutoff: float = 3.5,
+    metal_codes: Optional[List[str]] = None,
+) -> List[MetalCoordinationSite]:
+    """
+    Detect metal coordination sites and their coordinating residues.
+
+    Args:
+        pdb_content: PDB file content
+        cutoff: Distance cutoff for coordination (Angstroms)
+        metal_codes: Specific metals to look for (default: all known)
+
+    Returns:
+        List of MetalCoordinationSite objects
+    """
+    if metal_codes is None:
+        metal_codes = list(METAL_CODES)
+
+    # Parse metal positions
+    metal_positions = []
+    for line in pdb_content.split('\n'):
+        if not line.startswith('HETATM'):
+            continue
+        try:
+            res_name = line[17:20].strip()
+            if res_name in metal_codes:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                metal_positions.append((res_name, (x, y, z)))
+        except (ValueError, IndexError):
+            continue
+
+    if not metal_positions:
+        return []
+
+    # Parse protein atoms
+    protein_atoms = []
+    for line in pdb_content.split('\n'):
+        if not line.startswith('ATOM'):
+            continue
+        try:
+            atom_name = line[12:16].strip()
+            if atom_name not in COORDINATING_ATOMS:
+                continue
+
+            res_name = line[17:20].strip()
+            chain_id = line[21]
+            res_num = int(line[22:26])
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+
+            protein_atoms.append({
+                "atom_name": atom_name,
+                "res_name": res_name,
+                "chain": chain_id,
+                "resnum": res_num,
+                "coords": (x, y, z),
+            })
+        except (ValueError, IndexError):
+            continue
+
+    # Find coordinating residues for each metal
+    sites = []
+    for metal_code, metal_coords in metal_positions:
+        coordinating = []
+
+        for atom in protein_atoms:
+            dx = atom["coords"][0] - metal_coords[0]
+            dy = atom["coords"][1] - metal_coords[1]
+            dz = atom["coords"][2] - metal_coords[2]
+            dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+
+            if dist <= cutoff:
+                coordinating.append(CoordinatingResidue(
+                    chain=atom["chain"],
+                    resnum=atom["resnum"],
+                    resname=atom["res_name"],
+                    atom_name=atom["atom_name"],
+                    distance=dist,
+                ))
+
+        if coordinating:
+            sites.append(MetalCoordinationSite(
+                metal_code=metal_code,
+                metal_coords=metal_coords,
+                coordinating_residues=coordinating,
+            ))
+
+    return sites
 
 
 def replace_metal_in_pdb(pdb_content: str, target_metal: str, source_metal: str = None) -> str:

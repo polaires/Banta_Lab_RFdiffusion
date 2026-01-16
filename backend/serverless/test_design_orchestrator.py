@@ -5,6 +5,18 @@ import pytest
 from design_orchestrator import DesignOrchestrator
 from design_types import DesignType
 
+# Realistic PDB with zinc coordination site (His-Cys coordination)
+ZINC_PDB = """
+ATOM      1  N   HIS A  63      10.000  10.000  10.000  1.00 50.00           N
+ATOM      2  CA  HIS A  63      11.000  10.000  10.000  1.00 50.00           C
+ATOM      3  NE2 HIS A  63      12.500  10.000   7.230  1.00 50.00           N
+ATOM     50  N   CYS B  39      10.000  10.000   0.000  1.00 50.00           N
+ATOM     51  CA  CYS B  39      11.000  10.000   0.000  1.00 50.00           C
+ATOM     52  SG  CYS B  39      12.300  10.000   3.440  1.00 50.00           S
+HETATM  100  ZN  ZN  X   1      12.000  10.000   5.000  1.00 50.00          ZN
+END
+"""
+
 
 def test_orchestrator_initializes_with_design_type():
     """Should initialize with inferred config."""
@@ -21,8 +33,7 @@ def test_orchestrator_builds_mpnn_request():
         metal_type="zinc"
     )
 
-    pdb = "ATOM...HETATM...ZN..."
-    request = orchestrator.build_mpnn_request(pdb)
+    request = orchestrator.build_mpnn_request(ZINC_PDB)
 
     assert request["model_type"] == "ligand_mpnn"
     assert "A:-" in request["bias_AA"]

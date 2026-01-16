@@ -8,6 +8,7 @@ backbone, sequence, relaxation, and validation tools based on design type.
 Implements the decision tree from our comprehensive analysis.
 """
 
+import logging
 from typing import Optional, List, Dict, Any
 from design_types import (
     DesignType,
@@ -16,6 +17,8 @@ from design_types import (
     METAL_PRESETS,
 )
 from inference_utils import detect_coordinating_residues
+
+logger = logging.getLogger(__name__)
 
 
 class DesignOrchestrator:
@@ -162,7 +165,11 @@ class DesignOrchestrator:
                 detected = sites[0].get_fixed_positions_list()
                 if detected:
                     request["fixed_positions"] = detected
-                    print(f"[Orchestrator] Auto-detected fixed positions: {detected}")
+                    logger.info(f"Auto-detected fixed positions: {detected}")
+                else:
+                    logger.warning("Metal coordination sites found but no fixed positions extracted")
+            else:
+                logger.debug("No metal coordination sites detected for auto-fixing")
 
         return request
 

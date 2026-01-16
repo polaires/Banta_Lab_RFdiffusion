@@ -9,6 +9,8 @@ Based on:
 - BindCraft source code analysis
 """
 
+import dataclasses
+import warnings
 from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
@@ -298,6 +300,12 @@ def get_recommended_config(
     Returns:
         DesignConfig with recommended settings
     """
+    # Validate override keys
+    valid_keys = {f.name for f in dataclasses.fields(DesignConfig)}
+    invalid_keys = set(overrides.keys()) - valid_keys
+    if invalid_keys:
+        warnings.warn(f"Unknown config keys ignored: {invalid_keys}. Valid keys: {valid_keys}")
+
     # Get base preset
     if design_type not in DESIGN_PRESETS:
         raise ValueError(f"Unknown design type: {design_type}")
@@ -340,6 +348,8 @@ def get_recommended_config(
             if "omit_AA" not in overrides:
                 config_dict["omit_AA"] = metal["omit_AA"]
             config_dict["coordination_cutoff"] = metal.get("coordination_distance", 3.5)
+        else:
+            warnings.warn(f"Unknown metal type '{metal_type}'. Valid types: {list(METAL_PRESETS.keys())}")
 
     return DesignConfig(**config_dict)
 
@@ -354,6 +364,14 @@ def infer_design_type(
 ) -> DesignType:
     """
     Infer design type from characteristics.
+
+    Priority order (first match wins):
+    1. Metal (with symmetric -> METAL_MEDIATED_DIMER, else METAL_BINDING)
+    2. Nucleotide -> DNA_RNA_BINDER
+    3. Ligand (with symmetric -> SYMMETRIC_LIGAND_BINDER, with motif -> ENZYME_ACTIVE_SITE, else SMALL_MOLECULE_BINDER)
+    4. Target protein -> PROTEIN_PROTEIN_BINDER
+    5. Symmetric -> SYMMETRIC_OLIGOMER
+    6. Default -> GENERAL_SCAFFOLD
 
     Args:
         has_ligand: Design involves small molecule

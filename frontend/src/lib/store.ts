@@ -205,6 +205,8 @@ interface AppState {
   // Structure comparison state
   comparisonEnabled: boolean;
   setComparisonEnabled: (enabled: boolean) => void;
+  comparisonMode: 'overlay' | 'side-by-side';
+  setComparisonMode: (mode: 'overlay' | 'side-by-side') => void;
   referenceStructure: { pdb: string; label: string; source: 'rfd3' | 'rf3' | 'upload' } | null;
   setReferenceStructure: (struct: { pdb: string; label: string; source: 'rfd3' | 'rf3' | 'upload' } | null) => void;
 
@@ -351,6 +353,8 @@ export const useStore = create<AppState>()(
   // Structure comparison
   comparisonEnabled: false,
   setComparisonEnabled: (enabled) => set({ comparisonEnabled: enabled }),
+  comparisonMode: 'overlay',
+  setComparisonMode: (mode) => set({ comparisonMode: mode }),
   referenceStructure: null,
   setReferenceStructure: (struct) => set({ referenceStructure: struct }),
 

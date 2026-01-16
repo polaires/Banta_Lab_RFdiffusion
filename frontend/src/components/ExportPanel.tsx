@@ -70,9 +70,9 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
   };
 
   return (
-    <div className="p-3 bg-gray-800/50 rounded-lg border border-gray-700 space-y-3">
-      <h4 className="text-sm font-medium text-gray-300 flex items-center gap-2">
-        <Download className="w-4 h-4" />
+    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+      <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+        <Download className="w-4 h-4 text-slate-500" />
         Export Structure
       </h4>
 
@@ -80,9 +80,9 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
         {/* PDB Export */}
         <button
           onClick={handleExportPdb}
-          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-sm flex items-center gap-1.5 transition"
+          className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-sm text-slate-700 flex items-center gap-1.5 transition-colors"
         >
-          <FileText className="w-3.5 h-3.5" />
+          <FileText className="w-3.5 h-3.5 text-slate-500" />
           PDB
         </button>
 
@@ -90,12 +90,12 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
         <button
           onClick={handleExportCif}
           disabled={exporting}
-          className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-600 rounded text-sm flex items-center gap-1.5 transition"
+          className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-sm text-slate-700 flex items-center gap-1.5 transition-colors"
         >
           {exporting ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
-            <Database className="w-3.5 h-3.5" />
+            <Database className="w-3.5 h-3.5 text-slate-500" />
           )}
           CIF
         </button>
@@ -104,16 +104,16 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
         {source === 'rf3' && latestConfidences && (
           <button
             onClick={handleExportConfidences}
-            className="px-3 py-1.5 bg-purple-600/50 hover:bg-purple-600/70 rounded text-sm flex items-center gap-1.5 transition"
+            className="px-3 py-1.5 bg-violet-100 border border-violet-200 hover:bg-violet-200 rounded-lg text-sm text-violet-700 flex items-center gap-1.5 transition-colors"
           >
-            <FileText className="w-3.5 h-3.5" />
+            <FileText className="w-3.5 h-3.5 text-violet-500" />
             Confidences (JSON)
           </button>
         )}
       </div>
 
       {error && (
-        <p className="text-xs text-red-400">{error}</p>
+        <p className="text-xs text-red-600">{error}</p>
       )}
     </div>
   );

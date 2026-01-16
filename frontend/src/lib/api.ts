@@ -533,6 +533,8 @@ export interface ESM3EmbedResult {
 class FoundryAPI {
   private baseUrl: string;
   private mode: ApiMode;
+  // Cache for sync job results in traditional mode (jobs complete immediately)
+  private syncJobResults: Map<string, any> = new Map();
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
@@ -562,8 +564,9 @@ class FoundryAPI {
       // Use Vercel Edge Function proxy
       return `/api/runpod/${path.replace(/^\/?(api\/)?/, '')}`;
     }
-    // Traditional mode: direct to backend
-    return `${this.baseUrl}/${path.replace(/^\//, '')}`;
+    // Traditional mode: use Next.js proxy to avoid CORS issues
+    const cleanPath = path.replace(/^\/?(api\/)?/, '');
+    return `/api/traditional/${cleanPath}?url=${encodeURIComponent(this.baseUrl)}`;
   }
 
   // Health check
@@ -682,71 +685,165 @@ class FoundryAPI {
 
   // RF3 Prediction
   async submitRF3Prediction(request: RF3Request): Promise<JobResponse> {
-    const endpoint = this.getEndpoint('api/rf3/predict');
-    const response = await fetch(endpoint, {
+    if (this.mode === 'serverless') {
+      // Serverless mode uses the Next.js API route
+      const endpoint = this.getEndpoint('api/rf3/predict');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to submit RF3 job: ${response.statusText}`);
+      }
+      const result = await response.json();
+
+      // Save to Supabase in serverless mode
+      if (isSupabaseConfigured()) {
+        await supabaseSaveJob({
+          runpod_id: result.job_id,
+          type: 'rf3',
+          request: { sequence_length: request.sequence?.length },
+        });
+      }
+
+      return result;
+    }
+
+    // Traditional mode uses Next.js proxy to avoid CORS issues
+    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
+      body: JSON.stringify({ input: { task: 'rf3', ...request } }),
     });
+
     if (!response.ok) {
       throw new Error(`Failed to submit RF3 job: ${response.statusText}`);
     }
+
     const result = await response.json();
 
-    // Save to Supabase in serverless mode
-    if (this.mode === 'serverless' && isSupabaseConfigured()) {
-      await supabaseSaveJob({
-        runpod_id: result.job_id,
-        type: 'rf3',
-        request: { sequence_length: request.sequence?.length },
-      });
-    }
+    // Parse RunPod response format
+    const output = result.output || {};
+    const jobId = result.id || 'sync-' + Date.now();
+    const jobResult = output.result;
 
-    return result;
+    // Cache the result for getJobStatus() to return
+    this.syncJobResults.set(jobId, jobResult);
+
+    return {
+      job_id: jobId,
+      status: output.status === 'completed' ? 'completed' : 'failed',
+      message: output.status === 'completed' ? 'RF3 prediction completed' : (output.error || 'RF3 prediction failed'),
+      result: jobResult,
+      error: output.error,
+      syncCompleted: true,
+    };
   }
 
   // MPNN Design
   async submitMPNNDesign(request: ProteinMPNNRequest): Promise<JobResponse> {
-    const endpoint = this.getEndpoint('api/mpnn/design');
-    const response = await fetch(endpoint, {
+    if (this.mode === 'serverless') {
+      // Serverless mode uses the Next.js API route
+      const endpoint = this.getEndpoint('api/mpnn/design');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to submit MPNN job: ${response.statusText}`);
+      }
+      const result = await response.json();
+
+      // Save to Supabase in serverless mode
+      if (isSupabaseConfigured()) {
+        await supabaseSaveJob({
+          runpod_id: result.job_id,
+          type: 'mpnn',
+          request: {
+            num_sequences: request.num_sequences,
+            temperature: request.temperature,
+            model_type: request.model_type,
+          },
+        });
+      }
+
+      return result;
+    }
+
+    // Traditional mode uses Next.js proxy to avoid CORS issues
+    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
+      body: JSON.stringify({ input: { task: 'mpnn', ...request } }),
     });
+
     if (!response.ok) {
       throw new Error(`Failed to submit MPNN job: ${response.statusText}`);
     }
+
     const result = await response.json();
 
-    // Save to Supabase in serverless mode
-    if (this.mode === 'serverless' && isSupabaseConfigured()) {
-      await supabaseSaveJob({
-        runpod_id: result.job_id,
-        type: 'mpnn',
-        request: {
-          num_sequences: request.num_sequences,
-          temperature: request.temperature,
-          model_type: request.model_type,
-        },
-      });
-    }
+    // Parse RunPod response format
+    const output = result.output || {};
+    const jobId = result.id || 'sync-' + Date.now();
+    const jobResult = output.result;
 
-    return result;
+    // Cache the result for getJobStatus() to return
+    this.syncJobResults.set(jobId, jobResult);
+
+    return {
+      job_id: jobId,
+      status: output.status === 'completed' ? 'completed' : 'failed',
+      message: output.status === 'completed' ? 'MPNN design completed' : (output.error || 'MPNN design failed'),
+      result: jobResult,
+      error: output.error,
+      syncCompleted: true,
+    };
   }
 
   // RMSD Validation
   async calculateRMSD(request: RMSDRequest): Promise<RMSDResult> {
-    const endpoint = this.getEndpoint('api/validate/rmsd');
-    const response = await fetch(endpoint, {
+    if (this.mode === 'serverless') {
+      // Serverless mode uses the Next.js API route
+      const endpoint = this.getEndpoint('api/validate/rmsd');
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(error.detail || 'Failed to calculate RMSD');
+      }
+      return response.json();
+    }
+
+    // Traditional mode uses Next.js proxy to avoid CORS issues
+    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
+      body: JSON.stringify({ input: { task: 'rmsd', ...request } }),
     });
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: response.statusText }));
       throw new Error(error.detail || 'Failed to calculate RMSD');
     }
-    return response.json();
+
+    const result = await response.json();
+
+    // Parse RunPod response format
+    const output = result.output || {};
+    if (output.status === 'completed' && output.result) {
+      return output.result;
+    } else {
+      throw new Error(output.error || 'RMSD calculation failed');
+    }
   }
 
   // Structure Analysis - AI-assisted binding site analysis
@@ -1031,26 +1128,45 @@ class FoundryAPI {
 
   // Job Management
   async getJobStatus(jobId: string): Promise<JobStatus> {
-    const endpoint = this.mode === 'serverless'
-      ? `/api/runpod/jobs/${jobId}`
-      : `${this.baseUrl}/api/jobs/${jobId}`;
+    if (this.mode === 'serverless') {
+      // Serverless mode: poll RunPod API via proxy
+      const endpoint = `/api/runpod/jobs/${jobId}`;
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        throw new Error(`Failed to get job status: ${response.statusText}`);
+      }
+      const status = await response.json();
 
-    const response = await fetch(endpoint);
-    if (!response.ok) {
-      throw new Error(`Failed to get job status: ${response.statusText}`);
+      // Update Supabase in serverless mode
+      if (isSupabaseConfigured()) {
+        await supabaseUpdateJob(jobId, {
+          status: status.status,
+          result: status.result,
+          completed_at: status.completed_at,
+        });
+      }
+
+      return status;
     }
-    const status = await response.json();
 
-    // Update Supabase in serverless mode
-    if (this.mode === 'serverless' && isSupabaseConfigured()) {
-      await supabaseUpdateJob(jobId, {
-        status: status.status,
-        result: status.result,
-        completed_at: status.completed_at,
-      });
+    // Traditional mode: jobs are synchronous (runsync), no polling needed
+    // Return cached result if available
+    const cachedResult = this.syncJobResults.get(jobId);
+    if (cachedResult !== undefined) {
+      // Clean up cache after returning (one-time use)
+      this.syncJobResults.delete(jobId);
+      return {
+        status: 'completed',
+        result: cachedResult,
+      } as JobStatus;
     }
 
-    return status;
+    // For any job ID without cached result, return completed with null
+    // (result was already consumed or job didn't cache)
+    return {
+      status: 'completed',
+      result: null,
+    } as JobStatus;
   }
 
   async listJobs(): Promise<Record<string, { status: string; type: string; created_at: string }>> {
@@ -1068,11 +1184,8 @@ class FoundryAPI {
       return result;
     }
 
-    const response = await fetch(`${this.baseUrl}/api/jobs`);
-    if (!response.ok) {
-      throw new Error(`Failed to list jobs: ${response.statusText}`);
-    }
-    return response.json();
+    // Traditional mode: no job tracking, return empty
+    return {};
   }
 
   async deleteJob(jobId: string): Promise<void> {
@@ -1082,12 +1195,8 @@ class FoundryAPI {
       return;
     }
 
-    const response = await fetch(`${this.baseUrl}/api/jobs/${jobId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to delete job: ${response.statusText}`);
-    }
+    // Traditional mode: no job tracking, no-op
+    return;
   }
 
   // Poll job status until completion

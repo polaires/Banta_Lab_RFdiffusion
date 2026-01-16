@@ -67,6 +67,7 @@ export function CollapsibleViewer() {
     latestRfd3Design,
     latestRf3Prediction,
     comparisonEnabled,
+    comparisonMode,
     // Pharmacophore visualization state
     showPharmacophores3D,
     setShowPharmacophores3D,
@@ -260,16 +261,49 @@ export function CollapsibleViewer() {
             {/* Viewer */}
             <div className="p-4">
               {selectedPdb ? (
-                <ProteinViewer
-                  pdbContent={selectedPdb}
-                  className="h-[520px] rounded-xl overflow-hidden"
-                  focusedMetalIndex={focusedMetalIndex}
-                  focusedLigandIndex={focusedLigandIndex}
-                  metalCoordination={metalCoordination}
-                  ligandData={ligandData}
-                  pharmacophoreFeatures={pharmacophoreFeatures ?? undefined}
-                  showPharmacophores={showPharmacophores3D}
-                />
+                comparisonMode === 'side-by-side' && comparisonEnabled && latestRfd3Design && latestRf3Prediction ? (
+                  // Side-by-side view: Two viewers
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-violet-500" />
+                        <span className="text-sm font-medium text-slate-700">RFD3 Design</span>
+                      </div>
+                      <ProteinViewer
+                        pdbContent={latestRfd3Design.pdbContent}
+                        className="h-[480px] rounded-xl overflow-hidden"
+                        focusedMetalIndex={focusedMetalIndex}
+                        focusedLigandIndex={focusedLigandIndex}
+                        metalCoordination={metalCoordination}
+                        ligandData={ligandData}
+                        pharmacophoreFeatures={pharmacophoreFeatures ?? undefined}
+                        showPharmacophores={showPharmacophores3D}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                        <span className="text-sm font-medium text-slate-700">RF3 Prediction</span>
+                      </div>
+                      <ProteinViewer
+                        pdbContent={latestRf3Prediction.pdbContent}
+                        className="h-[480px] rounded-xl overflow-hidden"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  // Single viewer (overlay mode or no comparison)
+                  <ProteinViewer
+                    pdbContent={selectedPdb}
+                    className="h-[520px] rounded-xl overflow-hidden"
+                    focusedMetalIndex={focusedMetalIndex}
+                    focusedLigandIndex={focusedLigandIndex}
+                    metalCoordination={metalCoordination}
+                    ligandData={ligandData}
+                    pharmacophoreFeatures={pharmacophoreFeatures ?? undefined}
+                    showPharmacophores={showPharmacophores3D}
+                  />
+                )
               ) : (
                 <div className="h-[520px] flex flex-col items-center justify-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
                   <span className="material-symbols-outlined text-4xl text-slate-300 mb-3">view_in_ar</span>

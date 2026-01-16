@@ -44,6 +44,8 @@ let globalPlugin: PluginUIContext | null = null;
 let globalInitPromise: Promise<any> | null = null;
 let globalContainer: HTMLDivElement | null = null;
 let globalStructureRef: StateObjectRef | null = null;
+let globalErrorHandler: ((event: ErrorEvent) => void) | null = null;
+let globalUnhandledRejectionHandler: ((event: PromiseRejectionEvent) => void) | null = null;
 
 // Mol* imports (loaded dynamically)
 let MS: any = null;
@@ -575,6 +577,39 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
           globalContainer.innerHTML = '';
 
+          // Set up global error handler to catch Molstar internal errors (e.g., LociHighlightManager)
+          if (globalErrorHandler) {
+            window.removeEventListener('error', globalErrorHandler);
+          }
+          globalErrorHandler = (event: ErrorEvent) => {
+            // Suppress Molstar highlight manager errors that occur during hover
+            const isMolstarError = event.filename?.includes('molstar') ||
+                                   event.error?.stack?.includes('molstar') ||
+                                   event.error?.stack?.includes('LociHighlightManager') ||
+                                   event.error?.stack?.includes('normalizedLoci');
+            if (event.message?.includes('Cannot read properties of undefined') && isMolstarError) {
+              console.warn('[ProteinViewer] Suppressed Molstar internal error:', event.message);
+              event.preventDefault();
+              return true;
+            }
+          };
+          window.addEventListener('error', globalErrorHandler);
+
+          // Also handle unhandled promise rejections from Molstar
+          if (globalUnhandledRejectionHandler) {
+            window.removeEventListener('unhandledrejection', globalUnhandledRejectionHandler);
+          }
+          globalUnhandledRejectionHandler = (event: PromiseRejectionEvent) => {
+            const errorString = String(event.reason?.stack || event.reason?.message || event.reason);
+            if (errorString.includes('molstar') ||
+                errorString.includes('LociHighlightManager') ||
+                errorString.includes('normalizedLoci')) {
+              console.warn('[ProteinViewer] Suppressed Molstar promise rejection:', event.reason);
+              event.preventDefault();
+            }
+          };
+          window.addEventListener('unhandledrejection', globalUnhandledRejectionHandler);
+
           console.log('[ProteinViewer] Creating plugin UI...');
           const plugin = await molstarUI.createPluginUI({
             target: globalContainer,
@@ -588,11 +623,52 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
                   controlsDisplay: 'reactive' as const,
                 },
               },
+              behaviors: [
+                // Keep default behaviors but we'll wrap them for error handling
+                ...(molstarSpec.DefaultPluginUISpec().behaviors || []),
+              ],
             },
           });
 
           console.log('[ProteinViewer] Plugin created successfully');
           globalPlugin = plugin;
+
+          // Wrap the highlight and interactivity managers to prevent crashes on hover
+          const wrapInteractivityMethod = (obj: any, methodName: string, label: string) => {
+            if (obj && typeof obj[methodName] === 'function') {
+              const original = obj[methodName].bind(obj);
+              obj[methodName] = (...args: any[]) => {
+                try {
+                  return original(...args);
+                } catch (err) {
+                  console.warn(`[ProteinViewer] ${label} error suppressed:`, err);
+                }
+              };
+            }
+          };
+
+          // Wrap highlight manager methods
+          if (plugin.managers?.interactivity?.lociHighlights) {
+            const highlights = plugin.managers.interactivity.lociHighlights;
+            wrapInteractivityMethod(highlights, 'highlightOnly', 'Highlight');
+            wrapInteractivityMethod(highlights, 'highlight', 'Highlight');
+            wrapInteractivityMethod(highlights, 'highlightOnlyExtend', 'HighlightExtend');
+          }
+
+          // Wrap selection manager methods
+          if (plugin.managers?.interactivity?.lociSelects) {
+            const selects = plugin.managers.interactivity.lociSelects;
+            wrapInteractivityMethod(selects, 'select', 'Select');
+            wrapInteractivityMethod(selects, 'selectOnly', 'SelectOnly');
+            wrapInteractivityMethod(selects, 'selectToggle', 'SelectToggle');
+          }
+
+          // Wrap label manager methods
+          if (plugin.managers?.interactivity?.lociLabels) {
+            const labels = plugin.managers.interactivity.lociLabels;
+            wrapInteractivityMethod(labels, 'mark', 'Label');
+            wrapInteractivityMethod(labels, 'markOnlyExtend', 'LabelExtend');
+          }
 
           // Load Mol* modules for focus functions
           await loadMolstarModules();

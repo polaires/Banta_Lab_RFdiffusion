@@ -48,3 +48,16 @@ def test_design_request_defaults_to_general():
     request = {"pdb_content": "..."}
     design_type = infer_design_type_from_request(request)
     assert design_type == DesignType.GENERAL_SCAFFOLD
+
+
+def test_design_request_validates_temperature():
+    """Should reject invalid temperature."""
+    from handler import handle_unified_design
+
+    result = handle_unified_design({
+        "pdb_content": "ATOM...",
+        "temperature": "not_a_number"
+    })
+
+    assert result["status"] == "failed"
+    assert "temperature" in result["error"]

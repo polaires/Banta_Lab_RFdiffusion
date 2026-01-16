@@ -458,21 +458,28 @@ def handle_unified_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
         design_type = infer_design_type_from_request(job_input)
 
     # Get metal type if applicable
-    metal_type = job_input.get("metal", "").lower() or None
-    if metal_type:
+    metal_type = None
+    if job_input.get("metal"):
+        metal_code = job_input["metal"].lower()
         # Map common metal codes to preset names
         metal_map = {
             "zn": "zinc", "fe": "iron", "cu": "copper", "ca": "calcium",
             "tb": "lanthanide", "gd": "lanthanide", "eu": "lanthanide",
         }
-        metal_type = metal_map.get(metal_type, metal_type)
+        metal_type = metal_map.get(metal_code, metal_code)
 
-    # Build config overrides
+    # Build config overrides with validation
     overrides = {}
     if "temperature" in job_input:
-        overrides["temperature"] = job_input["temperature"]
+        try:
+            overrides["temperature"] = float(job_input["temperature"])
+        except (ValueError, TypeError):
+            return {"status": "failed", "error": "temperature must be a valid number"}
     if "num_sequences" in job_input:
-        overrides["num_sequences"] = job_input["num_sequences"]
+        try:
+            overrides["num_sequences"] = int(job_input["num_sequences"])
+        except (ValueError, TypeError):
+            return {"status": "failed", "error": "num_sequences must be a valid integer"}
     if "bias_AA" in job_input:
         overrides["bias_AA"] = job_input["bias_AA"]
     if "sequence_tool" in job_input:
@@ -495,6 +502,13 @@ def handle_unified_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
     mpnn_result = run_mpnn_inference(**mpnn_request)
 
     if mpnn_result.get("status") != "completed":
+        # Add context to error response
+        mpnn_result["design_type"] = design_type.name
+        mpnn_result["config_attempted"] = {
+            "sequence_tool": orchestrator.config.sequence_tool,
+            "temperature": orchestrator.config.temperature,
+            "bias_AA": orchestrator.config.bias_AA,
+        }
         return mpnn_result
 
     # Build response

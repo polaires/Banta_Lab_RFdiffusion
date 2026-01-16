@@ -14,6 +14,17 @@ import { METAL_ELEMENTS } from './metalAnalysis';
 // Types
 export type InteractionType = 'hydrogen_bond' | 'hydrophobic' | 'salt_bridge' | 'pi_stacking' | 'other';
 
+export type PharmacophoreType = 'donor' | 'acceptor' | 'aromatic' | 'hydrophobic' | 'positive' | 'negative';
+
+export interface PharmacophoreFeature {
+  type: PharmacophoreType;
+  residue: string;
+  chain: string;
+  atom: string;
+  distance: number;
+  position?: [number, number, number];
+}
+
 export interface LigandContact {
   residue: string;
   chain: string;
@@ -356,4 +367,106 @@ export function getInteractionLabel(type: InteractionType): string {
     default:
       return 'Contact';
   }
+}
+
+// Aromatic residues for pharmacophore classification
+const AROMATIC_RESIDUES = new Set(['PHE', 'TYR', 'TRP', 'HIS']);
+
+/**
+ * Extract residue name from a contact residue string (e.g., "PHE101" -> "PHE")
+ */
+function extractResidueName(residue: string): string {
+  // Remove numbers from the residue string to get the residue name
+  return residue.replace(/[0-9]/g, '');
+}
+
+/**
+ * Get the element from an atom name (e.g., "NE2" -> "N", "OD1" -> "O", "CD1" -> "C")
+ */
+function getAtomElement(atomName: string): string {
+  // Atom names in PDB format have element as first character(s)
+  // Common patterns: N, O, C, S, CA, CB, CG, CD, CE, NE, OD, OE, etc.
+  const firstChar = atomName.charAt(0);
+  return firstChar;
+}
+
+/**
+ * Extract pharmacophore features from ligand contacts
+ *
+ * Classifies each contact based on interaction type and residue/atom properties:
+ * - Aromatic: PHE, TYR, TRP, HIS residues or pi_stacking interactions
+ * - Positive: ARG, LYS, HIS with salt_bridge
+ * - Negative: ASP, GLU with salt_bridge
+ * - Donor: N atoms in hydrogen_bond
+ * - Acceptor: O atoms in hydrogen_bond
+ * - Hydrophobic: C atoms or hydrophobic interactions
+ */
+export function extractPharmacophoreFeatures(
+  contacts: LigandContact[]
+): PharmacophoreFeature[] {
+  const features: PharmacophoreFeature[] = [];
+
+  for (const contact of contacts) {
+    const resName = extractResidueName(contact.residue);
+    const atomElement = getAtomElement(contact.atom);
+    let featureType: PharmacophoreType;
+
+    // Priority 1: Pi-stacking interactions are always aromatic
+    if (contact.interactionType === 'pi_stacking') {
+      featureType = 'aromatic';
+    }
+    // Priority 2: Salt bridge interactions - check for charged residues
+    else if (contact.interactionType === 'salt_bridge') {
+      if (POSITIVE_RESIDUES.has(resName)) {
+        featureType = 'positive';
+      } else if (NEGATIVE_RESIDUES.has(resName)) {
+        featureType = 'negative';
+      } else {
+        // Default to positive/negative based on atom type if residue not recognized
+        featureType = atomElement === 'N' ? 'positive' : 'negative';
+      }
+    }
+    // Priority 3: Aromatic residues (even without pi_stacking interaction type)
+    else if (AROMATIC_RESIDUES.has(resName)) {
+      featureType = 'aromatic';
+    }
+    // Priority 4: Hydrogen bonds - classify by atom type
+    else if (contact.interactionType === 'hydrogen_bond') {
+      if (atomElement === 'N') {
+        featureType = 'donor';
+      } else if (atomElement === 'O') {
+        featureType = 'acceptor';
+      } else if (atomElement === 'S') {
+        // Sulfur can be both donor and acceptor, default to acceptor
+        featureType = 'acceptor';
+      } else {
+        // For other atoms in H-bonds, default to acceptor
+        featureType = 'acceptor';
+      }
+    }
+    // Priority 5: Hydrophobic interactions or carbon atoms
+    else if (contact.interactionType === 'hydrophobic' || atomElement === 'C') {
+      featureType = 'hydrophobic';
+    }
+    // Default: classify based on atom element
+    else {
+      if (atomElement === 'N') {
+        featureType = 'donor';
+      } else if (atomElement === 'O') {
+        featureType = 'acceptor';
+      } else {
+        featureType = 'hydrophobic';
+      }
+    }
+
+    features.push({
+      type: featureType,
+      residue: contact.residue,
+      chain: contact.chain,
+      atom: contact.atom,
+      distance: contact.distance,
+    });
+  }
+
+  return features;
 }

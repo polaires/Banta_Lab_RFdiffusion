@@ -14,7 +14,7 @@ const STORE_VERSION = 2;
 const MAX_JOB_HISTORY = 100;
 import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult, MetalBindingAnalysis, UserPreferences, DesignEvaluation } from './api';
 import type { MetalCoordination } from './metalAnalysis';
-import type { LigandAnalysisResult } from './ligandAnalysis';
+import type { LigandAnalysisResult, PharmacophoreFeature } from './ligandAnalysis';
 
 // Viewer mode for different visualization states
 export type ViewerMode = 'default' | 'metal' | 'ligand' | 'confidence' | 'comparison';
@@ -196,6 +196,12 @@ interface AppState {
   ligandData: LigandAnalysisResult | null;
   setLigandData: (data: LigandAnalysisResult | null) => void;
 
+  // Pharmacophore visualization state
+  pharmacophoreFeatures: PharmacophoreFeature[] | null;
+  setPharmacophoreFeatures: (features: PharmacophoreFeature[] | null) => void;
+  showPharmacophores3D: boolean;
+  setShowPharmacophores3D: (show: boolean) => void;
+
   // Structure comparison state
   comparisonEnabled: boolean;
   setComparisonEnabled: (enabled: boolean) => void;
@@ -335,6 +341,12 @@ export const useStore = create<AppState>()(
   // Ligand analysis
   ligandData: null,
   setLigandData: (data) => set({ ligandData: data }),
+
+  // Pharmacophore visualization state
+  pharmacophoreFeatures: null,
+  setPharmacophoreFeatures: (features) => set({ pharmacophoreFeatures: features }),
+  showPharmacophores3D: false,
+  setShowPharmacophores3D: (show) => set({ showPharmacophores3D: show }),
 
   // Structure comparison
   comparisonEnabled: false,

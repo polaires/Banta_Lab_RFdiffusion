@@ -8,12 +8,14 @@ Unit tests can run locally without runpod:
     pytest test_design_integration.py -v -k "not test_unified_design and not test_zinc_design"
 """
 
+import os
 import pytest
 import requests
 from pathlib import Path
 from collections import Counter
 
-API_URL = "http://localhost:8000/runsync"
+API_URL = os.getenv("DESIGN_API_URL", "http://localhost:8000/runsync")
+INTEGRATION_TEST_TIMEOUT = 300  # seconds
 
 pytestmark = pytest.mark.integration
 
@@ -26,7 +28,8 @@ except ImportError:
     infer_design_type_from_request = None
 
 
-def load_zinc_pdb():
+@pytest.fixture
+def zinc_pdb():
     """Load zinc dimer test PDB."""
     paths = [
         Path(__file__).parent.parent.parent / "design_zn_dimer.pdb",
@@ -54,46 +57,42 @@ def parse_sequences(result):
 class TestMetalBindingDesign:
     """Tests for metal-binding design."""
 
-    def test_unified_design_with_metal_uses_ligandmpnn(self):
+    def test_unified_design_with_metal_uses_ligandmpnn(self, zinc_pdb):
         """Unified design with metal should use LigandMPNN."""
-        pdb = load_zinc_pdb()
-
         payload = {
             "input": {
                 "task": "design",
                 "metal": "ZN",
-                "pdb_content": pdb,
+                "pdb_content": zinc_pdb,
                 "num_sequences": 2,
             }
         }
 
-        response = requests.post(API_URL, json=payload, timeout=300)
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
         result = response.json()
 
-        assert "error" not in result, f"API error: {result.get('error')}"
+        assert "error" not in result, f"API error: {result.get('error')}. Status: {response.status_code}"
         output = result.get("output", {})
 
         # Should have selected LigandMPNN
         assert output.get("workflow", {}).get("sequence_tool") == "ligand_mpnn"
         assert output.get("design_type") == "METAL_BINDING"
 
-    def test_zinc_design_reduces_alanine(self):
+    def test_zinc_design_reduces_alanine(self, zinc_pdb):
         """Zinc design should have low alanine content."""
-        pdb = load_zinc_pdb()
-
         payload = {
             "input": {
                 "task": "design",
                 "metal": "ZN",
-                "pdb_content": pdb,
+                "pdb_content": zinc_pdb,
                 "num_sequences": 4,
             }
         }
 
-        response = requests.post(API_URL, json=payload, timeout=300)
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
         result = response.json()
 
-        assert "error" not in result, f"API error: {result.get('error')}"
+        assert "error" not in result, f"API error: {result.get('error')}. Status: {response.status_code}"
         output = result.get("output", {})
         sequences = parse_sequences(output)
 
@@ -107,23 +106,21 @@ class TestMetalBindingDesign:
         print(f"Alanine: {ala_pct:.1f}%")
         assert ala_pct < 25, f"Alanine too high: {ala_pct:.1f}%"
 
-    def test_zinc_design_has_coordinating_residues(self):
+    def test_zinc_design_has_coordinating_residues(self, zinc_pdb):
         """Zinc design should have H/C/E/D residues."""
-        pdb = load_zinc_pdb()
-
         payload = {
             "input": {
                 "task": "design",
                 "metal": "ZN",
-                "pdb_content": pdb,
+                "pdb_content": zinc_pdb,
                 "num_sequences": 4,
             }
         }
 
-        response = requests.post(API_URL, json=payload, timeout=300)
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
         result = response.json()
 
-        assert "error" not in result, f"API error: {result.get('error')}"
+        assert "error" not in result, f"API error: {result.get('error')}. Status: {response.status_code}"
         output = result.get("output", {})
         sequences = parse_sequences(output)
 
@@ -203,8 +200,9 @@ class TestConfigOverrides:
             metal_type="lanthanide"
         )
 
-        # Lanthanide should omit cysteine
-        assert "C" in orchestrator.config.omit_AA or "-2" in (orchestrator.config.bias_AA or "")
+        # Lanthanide preset should penalize cysteine (soft donor incompatible)
+        bias_aa = orchestrator.config.bias_AA or ""
+        assert "C:-" in bias_aa, f"Lanthanide should penalize cysteine, got bias_AA: {bias_aa}"
 
 
 class TestMetalCoordinationDetection:

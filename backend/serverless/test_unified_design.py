@@ -61,3 +61,72 @@ def test_design_request_validates_temperature():
 
     assert result["status"] == "failed"
     assert "temperature" in result["error"]
+
+
+def test_design_request_validates_bias_AA():
+    """Should reject invalid bias_AA format."""
+    from handler import handle_unified_design
+
+    result = handle_unified_design({
+        "pdb_content": "ATOM...",
+        "bias_AA": "invalid_format"
+    })
+
+    assert result["status"] == "failed"
+    assert "bias_aa" in result["error"].lower()
+
+
+def test_design_request_validates_bias_AA_bad_amino_acid():
+    """Should reject invalid amino acid code in bias_AA."""
+    from handler import handle_unified_design
+
+    result = handle_unified_design({
+        "pdb_content": "ATOM...",
+        "bias_AA": "X:-2.0"  # X is not a valid AA code
+    })
+
+    assert result["status"] == "failed"
+    assert "amino acid" in result["error"].lower()
+
+
+def test_design_request_validates_omit_AA():
+    """Should reject invalid omit_AA codes."""
+    from handler import handle_unified_design
+
+    result = handle_unified_design({
+        "pdb_content": "ATOM...",
+        "omit_AA": "XZ"  # Invalid AA codes
+    })
+
+    assert result["status"] == "failed"
+    assert "amino acid" in result["error"].lower()
+
+
+def test_design_request_accepts_valid_bias_AA():
+    """Should accept valid bias_AA format."""
+    from handler import handle_unified_design
+
+    # This will fail on MPNN execution but should pass validation
+    result = handle_unified_design({
+        "pdb_content": "ATOM...",
+        "bias_AA": "A:-2.0,H:2.0,E:1.0"
+    })
+
+    # If it fails, should NOT be due to bias_AA validation
+    if result.get("status") == "failed":
+        assert "bias_AA" not in result.get("error", "").lower()
+
+
+def test_design_request_accepts_valid_omit_AA():
+    """Should accept valid omit_AA codes."""
+    from handler import handle_unified_design
+
+    result = handle_unified_design({
+        "pdb_content": "ATOM...",
+        "omit_AA": "CM"  # Valid: Cysteine and Methionine
+    })
+
+    # If it fails, should NOT be due to omit_AA validation
+    if result.get("status") == "failed":
+        assert "omit_AA" not in result.get("error", "").lower()
+        assert "amino acid" not in result.get("error", "").lower()

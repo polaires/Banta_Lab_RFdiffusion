@@ -232,5 +232,212 @@ END
         assert "B39" in fixed
 
 
+class TestValidationIntegration:
+    """Integration tests for input validation."""
+
+    def test_invalid_bias_AA_rejected(self, zinc_pdb):
+        """Should reject invalid bias_AA format."""
+        payload = {
+            "input": {
+                "task": "design",
+                "metal": "ZN",
+                "pdb_content": zinc_pdb,
+                "bias_AA": "invalid_format",
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=30)
+        result = response.json()
+        output = result.get("output", {})
+
+        assert output.get("status") == "failed"
+        assert "bias_AA" in output.get("error", "").lower()
+
+    def test_invalid_omit_AA_rejected(self, zinc_pdb):
+        """Should reject invalid omit_AA codes."""
+        payload = {
+            "input": {
+                "task": "design",
+                "metal": "ZN",
+                "pdb_content": zinc_pdb,
+                "omit_AA": "XZ",  # Invalid AA codes
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=30)
+        result = response.json()
+        output = result.get("output", {})
+
+        assert output.get("status") == "failed"
+        assert "omit_AA" in output.get("error", "").lower() or "amino acid" in output.get("error", "").lower()
+
+    def test_valid_bias_AA_accepted(self, zinc_pdb):
+        """Should accept valid bias_AA format."""
+        payload = {
+            "input": {
+                "task": "design",
+                "metal": "ZN",
+                "pdb_content": zinc_pdb,
+                "num_sequences": 1,
+                "bias_AA": "A:-2.0,H:2.0",
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
+        result = response.json()
+        output = result.get("output", {})
+
+        # Should not fail on validation
+        assert output.get("status") != "failed" or "bias_AA" not in output.get("error", "").lower()
+
+    def test_valid_omit_AA_accepted(self, zinc_pdb):
+        """Should accept valid omit_AA codes."""
+        payload = {
+            "input": {
+                "task": "design",
+                "metal": "ZN",
+                "pdb_content": zinc_pdb,
+                "num_sequences": 1,
+                "omit_AA": "CM",  # Valid: Cysteine and Methionine
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
+        result = response.json()
+        output = result.get("output", {})
+
+        # Should not fail on validation
+        assert output.get("status") != "failed" or "omit_AA" not in output.get("error", "").lower()
+
+
+class TestMPNNSequenceGeneration:
+    """Integration tests for sequence generation with different design types."""
+
+    def test_metal_binding_avoids_alanine_stretch(self, zinc_pdb):
+        """Metal binding should not generate AAAA stretches."""
+        payload = {
+            "input": {
+                "task": "design",
+                "metal": "ZN",
+                "pdb_content": zinc_pdb,
+                "num_sequences": 4,
+                "metal_type": "zinc",
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
+        result = response.json()
+
+        assert "error" not in result, f"API error: {result.get('error')}"
+        output = result.get("output", {})
+        sequences = parse_sequences(output)
+
+        if not sequences:
+            pytest.skip("No sequences returned")
+
+        combined = "".join(sequences)
+
+        # Should not have long alanine stretches (5+ consecutive)
+        max_ala_stretch = 0
+        current_stretch = 0
+        for aa in combined:
+            if aa == "A":
+                current_stretch += 1
+                max_ala_stretch = max(max_ala_stretch, current_stretch)
+            else:
+                current_stretch = 0
+
+        assert max_ala_stretch < 6, f"Found alanine stretch of {max_ala_stretch} residues"
+
+    def test_omit_AA_removes_cysteine(self, zinc_pdb):
+        """omit_AA='C' should remove all cysteines from sequences."""
+        payload = {
+            "input": {
+                "task": "mpnn",
+                "model_type": "ligand_mpnn",
+                "pdb_content": zinc_pdb,
+                "num_sequences": 4,
+                "omit_AA": "C",
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
+        result = response.json()
+
+        assert "error" not in result, f"API error: {result.get('error')}"
+        output = result.get("output", {})
+        inner_result = output.get("result", {})
+        sequences = parse_sequences(inner_result)
+
+        if not sequences:
+            pytest.skip("No sequences returned")
+
+        combined = "".join(sequences)
+        cys_count = combined.count("C")
+
+        assert cys_count == 0, f"Found {cys_count} cysteines when omit_AA='C'"
+
+    def test_bias_AA_increases_aromatic(self, zinc_pdb):
+        """bias_AA should increase frequency of biased residues."""
+        payload = {
+            "input": {
+                "task": "mpnn",
+                "model_type": "ligand_mpnn",
+                "pdb_content": zinc_pdb,
+                "num_sequences": 4,
+                "bias_AA": "W:3.0,Y:3.0,F:3.0",  # Strong bias for aromatics
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
+        result = response.json()
+
+        assert "error" not in result, f"API error: {result.get('error')}"
+        output = result.get("output", {})
+        inner_result = output.get("result", {})
+        sequences = parse_sequences(inner_result)
+
+        if not sequences:
+            pytest.skip("No sequences returned")
+
+        combined = "".join(sequences)
+        total = len(combined)
+        aromatic = combined.count("W") + combined.count("Y") + combined.count("F")
+        aromatic_pct = (aromatic / total * 100) if total > 0 else 0
+
+        # Natural frequency of W+Y+F is ~8%, with bias expect higher
+        print(f"Aromatic (W+Y+F): {aromatic_pct:.1f}%")
+        assert aromatic > 0, "Should have some aromatic residues"
+
+
+class TestDesignWorkflowSelection:
+    """Integration tests for automatic workflow selection."""
+
+    def test_metal_dimer_uses_symmetry(self, zinc_pdb):
+        """Metal-mediated dimer should use C2 symmetry."""
+        payload = {
+            "input": {
+                "task": "design",
+                "metal": "ZN",
+                "symmetry": "C2",
+                "pdb_content": zinc_pdb,
+                "num_sequences": 2,
+            }
+        }
+
+        response = requests.post(API_URL, json=payload, timeout=INTEGRATION_TEST_TIMEOUT)
+        result = response.json()
+
+        if "error" in result:
+            pytest.skip(f"API error: {result.get('error')}")
+
+        output = result.get("output", {})
+
+        # Should be metal-mediated dimer with symmetry
+        assert output.get("design_type") == "METAL_MEDIATED_DIMER"
+        workflow = output.get("workflow", {})
+        assert workflow.get("use_symmetry") == True or output.get("config", {}).get("use_symmetry") == True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

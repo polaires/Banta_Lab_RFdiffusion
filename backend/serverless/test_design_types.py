@@ -8,7 +8,11 @@ from design_types import (
     DesignConfig,
     get_recommended_config,
     infer_design_type,
+    validate_bias_AA,
+    validate_omit_AA,
     DESIGN_PRESETS,
+    METAL_PRESETS,
+    VALID_AA_CODES,
 )
 
 
@@ -111,3 +115,242 @@ def test_infer_design_type_protein_binder():
 def test_infer_design_type_default():
     """Should default to general scaffold."""
     assert infer_design_type() == DesignType.GENERAL_SCAFFOLD
+
+
+# =============================================================================
+# EXPANDED TESTS FOR ALL DESIGN TYPES
+# =============================================================================
+
+class TestAllDesignTypes:
+    """Tests to verify all design types have correct configurations."""
+
+    def test_all_design_types_have_presets(self):
+        """Every DesignType should have a preset configuration."""
+        for design_type in DesignType:
+            assert design_type in DESIGN_PRESETS, f"Missing preset for {design_type}"
+
+    def test_design_type_enum_has_all_10_types(self):
+        """Should have exactly 10 design types."""
+        expected_types = {
+            "METAL_BINDING",
+            "SMALL_MOLECULE_BINDER",
+            "DNA_RNA_BINDER",
+            "PROTEIN_PROTEIN_BINDER",
+            "ENZYME_ACTIVE_SITE",
+            "SYMMETRIC_OLIGOMER",
+            "SYMMETRIC_LIGAND_BINDER",
+            "METAL_MEDIATED_DIMER",
+            "GENERAL_SCAFFOLD",
+            "PEPTIDE_BINDER",
+        }
+        actual_types = {dt.name for dt in DesignType}
+        assert actual_types == expected_types
+
+    def test_symmetric_ligand_binder_config(self):
+        """SYMMETRIC_LIGAND_BINDER should use LigandMPNN with symmetry."""
+        config = get_recommended_config(DesignType.SYMMETRIC_LIGAND_BINDER)
+        assert config.sequence_tool == "ligand_mpnn"
+        assert config.use_symmetry == True
+        assert config.use_atom_context == True
+
+    def test_metal_mediated_dimer_config(self):
+        """METAL_MEDIATED_DIMER should use LigandMPNN with C2 symmetry."""
+        config = get_recommended_config(DesignType.METAL_MEDIATED_DIMER)
+        assert config.sequence_tool == "ligand_mpnn"
+        assert config.use_symmetry == True
+        assert config.symmetry_type == "C2"
+        assert "A:-" in config.bias_AA  # Should penalize alanine
+
+    def test_peptide_binder_config(self):
+        """PEPTIDE_BINDER should use BindCraft with ProteinMPNN."""
+        config = get_recommended_config(DesignType.PEPTIDE_BINDER)
+        assert config.sequence_tool == "protein_mpnn"
+        assert config.backbone_tool == "bindcraft"
+        assert config.relaxation == "built_in"
+
+    def test_symmetric_oligomer_config(self):
+        """SYMMETRIC_OLIGOMER should use ProteinMPNN with symmetry."""
+        config = get_recommended_config(DesignType.SYMMETRIC_OLIGOMER)
+        assert config.sequence_tool == "protein_mpnn"
+        assert config.use_symmetry == True
+        assert config.relaxation == "fastrelax"
+
+    def test_dna_rna_binder_config(self):
+        """DNA_RNA_BINDER should use LigandMPNN with positive charge bias."""
+        config = get_recommended_config(DesignType.DNA_RNA_BINDER)
+        assert config.sequence_tool == "ligand_mpnn"
+        assert config.use_atom_context == True
+        # Should favor positive residues (R, K, H) for phosphate contacts
+        assert "R:" in config.bias_AA or "K:" in config.bias_AA
+
+    def test_enzyme_active_site_config(self):
+        """ENZYME_ACTIVE_SITE should use LigandMPNN with motif scaffolding."""
+        config = get_recommended_config(DesignType.ENZYME_ACTIVE_SITE)
+        assert config.sequence_tool == "ligand_mpnn"
+        assert config.backbone_tool == "rfd3"
+        assert config.auto_detect_fixed == True
+
+    def test_general_scaffold_config(self):
+        """GENERAL_SCAFFOLD should use ProteinMPNN."""
+        config = get_recommended_config(DesignType.GENERAL_SCAFFOLD)
+        assert config.sequence_tool == "protein_mpnn"
+        assert config.backbone_tool == "rfdiffusion"
+
+
+class TestMetalPresets:
+    """Tests for metal-specific presets."""
+
+    def test_all_metal_presets_exist(self):
+        """Should have presets for 5 common metals."""
+        expected_metals = {"zinc", "lanthanide", "iron", "copper", "calcium"}
+        assert set(METAL_PRESETS.keys()) == expected_metals
+
+    def test_zinc_preset_has_correct_coordinating_residues(self):
+        """Zinc should coordinate with HIS, CYS, GLU, ASP."""
+        zinc = METAL_PRESETS["zinc"]
+        assert "HIS" in zinc["coordinating_residues"]
+        assert "CYS" in zinc["coordinating_residues"]
+        assert "H:" in zinc["bias_AA"]  # Favor histidine
+        assert "C:" in zinc["bias_AA"]  # Favor cysteine
+
+    def test_lanthanide_preset_omits_cysteine(self):
+        """Lanthanide should omit cysteine (soft donor incompatible)."""
+        lanthanide = METAL_PRESETS["lanthanide"]
+        assert lanthanide["omit_AA"] == "C"
+        assert "CYS" not in lanthanide["coordinating_residues"]
+
+    def test_calcium_preset_omits_cysteine(self):
+        """Calcium should omit cysteine."""
+        calcium = METAL_PRESETS["calcium"]
+        assert calcium["omit_AA"] == "C"
+
+    def test_metal_presets_applied_to_config(self):
+        """Metal type should override bias_AA in config."""
+        config = get_recommended_config(
+            DesignType.METAL_BINDING,
+            metal_type="lanthanide"
+        )
+        # Lanthanide should have its specific bias
+        assert "E:" in config.bias_AA  # Favor glutamate
+        assert "D:" in config.bias_AA  # Favor aspartate
+
+
+class TestBiasAAValidation:
+    """Tests for bias_AA format validation."""
+
+    def test_valid_bias_AA_single(self):
+        """Should accept single AA bias."""
+        is_valid, error = validate_bias_AA("A:-2.0")
+        assert is_valid
+        assert error is None
+
+    def test_valid_bias_AA_multiple(self):
+        """Should accept multiple AA biases."""
+        is_valid, error = validate_bias_AA("A:-2.0,H:2.0,E:1.0,D:1.0")
+        assert is_valid
+        assert error is None
+
+    def test_valid_bias_AA_positive_values(self):
+        """Should accept positive bias values."""
+        is_valid, error = validate_bias_AA("W:1.5,Y:1.5")
+        assert is_valid
+        assert error is None
+
+    def test_valid_bias_AA_empty(self):
+        """Should accept empty/None bias."""
+        is_valid, error = validate_bias_AA("")
+        assert is_valid
+        is_valid, error = validate_bias_AA(None)
+        assert is_valid
+
+    def test_invalid_bias_AA_bad_format(self):
+        """Should reject invalid format."""
+        is_valid, error = validate_bias_AA("A=2.0")
+        assert not is_valid
+        assert "Invalid bias_AA format" in error
+
+    def test_invalid_bias_AA_missing_value(self):
+        """Should reject missing value."""
+        is_valid, error = validate_bias_AA("A:")
+        assert not is_valid
+        assert "Invalid bias_AA format" in error
+
+    def test_invalid_bias_AA_bad_amino_acid(self):
+        """Should reject invalid amino acid code."""
+        is_valid, error = validate_bias_AA("X:-2.0")
+        assert not is_valid
+        assert "Invalid amino acid code" in error
+
+    def test_invalid_bias_AA_lowercase(self):
+        """Should reject lowercase amino acid codes."""
+        is_valid, error = validate_bias_AA("a:-2.0")
+        assert not is_valid
+        assert "Invalid bias_AA format" in error
+
+
+class TestOmitAAValidation:
+    """Tests for omit_AA format validation."""
+
+    def test_valid_omit_AA_single(self):
+        """Should accept single AA omission."""
+        is_valid, error = validate_omit_AA("C")
+        assert is_valid
+        assert error is None
+
+    def test_valid_omit_AA_multiple(self):
+        """Should accept multiple AA omissions."""
+        is_valid, error = validate_omit_AA("CM")
+        assert is_valid
+        assert error is None
+
+    def test_valid_omit_AA_empty(self):
+        """Should accept empty omit."""
+        is_valid, error = validate_omit_AA("")
+        assert is_valid
+        is_valid, error = validate_omit_AA(None)
+        assert is_valid
+
+    def test_invalid_omit_AA_bad_code(self):
+        """Should reject invalid amino acid code."""
+        is_valid, error = validate_omit_AA("X")
+        assert not is_valid
+        assert "Invalid amino acid code" in error
+
+
+class TestInferDesignType:
+    """Extended tests for design type inference."""
+
+    def test_infer_ligand_creates_small_molecule(self):
+        """Ligand flag should create small molecule binder."""
+        assert infer_design_type(has_ligand=True) == DesignType.SMALL_MOLECULE_BINDER
+
+    def test_infer_ligand_with_symmetry(self):
+        """Ligand + symmetry should create symmetric ligand binder."""
+        assert infer_design_type(has_ligand=True, is_symmetric=True) == DesignType.SYMMETRIC_LIGAND_BINDER
+
+    def test_infer_ligand_with_motif(self):
+        """Ligand + motif should create enzyme active site."""
+        assert infer_design_type(has_ligand=True, has_motif=True) == DesignType.ENZYME_ACTIVE_SITE
+
+    def test_infer_nucleotide(self):
+        """Nucleotide flag should create DNA/RNA binder."""
+        assert infer_design_type(has_nucleotide=True) == DesignType.DNA_RNA_BINDER
+
+    def test_infer_symmetric_alone(self):
+        """Symmetric flag alone should create symmetric oligomer."""
+        assert infer_design_type(is_symmetric=True) == DesignType.SYMMETRIC_OLIGOMER
+
+    def test_priority_metal_over_ligand(self):
+        """Metal should take priority over ligand."""
+        result = infer_design_type(has_metal=True, has_ligand=True)
+        assert result == DesignType.METAL_BINDING
+
+    def test_priority_metal_over_nucleotide(self):
+        """Metal should take priority over nucleotide."""
+        result = infer_design_type(has_metal=True, has_nucleotide=True)
+        assert result == DesignType.METAL_BINDING
+
+    def test_priority_nucleotide_over_ligand(self):
+        """Nucleotide should take priority over ligand."""
+        result = infer_design_type(has_nucleotide=True, has_ligand=True)
+        assert result == DesignType.DNA_RNA_BINDER

@@ -10,10 +10,72 @@ Based on:
 """
 
 import dataclasses
+import re
 import warnings
 from enum import Enum, auto
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
+
+
+# Valid single-letter amino acid codes
+VALID_AA_CODES = set("ACDEFGHIKLMNPQRSTVWY")
+
+
+def validate_bias_AA(bias_str: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate bias_AA format string.
+
+    Expected format: "A:-2.0,H:2.0,E:1.0" (comma-separated AA:value pairs)
+
+    Args:
+        bias_str: The bias_AA string to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+        error_message is None if valid
+    """
+    if not bias_str:
+        return True, None
+
+    # Pattern: single letter AA code, colon, optional minus, number with optional decimal
+    pattern = r'^[A-Z]:-?\d+\.?\d*$'
+
+    parts = bias_str.split(',')
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        if not re.match(pattern, part):
+            return False, f"Invalid bias_AA format: '{part}'. Expected format like 'A:-2.0' or 'H:2.0'"
+
+        aa_code = part[0]
+        if aa_code not in VALID_AA_CODES:
+            return False, f"Invalid amino acid code: '{aa_code}'. Valid codes: {sorted(VALID_AA_CODES)}"
+
+    return True, None
+
+
+def validate_omit_AA(omit_str: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validate omit_AA format string.
+
+    Expected format: "C" or "CM" (single letter amino acid codes)
+
+    Args:
+        omit_str: The omit_AA string to validate
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not omit_str:
+        return True, None
+
+    for aa in omit_str:
+        if aa not in VALID_AA_CODES:
+            return False, f"Invalid amino acid code in omit_AA: '{aa}'. Valid codes: {sorted(VALID_AA_CODES)}"
+
+    return True, None
 
 
 class DesignType(Enum):

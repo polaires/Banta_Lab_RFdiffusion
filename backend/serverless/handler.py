@@ -154,7 +154,7 @@ except ImportError:
     print("[Handler] Warning: tebl_analysis not available")
 
 # Import design types and orchestrator for unified design endpoint
-from design_types import DesignType, infer_design_type
+from design_types import DesignType, infer_design_type, validate_bias_AA, validate_omit_AA
 from design_orchestrator import DesignOrchestrator
 
 # ============== Ligand H-bond Presets ==============
@@ -481,7 +481,17 @@ def handle_unified_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
         except (ValueError, TypeError):
             return {"status": "failed", "error": "num_sequences must be a valid integer"}
     if "bias_AA" in job_input:
-        overrides["bias_AA"] = job_input["bias_AA"]
+        bias_aa = job_input["bias_AA"]
+        is_valid, error_msg = validate_bias_AA(bias_aa)
+        if not is_valid:
+            return {"status": "failed", "error": error_msg}
+        overrides["bias_AA"] = bias_aa
+    if "omit_AA" in job_input:
+        omit_aa = job_input["omit_AA"]
+        is_valid, error_msg = validate_omit_AA(omit_aa)
+        if not is_valid:
+            return {"status": "failed", "error": error_msg}
+        overrides["omit_AA"] = omit_aa
     if "sequence_tool" in job_input:
         overrides["sequence_tool"] = job_input["sequence_tool"]
 

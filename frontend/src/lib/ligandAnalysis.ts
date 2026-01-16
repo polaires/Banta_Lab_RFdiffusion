@@ -16,6 +16,21 @@ export type InteractionType = 'hydrogen_bond' | 'hydrophobic' | 'salt_bridge' | 
 
 export type PharmacophoreType = 'donor' | 'acceptor' | 'aromatic' | 'hydrophobic' | 'positive' | 'negative';
 
+export type QualityRating = 'EXCELLENT' | 'GOOD' | 'MODERATE' | 'POOR';
+
+export interface BinderQualityResult {
+  score: number;      // 0-100
+  rating: QualityRating;
+  breakdown: {
+    hbondScore: number;       // H-bond contribution (max 30)
+    hydrophobicScore: number; // Hydrophobic contribution (max 25)
+    piStackScore: number;     // Pi-stacking contribution (max 15)
+    saltBridgeScore: number;  // Salt bridge contribution (max 15)
+    burialnessScore: number;  // Contact density (max 15)
+  };
+  suggestions: string[];
+}
+
 // Shell analysis cutoffs
 const PRIMARY_SHELL_CUTOFF = 4.0;   // Direct contacts
 const SECONDARY_SHELL_CUTOFF = 6.0;  // Extended environment
@@ -526,5 +541,105 @@ export function classifyShellResidues(contacts: LigandContact[]): ShellAnalysis 
       avgPrimaryDistance,
       avgSecondaryDistance,
     },
+  };
+}
+
+/**
+ * Calculate binder quality score based on interaction diversity and density
+ *
+ * Scores each category with diminishing returns:
+ * - H-bonds: max 30 points (3+ H-bonds = max)
+ * - Hydrophobic: max 25 points (5+ contacts = max)
+ * - Pi-stacking: max 15 points (2+ stacks = max)
+ * - Salt bridges: max 15 points (2+ bridges = max)
+ * - Burialness: max 15 points (10+ total contacts = max)
+ *
+ * Rating thresholds:
+ * - EXCELLENT: >= 70
+ * - GOOD: >= 50
+ * - MODERATE: >= 30
+ * - POOR: < 30
+ */
+export function calculateBinderQualityScore(
+  contacts: LigandContact[]
+): BinderQualityResult {
+  // Count interactions by type
+  let hbondCount = 0;
+  let hydrophobicCount = 0;
+  let piStackCount = 0;
+  let saltBridgeCount = 0;
+
+  for (const contact of contacts) {
+    switch (contact.interactionType) {
+      case 'hydrogen_bond':
+        hbondCount++;
+        break;
+      case 'hydrophobic':
+        hydrophobicCount++;
+        break;
+      case 'pi_stacking':
+        piStackCount++;
+        break;
+      case 'salt_bridge':
+        saltBridgeCount++;
+        break;
+      // 'other' type contacts still count toward burialness
+    }
+  }
+
+  const totalContacts = contacts.length;
+
+  // Calculate scores with diminishing returns (capped)
+  const hbondScore = Math.min(30, hbondCount * 10);           // 3+ H-bonds = max
+  const hydrophobicScore = Math.min(25, hydrophobicCount * 5); // 5+ contacts = max
+  const piStackScore = Math.min(15, piStackCount * 7.5);       // 2+ stacks = max
+  const saltBridgeScore = Math.min(15, saltBridgeCount * 7.5); // 2+ bridges = max
+  const burialnessScore = Math.min(15, totalContacts * 1.5);   // 10+ contacts = max
+
+  // Total score (max 100)
+  const score = hbondScore + hydrophobicScore + piStackScore + saltBridgeScore + burialnessScore;
+
+  // Determine rating
+  let rating: QualityRating;
+  if (score >= 70) {
+    rating = 'EXCELLENT';
+  } else if (score >= 50) {
+    rating = 'GOOD';
+  } else if (score >= 30) {
+    rating = 'MODERATE';
+  } else {
+    rating = 'POOR';
+  }
+
+  // Generate suggestions for improvement
+  const suggestions: string[] = [];
+
+  if (hbondCount < 3) {
+    suggestions.push(`Add ${3 - hbondCount} more H-bond${3 - hbondCount === 1 ? '' : 's'} for improved specificity`);
+  }
+  if (hydrophobicCount < 5) {
+    suggestions.push(`Increase hydrophobic contacts (currently ${hydrophobicCount}, target 5+) for better binding affinity`);
+  }
+  if (piStackCount < 2) {
+    suggestions.push(`Consider adding aromatic residues for pi-stacking interactions`);
+  }
+  if (saltBridgeCount < 1) {
+    suggestions.push(`Add charged residues (Arg/Lys/Asp/Glu) for salt bridge formation`);
+  }
+  if (totalContacts < 10) {
+    suggestions.push(`Binding pocket may be too shallow - aim for 10+ total contacts`);
+  }
+
+  return {
+    score,
+    rating,
+    breakdown: {
+      hbondScore,
+      hydrophobicScore,
+      piStackScore,
+      saltBridgeScore,
+      burialnessScore,
+    },
+    suggestions,
   };
 }

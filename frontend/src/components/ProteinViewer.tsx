@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import type { MetalCoordination } from '@/lib/metalAnalysis';
-import type { LigandData } from '@/lib/ligandAnalysis';
+import type { LigandData, PharmacophoreFeature } from '@/lib/ligandAnalysis';
 
 // Import Molstar CSS
 import 'molstar/lib/mol-plugin-ui/skin/light.scss';
@@ -15,6 +15,9 @@ interface ProteinViewerProps {
   focusedLigandIndex?: number | null;
   metalCoordination?: MetalCoordination[] | null;
   ligandData?: { ligandDetails: LigandData[] } | null;
+  // Pharmacophore visualization
+  pharmacophoreFeatures?: PharmacophoreFeature[];
+  showPharmacophores?: boolean;
 }
 
 // Dynamically import the viewer with SSR disabled to avoid Turbopack bundling issues
@@ -42,6 +45,8 @@ export function ProteinViewer({
   focusedLigandIndex,
   metalCoordination,
   ligandData,
+  pharmacophoreFeatures,
+  showPharmacophores,
 }: ProteinViewerProps) {
   return (
     <ProteinViewerClient
@@ -51,6 +56,8 @@ export function ProteinViewer({
       focusedLigandIndex={focusedLigandIndex}
       metalCoordination={metalCoordination}
       ligandData={ligandData}
+      pharmacophoreFeatures={pharmacophoreFeatures}
+      showPharmacophores={showPharmacophores}
     />
   );
 }

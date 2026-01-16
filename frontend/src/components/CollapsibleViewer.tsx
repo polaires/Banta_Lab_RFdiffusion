@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useStore } from '@/lib/store';
 import { findMetalCoordinationFromPDB } from '@/lib/metalAnalysis';
-import { findLigandContactsFromPDB } from '@/lib/ligandAnalysis';
+import { findLigandContactsFromPDB, extractPharmacophoreFeatures } from '@/lib/ligandAnalysis';
 
 // Dynamic imports for components that use Molstar (SSR incompatible)
 const ComparisonView = dynamic(
@@ -37,6 +37,11 @@ const BindingSitePanel = dynamic(
   { ssr: false }
 );
 
+const LigandBindingPanel = dynamic(
+  () => import('@/components/LigandBindingPanel').then((mod) => mod.LigandBindingPanel),
+  { ssr: false }
+);
+
 export function CollapsibleViewer() {
   const {
     selectedPdb,
@@ -62,6 +67,11 @@ export function CollapsibleViewer() {
     latestRfd3Design,
     latestRf3Prediction,
     comparisonEnabled,
+    // Pharmacophore visualization state
+    showPharmacophores3D,
+    setShowPharmacophores3D,
+    pharmacophoreFeatures,
+    setPharmacophoreFeatures,
   } = useStore();
 
   // Track if analysis has been run for current structure
@@ -110,8 +120,23 @@ export function CollapsibleViewer() {
       setFocusedMetalIndex(null);
       setFocusedLigandIndex(null);
       setViewerMode('default');
+      setPharmacophoreFeatures(null);
+      setShowPharmacophores3D(false);
     }
-  }, [selectedPdb, analyzedPdb, setMetalCoordination, setLigandData, setFocusedMetalIndex, setFocusedLigandIndex, setViewerMode]);
+  }, [selectedPdb, analyzedPdb, setMetalCoordination, setLigandData, setFocusedMetalIndex, setFocusedLigandIndex, setViewerMode, setPharmacophoreFeatures, setShowPharmacophores3D]);
+
+  // Compute pharmacophore features when a ligand is focused
+  useEffect(() => {
+    if (ligandData && focusedLigandIndex !== null) {
+      const ligand = ligandData.ligandDetails[focusedLigandIndex];
+      if (ligand) {
+        const features = extractPharmacophoreFeatures(ligand.contacts);
+        setPharmacophoreFeatures(features);
+      }
+    } else {
+      setPharmacophoreFeatures(null);
+    }
+  }, [ligandData, focusedLigandIndex, setPharmacophoreFeatures]);
 
   // Reset view handler
   const handleResetView = useCallback(() => {
@@ -242,6 +267,8 @@ export function CollapsibleViewer() {
                   focusedLigandIndex={focusedLigandIndex}
                   metalCoordination={metalCoordination}
                   ligandData={ligandData}
+                  pharmacophoreFeatures={pharmacophoreFeatures ?? undefined}
+                  showPharmacophores={showPharmacophores3D}
                 />
               ) : (
                 <div className="h-[520px] flex flex-col items-center justify-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
@@ -278,6 +305,16 @@ export function CollapsibleViewer() {
                   onFocusLigand={setFocusedLigandIndex}
                   loading={analysisLoading}
                 />
+              )}
+
+              {/* Ligand binding analysis panel with pharmacophore controls */}
+              {hasLigands && (
+                <div className="p-4 border-t border-slate-100">
+                  <LigandBindingPanel
+                    show3D={showPharmacophores3D}
+                    onToggle3D={setShowPharmacophores3D}
+                  />
+                </div>
               )}
             </div>
           )}

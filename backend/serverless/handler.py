@@ -143,6 +143,61 @@ except ImportError:
     METAL_VALIDATION_AVAILABLE = False
     print("[Handler] Warning: metal_validation not available")
 
+# Import metal-ligand complex templates (PQQ-Ca, Citrate-Tb, etc.)
+try:
+    from metal_ligand_templates import (
+        METAL_LIGAND_COMPLEX_TEMPLATES,
+        get_template as get_ml_template,
+        get_template_info as get_ml_template_info,
+        list_templates as list_ml_templates,
+        generate_complex_pdb,
+        get_template_coordination_info as get_ml_coordination_info,
+        validate_template_complex,
+        get_metal_preferences,
+        get_template_with_fallback,
+    )
+    from inference_utils import (
+        MetalLigandComplex,
+        parse_metal_ligand_complex,
+        detect_available_coordination_sites,
+    )
+    METAL_LIGAND_TEMPLATES_AVAILABLE = True
+except ImportError as e:
+    METAL_LIGAND_TEMPLATES_AVAILABLE = False
+    print(f"[Handler] Warning: metal_ligand_templates not available: {e}")
+
+# Import enhanced metal chemistry modules (HSAB-compliant database)
+try:
+    from metal_chemistry import (
+        get_amino_acid_bias,
+        get_hsab_class,
+        validate_coordination_chemistry,
+        get_coordination_number_range,
+    )
+    METAL_CHEMISTRY_AVAILABLE = True
+except ImportError as e:
+    METAL_CHEMISTRY_AVAILABLE = False
+    print(f"[Handler] Warning: metal_chemistry not available: {e}")
+
+# Import PDB metal site fetcher for reference templates
+try:
+    from metal_site_fetcher import get_reference_template
+    METAL_SITE_FETCHER_AVAILABLE = True
+except ImportError as e:
+    METAL_SITE_FETCHER_AVAILABLE = False
+    print(f"[Handler] Warning: metal_site_fetcher not available: {e}")
+
+# Import ligand donor analysis (requires RDKit - optional)
+try:
+    from ligand_donors import (
+        identify_donors_from_smiles,
+        score_ligand_metal_compatibility,
+    )
+    LIGAND_ANALYSIS_AVAILABLE = True
+except ImportError:
+    LIGAND_ANALYSIS_AVAILABLE = False
+    # Silent - RDKit may not be available in all environments
+
 try:
     from tebl_analysis import (
         predict_tebl_signal,
@@ -329,6 +384,9 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Interface metal design (metal-coordinated dimer)
         elif task == "interface_metal_design":
             return handle_interface_metal_design(job_input)
+        # Interface metal-ligand complex design (PQQ-Ca, Citrate-Tb, etc.)
+        elif task == "interface_metal_ligand_design":
+            return handle_interface_metal_ligand_design(job_input)
         # FastRelax for structure refinement
         elif task == "fastrelax":
             return handle_fastrelax(job_input)
@@ -6296,6 +6354,799 @@ def _analyze_metal_coordination(pdb_content: str, metal: str) -> Dict[str, Any]:
         "donor_residues": coordinating,
         "average_distance": round(avg_dist, 2) if avg_dist else None,
     }
+
+
+# ============== Interface Metal-Ligand Complex Design ==============
+
+def handle_interface_metal_ligand_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Design protein dimers around metal-ligand complexes.
+
+    This combines organic ligand binding with metal coordination chemistry
+    for cofactors like PQQ-Ca, citrate-lanthanide, heme-Fe, etc.
+
+    Input:
+        # Complex specification (one of):
+        complex_pdb: str - PDB content of metal-ligand complex
+        template_name: str - Template from METAL_LIGAND_COMPLEX_TEMPLATES
+                            ("pqq_ca", "citrate_tb", "citrate_eu", etc.)
+
+        # OR build from components (advanced):
+        ligand_smiles: str - SMILES for organic ligand
+        metal: str - Metal code (CA, TB, FE, etc.)
+
+        # Design parameters
+        approach: str - "joint" (both chains) or "sequential" (one at a time)
+        chain_length: str - e.g., "60-80"
+        num_designs: int - Number of designs to generate
+
+        # Coordination preferences
+        chain_a_donors: list - e.g., ["Glu", "Asp"]
+        chain_b_donors: list - e.g., ["Glu", "Asp", "Asn"]
+        coordination_split: list - Sites per chain, e.g., [2, 3]
+
+        # Validation options
+        validate_coordination: bool - Run metal coordination validation
+        validate_binding: bool - Run GNINA binding scoring
+
+        # Mock mode for testing
+        use_mock: bool - Return mock results without running RFD3
+
+    Returns:
+        {
+            "status": "completed" | "failed",
+            "result": {
+                "designs": [...],
+                "approach": str,
+                "template": str,
+                "metal": str,
+                "ligand": str,
+                "best_design": int,
+                "validation": {...}
+            }
+        }
+    """
+    if not METAL_LIGAND_TEMPLATES_AVAILABLE:
+        return {
+            "status": "failed",
+            "error": "Metal-ligand templates not available. Check metal_ligand_templates.py import."
+        }
+
+    # Handle list_templates request
+    if job_input.get("list_templates"):
+        templates = list_ml_templates()
+        template_info = {}
+        for t in templates:
+            info = get_ml_template_info(t)
+            if info:
+                template_info[t] = info
+        return {
+            "status": "completed",
+            "result": {
+                "templates": templates,
+                "template_info": template_info
+            }
+        }
+
+    # Get parameters
+    complex_pdb = job_input.get("complex_pdb")
+    template_name = job_input.get("template_name")
+    info_only = job_input.get("info_only", False)
+
+    # Handle info_only request for a specific template
+    if info_only and template_name:
+        template = get_ml_template(template_name)
+        if not template:
+            available = list_ml_templates()
+            return {
+                "status": "failed",
+                "error": f"Unknown template: {template_name}. "
+                         f"Available: {', '.join(available)}"
+            }
+        info = get_ml_template_info(template_name)
+        coord_info = get_ml_coordination_info(template_name)
+        return {
+            "status": "completed",
+            "result": {
+                "template_name": template_name,
+                "info": info,
+                "coordination_info": coord_info,
+                "template": template
+            }
+        }
+
+    ligand_smiles = job_input.get("ligand_smiles")
+    metal = job_input.get("metal")
+
+    approach = job_input.get("approach", "joint")
+    chain_length = job_input.get("chain_length", "60-80")
+    num_designs = job_input.get("num_designs", 3)
+    seed = job_input.get("seed")
+
+    # Coordination preferences
+    chain_a_donors = job_input.get("chain_a_donors", ["Glu", "Asp"])
+    chain_b_donors = job_input.get("chain_b_donors", ["Glu", "Asp"])
+    coordination_split = job_input.get("coordination_split")
+
+    # Validation options
+    validate_coordination = job_input.get("validate_coordination", True)
+    validate_binding = job_input.get("validate_binding", False)
+    use_mock = job_input.get("use_mock", False)
+
+    # Determine complex source
+    complex_info = None
+    template_used = None
+    template_source = None
+
+    if complex_pdb:
+        # Parse user-provided complex
+        print(f"[MetalLigandDesign] Parsing user-provided complex PDB...")
+        complexes = parse_metal_ligand_complex(complex_pdb)
+        if not complexes:
+            return {
+                "status": "failed",
+                "error": "Could not parse metal-ligand complex from PDB. "
+                         "Ensure PDB has HETATM records for metal and ligand."
+            }
+        complex_info = complexes[0]
+        metal = complex_info.metal_code
+        ligand_name = complex_info.ligand_res_name
+        print(f"[MetalLigandDesign] Found {metal}-{ligand_name} complex")
+
+    elif template_name:
+        # Use template with database-first fallback
+        # Priority: PDB database > library templates > calculated fallback
+        template = get_template_with_fallback(
+            template_name,
+            metal=job_input.get("metal"),
+            ligand=job_input.get("ligand"),
+            fallback_enabled=True,
+        )
+        if not template:
+            available = list_ml_templates()
+            return {
+                "status": "failed",
+                "error": f"Unknown template: {template_name}. "
+                         f"Available: {', '.join(available)}"
+            }
+
+        # Track and log template source for debugging/auditing
+        template_source = template.get("source", "library")
+        if template_source == "calculated":
+            print(f"[MetalLigandDesign] WARNING: Using calculated fallback template for {template_name}")
+            print(f"[MetalLigandDesign]   {template.get('warning', 'Verify geometry manually')}")
+        elif template_source == "pdb":
+            print(f"[MetalLigandDesign] Using PDB-derived template for {template_name}")
+        else:
+            print(f"[MetalLigandDesign] Using library template for {template_name}")
+
+        template_used = template_name
+        metal = template.get("metal") or template.get("default_metal")
+        ligand_name = template.get("ligand_res_name")
+        ligand_smiles = template.get("ligand_smiles")
+
+        print(f"[MetalLigandDesign] Template: {template_name} ({metal}-{ligand_name})")
+
+        # Generate complex PDB from template
+        complex_pdb = generate_complex_pdb(template_name, metal=metal)
+        if not complex_pdb:
+            return {
+                "status": "failed",
+                "error": f"Failed to generate complex PDB from template: {template_name}"
+            }
+
+        # Parse generated complex
+        complexes = parse_metal_ligand_complex(complex_pdb)
+        if complexes:
+            complex_info = complexes[0]
+
+    elif ligand_smiles and metal:
+        # Build from components (advanced)
+        print(f"[MetalLigandDesign] Building complex from SMILES + metal...")
+        # This would require RDKit conformer generation + metal placement
+        # For now, return error suggesting template use
+        return {
+            "status": "failed",
+            "error": "Building complex from SMILES+metal not yet implemented. "
+                     "Please use template_name or provide complex_pdb."
+        }
+
+    else:
+        return {
+            "status": "failed",
+            "error": "Must provide one of: complex_pdb, template_name, or (ligand_smiles + metal)"
+        }
+
+    # Get coordination info for RFD3 configuration
+    if template_name:
+        coord_info = get_ml_coordination_info(template_name)
+    else:
+        coord_info = {
+            "ligand_name": complex_info.ligand_res_name if complex_info else "LIG",
+            "metal_code": metal,
+            "target_coordination": 6,
+            "protein_sites": 3,
+            "preferred_donors": chain_a_donors,
+        }
+
+    # Enhance with HSAB-compliant chemistry if available
+    oxidation_state = job_input.get("oxidation_state", 2)  # Default to +2
+    hsab_bias = None
+    ligand_compatibility = None
+
+    if METAL_CHEMISTRY_AVAILABLE and metal:
+        try:
+            # Get HSAB-compliant amino acid bias for LigandMPNN
+            hsab_bias = get_amino_acid_bias(metal, oxidation_state)
+            coord_info["hsab_bias"] = hsab_bias
+            coord_info["hsab_class"] = get_hsab_class(metal, oxidation_state)
+
+            # Validate coordination number is appropriate
+            cn_min, cn_max = get_coordination_number_range(metal, oxidation_state)
+            target_cn = coord_info.get("target_coordination", 6)
+            if target_cn < cn_min or target_cn > cn_max:
+                print(f"[MetalLigandDesign] WARNING: Target coordination {target_cn} "
+                      f"outside typical range ({cn_min}-{cn_max}) for {metal}(+{oxidation_state})")
+            coord_info["cn_range"] = (cn_min, cn_max)
+
+            print(f"[MetalLigandDesign] HSAB class: {coord_info['hsab_class']}, bias: {hsab_bias}")
+        except ValueError as e:
+            print(f"[MetalLigandDesign] Metal chemistry lookup failed: {e}")
+
+    # Analyze ligand-metal compatibility if SMILES available and RDKit installed
+    if LIGAND_ANALYSIS_AVAILABLE and ligand_smiles and metal:
+        try:
+            ligand_compatibility = score_ligand_metal_compatibility(
+                ligand_smiles, metal, oxidation_state
+            )
+            coord_info["ligand_compatibility"] = ligand_compatibility
+
+            if ligand_compatibility < 0.5:
+                print(f"[MetalLigandDesign] WARNING: Low ligand-metal compatibility "
+                      f"({ligand_compatibility:.2f}) - HSAB mismatch possible")
+            else:
+                print(f"[MetalLigandDesign] Ligand-metal compatibility: {ligand_compatibility:.2f}")
+        except Exception as e:
+            print(f"[MetalLigandDesign] Ligand analysis failed: {e}")
+
+    # Set coordination split if not provided
+    if coordination_split is None:
+        protein_sites = coord_info.get("protein_sites", 4)
+        coordination_split = [protein_sites // 2, protein_sites - protein_sites // 2]
+
+    print(f"[MetalLigandDesign] Starting {approach} design: {metal}-{coord_info.get('ligand_name')}")
+    print(f"[MetalLigandDesign] Chain length: {chain_length}, Designs: {num_designs}")
+    print(f"[MetalLigandDesign] Coordination split: {coordination_split}")
+
+    # Run design
+    if approach == "joint":
+        result = _design_metal_ligand_joint(
+            complex_pdb=complex_pdb,
+            complex_info=complex_info,
+            coord_info=coord_info,
+            chain_length=chain_length,
+            num_designs=num_designs,
+            seed=seed,
+            chain_a_donors=chain_a_donors,
+            chain_b_donors=chain_b_donors,
+            coordination_split=coordination_split,
+            validate_coordination=validate_coordination,
+            use_mock=use_mock,
+        )
+    elif approach == "sequential":
+        result = _design_metal_ligand_sequential(
+            complex_pdb=complex_pdb,
+            complex_info=complex_info,
+            coord_info=coord_info,
+            chain_length=chain_length,
+            num_designs=num_designs,
+            seed=seed,
+            chain_a_donors=chain_a_donors,
+            chain_b_donors=chain_b_donors,
+            use_mock=use_mock,
+        )
+    else:
+        return {
+            "status": "failed",
+            "error": f"Unknown approach: {approach}. Valid: joint, sequential"
+        }
+
+    # Add metadata to result
+    if result.get("status") == "completed":
+        result["result"]["template"] = template_used
+        result["result"]["metal"] = metal
+        result["result"]["ligand"] = coord_info.get("ligand_name")
+        result["result"]["approach"] = approach
+
+        # Add enhanced chemistry info if available
+        if coord_info.get("hsab_class"):
+            result["result"]["hsab_class"] = coord_info["hsab_class"]
+        if coord_info.get("hsab_bias"):
+            result["result"]["hsab_bias"] = coord_info["hsab_bias"]
+        if coord_info.get("cn_range"):
+            result["result"]["coordination_number_range"] = coord_info["cn_range"]
+        if coord_info.get("ligand_compatibility") is not None:
+            result["result"]["ligand_compatibility"] = coord_info["ligand_compatibility"]
+
+        # Add template source info for transparency
+        if template_source:
+            result["result"]["template_source"] = template_source
+
+    return result
+
+
+def _design_metal_ligand_joint(
+    complex_pdb: str,
+    complex_info: Optional["MetalLigandComplex"],
+    coord_info: Dict[str, Any],
+    chain_length: str,
+    num_designs: int,
+    seed: Optional[int],
+    chain_a_donors: List[str],
+    chain_b_donors: List[str],
+    coordination_split: List[int],
+    validate_coordination: bool,
+    use_mock: bool,
+) -> Dict[str, Any]:
+    """
+    Design both chains simultaneously around the metal-ligand complex.
+
+    Uses RFD3 with two-chain contig and hotspot conditioning to ensure
+    both chains contact the metal coordination sites.
+    """
+    from inference_utils import run_rfd3_inference
+
+    metal = coord_info.get("metal_code", "CA")
+    ligand_name = coord_info.get("ligand_name", "LIG")
+    target_coord = coord_info.get("target_coordination", 6)
+
+    # Parse chain length
+    if "-" in str(chain_length):
+        min_len, max_len = map(int, str(chain_length).split("-"))
+    else:
+        min_len = max_len = int(chain_length)
+
+    # Build two-chain contig
+    contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+    # Build RFD3 configuration
+    # Key: use select_hotspots to ensure protein contacts metal
+    # Parse metal chain/resnum from complex_info if available
+    metal_hotspot = "M2"  # Default: metal in chain M, residue 2
+    if complex_info:
+        metal_hotspot = f"{complex_info.metal_chain}{complex_info.metal_resnum}"
+
+    rfd3_config = {
+        "contig": contig,
+        "pdb_content": complex_pdb,
+        "num_designs": 1,
+        # Hotspots: ensure protein contacts metal (chain M typically)
+        "hotspots": [metal_hotspot],
+        # Guiding potentials for metal proximity
+        "guiding_potentials": [
+            "type:substrate_contacts,weight:5,s:1,r_0:8,d_0:4",
+            "type:monomer_ROG,weight:1,min_dist:15",
+        ],
+        "guide_scale": 2.0,
+        "guide_decay": "quadratic",
+    }
+
+    # Note: select_hbond_acceptor disabled because RDKit-generated atom names
+    # differ from PDB standard names. The metal coordination will still work
+    # through substrate_contacts guiding potential and hotspot conditioning.
+    # TODO: Auto-detect oxygen atoms from generated PDB for select_hbond_acceptor
+    # if metal in {"CA", "TB", "EU", "GD", "LA", "MG"}:
+    #     hbond_acceptors = coord_info.get("hbond_acceptors", {})
+    #     if hbond_acceptors:
+    #         rfd3_config["select_hbond_acceptor"] = hbond_acceptors
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        rfd3_config["seed"] = design_seed
+
+        print(f"[MetalLigandJoint] Generating design {design_idx + 1}/{num_designs}...")
+
+        if use_mock:
+            # Return mock design for testing
+            pdb_content = _generate_mock_metal_ligand_design(
+                complex_pdb, chain_length, metal, ligand_name
+            )
+            result = {"status": "completed", "result": {"designs": [{"content": pdb_content}]}}
+        else:
+            # Run actual RFD3 inference
+            result = run_rfd3_inference(
+                contig=rfd3_config["contig"],
+                pdb_content=rfd3_config["pdb_content"],
+                num_designs=1,
+                seed=design_seed,
+                hotspots=rfd3_config.get("hotspots"),
+                guiding_potentials=rfd3_config.get("guiding_potentials"),
+                guide_scale=rfd3_config.get("guide_scale"),
+                guide_decay=rfd3_config.get("guide_decay"),
+                select_hbond_acceptor=rfd3_config.get("select_hbond_acceptor"),
+            )
+
+        if result.get("status") != "completed":
+            print(f"[MetalLigandJoint] Design {design_idx + 1} failed: {result.get('error')}")
+            continue
+
+        result_designs = result.get("result", {}).get("designs", [])
+        if not result_designs:
+            print(f"[MetalLigandJoint] Design {design_idx + 1} produced no output")
+            continue
+
+        pdb_content = result_designs[0].get("content") or result_designs[0].get("pdb_content")
+        if not pdb_content:
+            continue
+
+        # Translate backbone to metal-ligand complex coordinate space
+        # RFD3 generates backbone at origin, we need to position it near the metal
+        if complex_pdb and not use_mock:
+            pdb_content = _translate_backbone_to_complex(
+                pdb_content, complex_pdb, metal_code=metal
+            )
+
+        # Append metal-ligand complex HETATM records to designed backbone
+        # RFD3 outputs backbone only - we need to add the complex for validation
+        if complex_pdb:
+            # Extract HETATM records from the input complex
+            hetatm_lines = []
+            for line in complex_pdb.split('\n'):
+                if line.startswith('HETATM'):
+                    hetatm_lines.append(line)
+            if hetatm_lines:
+                # Remove END if present and append HETATM records
+                if pdb_content.strip().endswith('END'):
+                    pdb_content = pdb_content.strip()[:-3]
+                pdb_content = pdb_content.rstrip() + '\n' + '\n'.join(hetatm_lines) + '\nEND\n'
+                print(f"[MetalLigandJoint] Appended {len(hetatm_lines)} HETATM records to design")
+
+        # Validate coordination if requested
+        validation_result = {}
+        if validate_coordination and complex_info:
+            validation_result = _validate_metal_ligand_design(
+                pdb_content, complex_info, target_coord
+            )
+
+        # Calculate score
+        score = 0
+        if validation_result.get("coordination_number", 0) >= 4:
+            score += validation_result["coordination_number"] * 10
+        if validation_result.get("chain_a_donors", 0) >= 1:
+            score += 20
+        if validation_result.get("chain_b_donors", 0) >= 1:
+            score += 20
+
+        design_entry = {
+            "pdb_content": pdb_content,
+            "design_index": design_idx,
+            "validation": validation_result,
+            "score": score,
+        }
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+        coord_num = validation_result.get("coordination_number", "?")
+        nearby = validation_result.get("nearby_residues", [])
+        print(f"[MetalLigandJoint] Design {design_idx + 1}: coordination={coord_num}, score={score}")
+        if coord_num == 0 and nearby:
+            print(f"[MetalLigandJoint] Nearby residues (candidates for mutation):")
+            for r in nearby[:5]:
+                print(f"  - {r['chain']}/{r['resnum']} {r['resname']} @ {r['min_dist']:.2f}A")
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": "No valid designs generated",
+            "suggestions": [
+                "Try increasing num_designs",
+                "Check that complex_pdb has correct HETATM records",
+                "Try a different chain_length range",
+            ]
+        }
+
+    return {
+        "status": "completed",
+        "result": {
+            "designs": designs,
+            "best_design": best_design_idx,
+            "coordination_split": coordination_split,
+        }
+    }
+
+
+def _design_metal_ligand_sequential(
+    complex_pdb: str,
+    complex_info: Optional["MetalLigandComplex"],
+    coord_info: Dict[str, Any],
+    chain_length: str,
+    num_designs: int,
+    seed: Optional[int],
+    chain_a_donors: List[str],
+    chain_b_donors: List[str],
+    use_mock: bool,
+) -> Dict[str, Any]:
+    """
+    Design chains sequentially: first chain A, then chain B.
+
+    This approach first designs one chain around the complex,
+    then designs the second chain to fill remaining coordination sites.
+    """
+    # For now, redirect to joint design
+    # Sequential approach would be similar to interface_ligand_design sequential
+    print("[MetalLigandSequential] Using joint design (sequential not yet optimized)")
+
+    return _design_metal_ligand_joint(
+        complex_pdb=complex_pdb,
+        complex_info=complex_info,
+        coord_info=coord_info,
+        chain_length=chain_length,
+        num_designs=num_designs,
+        seed=seed,
+        chain_a_donors=chain_a_donors,
+        chain_b_donors=chain_b_donors,
+        coordination_split=[2, 2],
+        validate_coordination=True,
+        use_mock=use_mock,
+    )
+
+
+def _translate_backbone_to_complex(
+    backbone_pdb: str,
+    complex_pdb: str,
+    metal_code: str = "CA",
+) -> str:
+    """
+    Translate the designed backbone so its center is near the metal-ligand complex.
+
+    RFD3 generates backbone centered at origin, but we need it positioned
+    around the metal for proper coordination.
+    """
+    import re
+
+    # Extract metal position from complex_pdb
+    metal_pos = None
+    for line in complex_pdb.split('\n'):
+        if line.startswith('HETATM'):
+            # HETATM    1 CA   CA  M   1      50.000  50.000  52.400
+            atom_name = line[12:16].strip()
+            res_name = line[17:20].strip()
+            if res_name == metal_code or atom_name == metal_code:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_pos = (x, y, z)
+                    break
+                except (ValueError, IndexError):
+                    pass
+
+    if metal_pos is None:
+        print(f"[TranslateBackbone] Warning: Could not find metal {metal_code} in complex")
+        return backbone_pdb
+
+    # Calculate backbone center of mass (using CA atoms)
+    ca_coords = []
+    for line in backbone_pdb.split('\n'):
+        if line.startswith('ATOM'):
+            atom_name = line[12:16].strip()
+            if atom_name == 'CA':
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    ca_coords.append((x, y, z))
+                except (ValueError, IndexError):
+                    pass
+
+    if not ca_coords:
+        print("[TranslateBackbone] Warning: No CA atoms found in backbone")
+        return backbone_pdb
+
+    # Calculate center
+    center_x = sum(c[0] for c in ca_coords) / len(ca_coords)
+    center_y = sum(c[1] for c in ca_coords) / len(ca_coords)
+    center_z = sum(c[2] for c in ca_coords) / len(ca_coords)
+
+    # Calculate translation to move backbone center near metal
+    # Offset slightly so protein surrounds metal rather than overlapping
+    dx = metal_pos[0] - center_x
+    dy = metal_pos[1] - center_y
+    dz = metal_pos[2] - center_z
+
+    print(f"[TranslateBackbone] Backbone center: ({center_x:.1f}, {center_y:.1f}, {center_z:.1f})")
+    print(f"[TranslateBackbone] Metal position: ({metal_pos[0]:.1f}, {metal_pos[1]:.1f}, {metal_pos[2]:.1f})")
+    print(f"[TranslateBackbone] Translation: ({dx:.1f}, {dy:.1f}, {dz:.1f})")
+
+    # Translate all ATOM records
+    translated_lines = []
+    for line in backbone_pdb.split('\n'):
+        if line.startswith('ATOM') and len(line) >= 54:
+            try:
+                x = float(line[30:38]) + dx
+                y = float(line[38:46]) + dy
+                z = float(line[46:54]) + dz
+                # Reconstruct line with new coordinates
+                new_line = f"{line[:30]}{x:8.3f}{y:8.3f}{z:8.3f}{line[54:]}"
+                translated_lines.append(new_line)
+            except (ValueError, IndexError):
+                translated_lines.append(line)
+        else:
+            translated_lines.append(line)
+
+    return '\n'.join(translated_lines)
+
+
+def _validate_metal_ligand_design(
+    pdb_content: str,
+    complex_info: "MetalLigandComplex",
+    target_coordination: int,
+) -> Dict[str, Any]:
+    """
+    Validate metal coordination in a designed protein.
+
+    Checks:
+    - Total coordination number
+    - Donors from chain A vs chain B
+    - Coordination geometry
+    - Nearby residues that could be mutated to coordinators
+    """
+    import math
+    from inference_utils import detect_coordinating_residues
+
+    metal = complex_info.metal_code
+
+    # Get metal position for proximity analysis
+    metal_pos = None
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name == metal:
+                try:
+                    metal_pos = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+                    break
+                except (ValueError, IndexError):
+                    pass
+
+    # Find ALL atoms near metal (for analysis even if not coordinating)
+    nearby_residues = []
+    if metal_pos:
+        seen = set()
+        for line in pdb_content.split('\n'):
+            if line.startswith('ATOM'):
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    dist = math.sqrt((x-metal_pos[0])**2 + (y-metal_pos[1])**2 + (z-metal_pos[2])**2)
+                    if dist <= 5.0:  # 5A radius for nearby analysis
+                        chain = line[21]
+                        resnum = int(line[22:26])
+                        resname = line[17:20].strip()
+                        key = (chain, resnum)
+                        if key not in seen:
+                            seen.add(key)
+                            nearby_residues.append({
+                                "chain": chain,
+                                "resnum": resnum,
+                                "resname": resname,
+                                "min_dist": dist,
+                            })
+                except (ValueError, IndexError):
+                    pass
+        nearby_residues.sort(key=lambda x: x["min_dist"])
+
+    # Detect coordinating residues from protein
+    sites = detect_coordinating_residues(pdb_content, cutoff=3.5, metal_codes=[metal])
+
+    if not sites:
+        # No standard coordination, but report what's nearby
+        return {
+            "coordination_number": 0,
+            "chain_a_donors": 0,
+            "chain_b_donors": 0,
+            "nearby_residues": nearby_residues[:10],  # Top 10 closest
+            "issues": [
+                "No coordinating atoms (OD/OE/ND/NE/SG) within 3.5A",
+                "Residues near metal are non-coordinating types",
+                "Consider LigandMPNN to optimize sequence for metal binding"
+            ],
+            "suggestions": [
+                "Run LigandMPNN with metal as ligand to design coordinating residues",
+                "Nearby positions could be mutated to Asp/Glu/His for coordination"
+            ],
+        }
+
+    site = sites[0]
+    coord_residues = site.coordinating_residues
+
+    # Count donors per chain
+    chain_a_count = sum(1 for r in coord_residues if r.chain == "A")
+    chain_b_count = sum(1 for r in coord_residues if r.chain == "B")
+
+    # Add ligand coordination (from original complex)
+    ligand_donors = len(complex_info.coordination_bonds)
+    total_coord = chain_a_count + chain_b_count + ligand_donors
+
+    issues = []
+    if total_coord < target_coordination - 2:
+        issues.append(f"Low coordination: {total_coord} (target: {target_coordination})")
+    if chain_a_count == 0:
+        issues.append("No coordination from chain A")
+    if chain_b_count == 0:
+        issues.append("No coordination from chain B")
+
+    return {
+        "coordination_number": total_coord,
+        "protein_coordination": chain_a_count + chain_b_count,
+        "ligand_coordination": ligand_donors,
+        "chain_a_donors": chain_a_count,
+        "chain_b_donors": chain_b_count,
+        "target_coordination": target_coordination,
+        "donor_residues": [
+            {"chain": r.chain, "resnum": r.resnum, "resname": r.resname, "atom": r.atom_name}
+            for r in coord_residues
+        ],
+        "nearby_residues": nearby_residues[:10] if nearby_residues else [],
+        "issues": issues,
+        "success": len(issues) == 0,
+    }
+
+
+def _generate_mock_metal_ligand_design(
+    complex_pdb: str,
+    chain_length: str,
+    metal: str,
+    ligand_name: str,
+) -> str:
+    """
+    Generate a mock PDB for testing without running RFD3.
+    """
+    import random
+
+    if "-" in str(chain_length):
+        min_len, max_len = map(int, str(chain_length).split("-"))
+        length = (min_len + max_len) // 2
+    else:
+        length = int(chain_length)
+
+    lines = ["HEADER    MOCK METAL-LIGAND DESIGN"]
+
+    # Add chain A
+    for i in range(1, length + 1):
+        x = 40.0 + i * 0.3
+        y = 50.0 + random.uniform(-5, 5)
+        z = 50.0 + random.uniform(-5, 5)
+        aa = random.choice(["ALA", "GLU", "ASP", "HIS", "SER", "THR", "ASN"])
+        lines.append(
+            f"ATOM  {i:5d}  CA  {aa} A{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C"
+        )
+
+    # Add chain B
+    for i in range(1, length + 1):
+        atom_num = length + i
+        x = 60.0 - i * 0.3
+        y = 50.0 + random.uniform(-5, 5)
+        z = 50.0 + random.uniform(-5, 5)
+        aa = random.choice(["ALA", "GLU", "ASP", "HIS", "SER", "THR", "ASN"])
+        lines.append(
+            f"ATOM  {atom_num:5d}  CA  {aa} B{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C"
+        )
+
+    # Add complex from input
+    for line in complex_pdb.split('\n'):
+        if line.startswith('HETATM'):
+            lines.append(line)
+
+    lines.append("END")
+    return "\n".join(lines)
 
 
 # ============== ESM3 Handlers ==============

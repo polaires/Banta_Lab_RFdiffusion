@@ -156,6 +156,9 @@ export interface JobResponse {
   job_id: string;
   status: string;
   message: string;
+  result?: unknown;
+  error?: string;
+  syncCompleted?: boolean;
 }
 
 export interface SummaryConfidences {
@@ -1156,7 +1159,9 @@ class FoundryAPI {
       // Clean up cache after returning (one-time use)
       this.syncJobResults.delete(jobId);
       return {
+        job_id: jobId,
         status: 'completed',
+        created_at: new Date().toISOString(),
         result: cachedResult,
       } as JobStatus;
     }
@@ -1164,8 +1169,10 @@ class FoundryAPI {
     // For any job ID without cached result, return completed with null
     // (result was already consumed or job didn't cache)
     return {
+      job_id: jobId,
       status: 'completed',
-      result: null,
+      created_at: new Date().toISOString(),
+      result: undefined,
     } as JobStatus;
   }
 

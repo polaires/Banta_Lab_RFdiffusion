@@ -225,6 +225,10 @@ interface AppState {
   setAiCaseStudy: (state: Partial<AICaseStudyState>) => void;
   addAiMessage: (message: Omit<AIConversationMessage, 'timestamp'>) => void;
   clearAiConversation: () => void;
+
+  // Manual mode toggle (sidebar)
+  manualMode: boolean;
+  setManualMode: (enabled: boolean) => void;
 }
 
 // Default backend URL from environment or fallback
@@ -415,6 +419,10 @@ export const useStore = create<AppState>()(
       jobProgress: 0,
     },
   })),
+
+  // Manual mode toggle (sidebar)
+  manualMode: false,
+  setManualMode: (enabled) => set({ manualMode: enabled }),
 }),
     {
       name: 'rfd3-design-history',

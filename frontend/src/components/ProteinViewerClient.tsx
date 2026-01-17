@@ -663,9 +663,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             wrapInteractivityMethod(selects, 'selectToggle', 'SelectToggle');
           }
 
-          // Wrap label manager methods
-          if (plugin.managers?.interactivity?.lociLabels) {
-            const labels = plugin.managers.interactivity.lociLabels;
+          // Wrap label manager methods (if available - may not exist in all Molstar versions)
+          const interactivity = plugin.managers?.interactivity as any;
+          if (interactivity?.lociLabels) {
+            const labels = interactivity.lociLabels;
             wrapInteractivityMethod(labels, 'mark', 'Label');
             wrapInteractivityMethod(labels, 'markOnlyExtend', 'LabelExtend');
           }

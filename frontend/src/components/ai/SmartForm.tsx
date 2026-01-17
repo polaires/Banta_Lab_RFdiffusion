@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Sparkles, ChevronUp, ChevronDown, Send, Loader2, FlaskConical } from 'lucide-react';
 import type {
   TaskType,
   FormFieldConfig,
@@ -150,7 +151,7 @@ export function SmartForm({
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-violet-600">auto_awesome</span>
+              <Sparkles className="h-5 w-5 text-violet-600" />
               <h3 className="font-semibold text-slate-900">
                 {taskType ? taskType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Design Parameters'}
               </h3>
@@ -174,9 +175,7 @@ export function SmartForm({
               onClick={() => setExpandedReasoning(!expandedReasoning)}
               className="text-sm text-violet-600 hover:text-violet-800 flex items-center gap-1"
             >
-              <span className="material-symbols-outlined text-sm">
-                {expandedReasoning ? 'expand_less' : 'expand_more'}
-              </span>
+              {expandedReasoning ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               {expandedReasoning ? 'Hide' : 'Show'} AI reasoning
             </button>
             {expandedReasoning && (
@@ -223,7 +222,7 @@ export function SmartForm({
               disabled={!chatInput.trim()}
               className="px-4 py-2 rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <span className="material-symbols-outlined text-sm">send</span>
+              <Send className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -237,12 +236,12 @@ export function SmartForm({
           >
             {isLoading ? (
               <>
-                <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                <Loader2 className="h-4 w-4 animate-spin" />
                 Processing...
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined text-sm">science</span>
+                <FlaskConical className="h-4 w-4" />
                 Run Design
               </>
             )}

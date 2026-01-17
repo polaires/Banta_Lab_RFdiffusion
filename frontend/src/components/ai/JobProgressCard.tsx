@@ -1,5 +1,7 @@
 'use client';
 
+import { Clock, RefreshCw, CheckCircle, AlertCircle, Loader2, Info } from 'lucide-react';
+
 interface JobProgressCardProps {
   jobId: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
@@ -12,32 +14,41 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
     switch (status) {
       case 'pending':
         return {
-          icon: 'schedule',
           color: 'text-blue-500',
           bgColor: 'bg-blue-50 border-blue-200',
           label: 'Queued',
         };
       case 'running':
         return {
-          icon: 'sync',
           color: 'text-violet-500',
           bgColor: 'bg-violet-50 border-violet-200',
           label: 'Running',
         };
       case 'completed':
         return {
-          icon: 'check_circle',
           color: 'text-emerald-500',
           bgColor: 'bg-emerald-50 border-emerald-200',
           label: 'Completed',
         };
       case 'failed':
         return {
-          icon: 'error',
           color: 'text-red-500',
           bgColor: 'bg-red-50 border-red-200',
           label: 'Failed',
         };
+    }
+  };
+
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'pending':
+        return <Clock className="h-6 w-6" />;
+      case 'running':
+        return <Loader2 className="h-6 w-6 animate-spin" />;
+      case 'completed':
+        return <CheckCircle className="h-6 w-6" />;
+      case 'failed':
+        return <AlertCircle className="h-6 w-6" />;
     }
   };
 
@@ -48,11 +59,7 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
       <div className="flex items-center gap-3">
         {/* Status icon with animation for running */}
         <div className={`${config.color}`}>
-          {status === 'running' ? (
-            <span className="material-symbols-outlined text-xl animate-spin">progress_activity</span>
-          ) : (
-            <span className="material-symbols-outlined text-xl">{config.icon}</span>
-          )}
+          {getStatusIcon()}
         </div>
 
         {/* Job info */}
@@ -99,7 +106,7 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
       {/* Completed message */}
       {status === 'completed' && (
         <div className="mt-2 text-sm text-emerald-700 flex items-center gap-1">
-          <span className="material-symbols-outlined text-sm">info</span>
+          <Info className="h-4 w-4" />
           Design complete! View results in the structure viewer.
         </div>
       )}

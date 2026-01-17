@@ -1,5 +1,6 @@
 'use client';
 
+import { ClipboardList, Gem, SlidersHorizontal, Network, Copy, Star, Pencil, Play } from 'lucide-react';
 import type { UserPreferences } from '@/lib/api';
 
 interface PreferenceSummaryCardProps {
@@ -18,42 +19,42 @@ export function PreferenceSummaryCard({
   return (
     <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
       <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-        <span className="material-symbols-outlined text-violet-600">checklist</span>
+        <ClipboardList className="h-5 w-5 text-violet-600" />
         Your Design Preferences
       </h4>
 
       <div className="space-y-3 text-sm">
         <div className="flex justify-between items-center py-2 border-b border-slate-100">
           <span className="text-slate-600 flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">diamond</span>
+            <Gem className="h-4 w-4 text-slate-400" />
             Target Metal
           </span>
           <span className="font-medium text-slate-900">{preferences.targetMetalLabel}</span>
         </div>
         <div className="flex justify-between items-center py-2 border-b border-slate-100">
           <span className="text-slate-600 flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">tune</span>
+            <SlidersHorizontal className="h-4 w-4 text-slate-400" />
             Design Approach
           </span>
           <span className="font-medium text-slate-900">{preferences.aggressivenessLabel}</span>
         </div>
         <div className="flex justify-between items-center py-2 border-b border-slate-100">
           <span className="text-slate-600 flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">hub</span>
+            <Network className="h-4 w-4 text-slate-400" />
             Coordination
           </span>
           <span className="font-medium text-slate-900">{preferences.coordinationLabel}</span>
         </div>
         <div className="flex justify-between items-center py-2 border-b border-slate-100">
           <span className="text-slate-600 flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">content_copy</span>
+            <Copy className="h-4 w-4 text-slate-400" />
             Variants
           </span>
           <span className="font-medium text-slate-900">{preferences.numDesigns} designs</span>
         </div>
         <div className="flex justify-between items-center py-2">
           <span className="text-slate-600 flex items-center gap-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">star</span>
+            <Star className="h-4 w-4 text-slate-400" />
             Priority
           </span>
           <span className="font-medium text-slate-900">{preferences.priorityLabel}</span>
@@ -71,7 +72,7 @@ export function PreferenceSummaryCard({
           }`}
         >
           <span className="flex items-center justify-center gap-2">
-            <span className="material-symbols-outlined text-sm">edit</span>
+            <Pencil className="h-4 w-4" />
             Edit
           </span>
         </button>
@@ -94,7 +95,7 @@ export function PreferenceSummaryCard({
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined text-sm">play_arrow</span>
+              <Play className="h-4 w-4" />
               Run Design
             </>
           )}

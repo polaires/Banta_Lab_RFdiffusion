@@ -1,7 +1,17 @@
 'use client';
 
 import { useState } from 'react';
+import { LayoutGrid, AlertTriangle, Link, CheckCircle, type LucideIcon } from 'lucide-react';
 import { type DesignResult } from '@/lib/demoData';
+
+// Icon mapping for status icons
+type StatusIconInfo = { IconComponent: LucideIcon; color: string; bg: string };
+
+const STATUS_ICON_MAP = {
+  warning: { IconComponent: AlertTriangle, color: 'text-red-500', bg: 'bg-red-100' },
+  link: { IconComponent: Link, color: 'text-amber-500', bg: 'bg-amber-100' },
+  check_circle: { IconComponent: CheckCircle, color: 'text-green-500', bg: 'bg-green-100' },
+} as const;
 
 // Re-export for convenience
 export type { DesignResult };
@@ -43,13 +53,13 @@ export function DesignGallery({
     return 'text-red-600';
   };
 
-  const getStatusIcon = (design: DesignResult) => {
+  const getStatusIcon = (design: DesignResult): StatusIconInfo => {
     const hasClashes = design.metrics.has_clashes;
     const separable = design.metrics.separable;
 
-    if (hasClashes) return { icon: 'warning', color: 'text-red-500', bg: 'bg-red-100' };
-    if (separable === false) return { icon: 'link', color: 'text-amber-500', bg: 'bg-amber-100' };
-    return { icon: 'check_circle', color: 'text-green-500', bg: 'bg-green-100' };
+    if (hasClashes) return STATUS_ICON_MAP.warning;
+    if (separable === false) return STATUS_ICON_MAP.link;
+    return STATUS_ICON_MAP.check_circle;
   };
 
   return (
@@ -57,7 +67,7 @@ export function DesignGallery({
       {/* Header */}
       <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-purple-600">view_module</span>
+          <LayoutGrid className="h-5 w-5 text-purple-600" />
           <h4 className="font-semibold text-slate-900 text-sm">Design Gallery</h4>
           <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
             {designs.length} designs
@@ -106,9 +116,7 @@ export function DesignGallery({
 
                   {/* Status Badge */}
                   <div className={`p-1.5 rounded-lg ${status.bg}`}>
-                    <span className={`material-symbols-outlined text-sm ${status.color}`}>
-                      {status.icon}
-                    </span>
+                    <status.IconComponent className={`h-4 w-4 ${status.color}`} />
                   </div>
                 </div>
 

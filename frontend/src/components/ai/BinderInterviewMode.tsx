@@ -1,6 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import { Target, FlaskConical, Ruler, Crosshair, Copy, BadgeCheck, Star, CheckCircle, ArrowLeft, ArrowRight, ClipboardList, type LucideIcon } from 'lucide-react';
+
+// Icon mapping for step icons
+const STEP_ICONS: Record<string, LucideIcon> = {
+  target: Target,
+  science: FlaskConical,
+  straighten: Ruler,
+  my_location: Crosshair,
+  content_copy: Copy,
+  verified: BadgeCheck,
+  star: Star,
+};
 
 // Protocol types matching backend PROTOCOL_PRESETS
 export type ProtocolType =
@@ -253,7 +265,10 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 text-teal-600 text-sm mb-4">
-        <span className="material-symbols-outlined text-lg">{step.icon}</span>
+        {(() => {
+          const IconComponent = STEP_ICONS[step.icon];
+          return IconComponent ? <IconComponent className="h-5 w-5" /> : null;
+        })()}
         <span className="font-medium">Step {currentStep + 1} of {BINDER_INTERVIEW_STEPS.length}</span>
       </div>
 
@@ -292,7 +307,7 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
                   )}
                 </div>
                 {isSelected && (
-                  <span className="material-symbols-outlined text-teal-600">check_circle</span>
+                  <CheckCircle className="h-6 w-6 text-teal-600" />
                 )}
               </div>
             </button>
@@ -308,7 +323,7 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
               onClick={handleBack}
               className="text-teal-600 text-sm font-medium hover:text-teal-800 flex items-center gap-1"
             >
-              <span className="material-symbols-outlined text-sm">arrow_back</span>
+              <ArrowLeft className="h-4 w-4" />
               Back
             </button>
           ) : onCancel ? (
@@ -330,9 +345,7 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
           }`}
         >
           {isLastStep ? 'Review Design' : 'Next'}
-          <span className="material-symbols-outlined text-sm">
-            {isLastStep ? 'checklist' : 'arrow_forward'}
-          </span>
+          {isLastStep ? <ClipboardList className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
         </button>
       </div>
     </div>

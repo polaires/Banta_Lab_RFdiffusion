@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { MessageSquare, FlaskConical, Sparkles, Loader2, Send } from 'lucide-react';
 import type {
   TaskType,
   AIChatMessage,
@@ -122,7 +123,7 @@ export function AIChat({
       {/* Header */}
       <div className="bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-4 border-b border-violet-100">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-violet-600">chat</span>
+          <MessageSquare className="h-5 w-5 text-violet-600" />
           <h3 className="font-semibold text-slate-900">AI Assistant</h3>
         </div>
         <p className="text-sm text-slate-600 mt-1">
@@ -130,7 +131,7 @@ export function AIChat({
         </p>
         {structureInfo?.pdbId && (
           <div className="mt-2 flex items-center gap-2 text-xs text-violet-600 bg-violet-100/50 rounded-full px-3 py-1 w-fit">
-            <span className="material-symbols-outlined text-sm">science</span>
+            <FlaskConical className="h-4 w-4" />
             Working with {structureInfo.pdbId}
             {structureInfo.numResidues && ` (${structureInfo.numResidues} residues)`}
           </div>
@@ -142,7 +143,7 @@ export function AIChat({
         {messages.length === 0 ? (
           <div className="text-center py-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-violet-100 mb-4">
-              <span className="material-symbols-outlined text-3xl text-violet-600">auto_awesome</span>
+              <Sparkles className="h-8 w-8 text-violet-600" />
             </div>
             <h4 className="font-medium text-slate-900 mb-2">
               What would you like to design?
@@ -179,7 +180,7 @@ export function AIChat({
           <div className="flex justify-start mb-4">
             <div className="bg-slate-100 rounded-2xl rounded-bl-md px-4 py-3">
               <div className="flex items-center gap-2 text-sm text-slate-500">
-                <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                <Loader2 className="h-4 w-4 animate-spin" />
                 Thinking...
               </div>
             </div>
@@ -204,7 +205,7 @@ export function AIChat({
             disabled={!input.trim() || isLoading}
             className="px-4 py-2.5 rounded-xl bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <span className="material-symbols-outlined text-lg">send</span>
+            <Send className="h-5 w-5" />
           </button>
         </div>
         <p className="text-xs text-slate-400 mt-2 text-center">

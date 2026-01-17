@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { FlaskConical, ChevronUp, ChevronDown, Unlink, CheckCircle, Link, Box, Layers, ArrowRight, Hexagon } from 'lucide-react';
 
 // Ligand analysis data structure
 export interface LigandAnalysis {
@@ -73,7 +74,7 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
       <div className="px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-            <span className="material-symbols-outlined text-white text-sm">science</span>
+            <FlaskConical className="h-4 w-4 text-white" />
           </div>
           <h4 className="font-semibold text-slate-900">Ligand Analysis</h4>
           {analysis.success && (
@@ -84,9 +85,7 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
           onClick={() => setIsExpanded(!isExpanded)}
           className="text-sm text-purple-600 hover:text-purple-800 flex items-center gap-1"
         >
-          <span className="material-symbols-outlined text-sm">
-            {isExpanded ? 'expand_less' : 'expand_more'}
-          </span>
+          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           {isExpanded ? 'Less' : 'More'}
         </button>
       </div>
@@ -153,10 +152,8 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
                   ? 'bg-amber-100 text-amber-700'
                   : 'bg-blue-100 text-blue-700'
             }`}>
-              <span className="material-symbols-outlined text-sm">
-                {analysis.binding_site.type === 'interface' ? 'call_split' :
-                 analysis.binding_site.type === 'buried' ? 'deployed_code' : 'layers'}
-              </span>
+              {analysis.binding_site.type === 'interface' ? <Unlink className="h-4 w-4" /> :
+               analysis.binding_site.type === 'buried' ? <Box className="h-4 w-4" /> : <Layers className="h-4 w-4" />}
               {analysis.binding_site.type.charAt(0).toUpperCase() + analysis.binding_site.type.slice(1)}
             </div>
           </div>
@@ -169,9 +166,7 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
                 ? 'bg-green-100 text-green-700'
                 : 'bg-red-100 text-red-700'
             }`}>
-              <span className="material-symbols-outlined text-sm">
-                {analysis.topology.separable ? 'check_circle' : 'link'}
-              </span>
+              {analysis.topology.separable ? <CheckCircle className="h-4 w-4" /> : <Link className="h-4 w-4" />}
               {analysis.topology.separable ? 'Separable' : 'Entangled'}
             </div>
           </div>
@@ -333,7 +328,7 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
                 <ul className="space-y-1">
                   {analysis.recommendations.map((rec, idx) => (
                     <li key={idx} className="text-xs text-slate-600 flex items-start gap-1.5">
-                      <span className="material-symbols-outlined text-purple-500 text-sm mt-0.5">arrow_right</span>
+                      <ArrowRight className="h-4 w-4 text-purple-500 mt-0.5 flex-shrink-0" />
                       {rec}
                     </li>
                   ))}
@@ -356,18 +351,18 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
             </div>
 
             {/* Arrow */}
-            <span className="material-symbols-outlined text-slate-400 text-sm">arrow_forward</span>
+            <ArrowRight className="h-4 w-4 text-slate-400" />
 
             {/* Ligand */}
             <div className="flex flex-col items-center">
               <div className="w-10 h-10 rounded bg-gradient-to-br from-pink-200 to-purple-200 flex items-center justify-center border-2 border-pink-300">
-                <span className="material-symbols-outlined text-pink-700 text-base">hexagon</span>
+                <Hexagon className="h-5 w-5 text-pink-700" />
               </div>
               <span className="text-[10px] text-slate-500 mt-1">Interface</span>
             </div>
 
             {/* Arrow */}
-            <span className="material-symbols-outlined text-slate-400 text-sm">arrow_forward</span>
+            <ArrowRight className="h-4 w-4 text-slate-400" />
 
             {/* Step 2: Chain B */}
             <div className="flex flex-col items-center">
@@ -378,7 +373,7 @@ export function LigandAnalysisCard({ analysis, expanded = false }: LigandAnalysi
             </div>
 
             {/* Arrow */}
-            <span className="material-symbols-outlined text-slate-400 text-sm">arrow_forward</span>
+            <ArrowRight className="h-4 w-4 text-slate-400" />
 
             {/* Result: Dimer */}
             <div className="flex flex-col items-center">

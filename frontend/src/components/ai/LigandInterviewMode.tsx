@@ -1,6 +1,15 @@
 'use client';
 
 import { useState } from 'react';
+import { FlaskConical, Ruler, Copy, Star, CheckCircle, ArrowLeft, ArrowRight, ClipboardList, type LucideIcon } from 'lucide-react';
+
+// Icon mapping for dynamic icons
+const STEP_ICONS: Record<string, LucideIcon> = {
+  science: FlaskConical,
+  straighten: Ruler,
+  content_copy: Copy,
+  star: Star,
+};
 
 // Ligand preferences interface
 export interface LigandPreferences {
@@ -166,7 +175,10 @@ export function LigandInterviewMode({ onComplete, onCancel }: LigandInterviewMod
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 text-purple-600 text-sm mb-4">
-        <span className="material-symbols-outlined text-lg">{step.icon}</span>
+        {(() => {
+          const IconComponent = STEP_ICONS[step.icon];
+          return IconComponent ? <IconComponent className="h-5 w-5" /> : null;
+        })()}
         <span className="font-medium">Step {currentStep + 1} of {LIGAND_INTERVIEW_STEPS.length}</span>
       </div>
 
@@ -205,7 +217,7 @@ export function LigandInterviewMode({ onComplete, onCancel }: LigandInterviewMod
                   )}
                 </div>
                 {isSelected && (
-                  <span className="material-symbols-outlined text-purple-600">check_circle</span>
+                  <CheckCircle className="h-6 w-6 text-purple-600" />
                 )}
               </div>
             </button>
@@ -221,7 +233,7 @@ export function LigandInterviewMode({ onComplete, onCancel }: LigandInterviewMod
               onClick={handleBack}
               className="text-purple-600 text-sm font-medium hover:text-purple-800 flex items-center gap-1"
             >
-              <span className="material-symbols-outlined text-sm">arrow_back</span>
+              <ArrowLeft className="h-4 w-4" />
               Back
             </button>
           ) : onCancel ? (
@@ -243,9 +255,7 @@ export function LigandInterviewMode({ onComplete, onCancel }: LigandInterviewMod
           }`}
         >
           {isLastStep ? 'Review Design' : 'Next'}
-          <span className="material-symbols-outlined text-sm">
-            {isLastStep ? 'checklist' : 'arrow_forward'}
-          </span>
+          {isLastStep ? <ClipboardList className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
         </button>
       </div>
     </div>

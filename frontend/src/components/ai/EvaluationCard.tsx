@@ -1,6 +1,15 @@
 'use client';
 
+import { Network, Ruler, Shapes, CircleDot, CheckCircle, AlertCircle, ThumbsUp, Lightbulb, RefreshCw, BadgeCheck, Clock, type LucideIcon } from 'lucide-react';
 import type { DesignEvaluation } from '@/lib/api';
+
+// Icon mapping for criteria icons
+const CRITERIA_ICONS: Record<string, LucideIcon> = {
+  hub: Network,
+  straighten: Ruler,
+  category: Shapes,
+  scatter_plot: CircleDot,
+};
 
 interface EvaluationCriteria {
   label: string;
@@ -67,9 +76,10 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
       {/* Header with score */}
       <div className="flex items-center justify-between mb-4">
         <h4 className="font-semibold text-slate-900 flex items-center gap-2">
-          <span className={`material-symbols-outlined ${overallPass ? 'text-emerald-600' : 'text-amber-600'}`}>
-            {overallPass ? 'verified' : 'pending'}
-          </span>
+          {overallPass
+            ? <BadgeCheck className="h-5 w-5 text-emerald-600" />
+            : <Clock className="h-5 w-5 text-amber-600" />
+          }
           Design Evaluation
         </h4>
         <span className={`px-3 py-1 rounded-full text-xs font-bold ${
@@ -91,11 +101,10 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
             }`}
           >
             <div className="flex items-center gap-3">
-              <span className={`material-symbols-outlined text-sm ${
-                c.pass ? 'text-emerald-500' : 'text-amber-500'
-              }`}>
-                {c.icon}
-              </span>
+              {(() => {
+                const IconComponent = CRITERIA_ICONS[c.icon];
+                return IconComponent ? <IconComponent className={`h-4 w-4 ${c.pass ? 'text-emerald-500' : 'text-amber-500'}`} /> : null;
+              })()}
               <div>
                 <div className="text-sm font-medium text-slate-800">{c.label}</div>
                 <div className="text-xs text-slate-500">Target: {c.target}</div>
@@ -103,11 +112,10 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
             </div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm text-slate-700">{c.value}</span>
-              <span className={`material-symbols-outlined text-lg ${
-                c.pass ? 'text-emerald-500' : 'text-amber-500'
-              }`}>
-                {c.pass ? 'check_circle' : 'error'}
-              </span>
+              {c.pass
+                ? <CheckCircle className="h-5 w-5 text-emerald-500" />
+                : <AlertCircle className="h-5 w-5 text-amber-500" />
+              }
             </div>
           </div>
         ))}
@@ -120,9 +128,7 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
           : 'bg-amber-100 text-amber-800'
       }`}>
         <div className="flex items-start gap-2">
-          <span className="material-symbols-outlined text-sm mt-0.5">
-            {overallPass ? 'thumb_up' : 'tips_and_updates'}
-          </span>
+          {overallPass ? <ThumbsUp className="h-4 w-4 mt-0.5" /> : <Lightbulb className="h-4 w-4 mt-0.5" />}
           <div>
             {overallPass ? (
               <p>
@@ -143,7 +149,7 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
       {!overallPass && evaluation.suggestions && evaluation.suggestions.length > 0 && (
         <div className="mt-3 p-3 bg-white/60 rounded-lg">
           <div className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1">
-            <span className="material-symbols-outlined text-sm">lightbulb</span>
+            <Lightbulb className="h-4 w-4" />
             Suggestions
           </div>
           <ul className="text-xs text-slate-600 space-y-1">
@@ -163,7 +169,7 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
           onClick={onRetry}
           className="mt-4 w-full py-2.5 bg-white border border-amber-300 text-amber-700 rounded-lg font-medium hover:bg-amber-50 transition-all flex items-center justify-center gap-2"
         >
-          <span className="material-symbols-outlined text-sm">refresh</span>
+          <RefreshCw className="h-4 w-4" />
           Try Different Settings
         </button>
       )}

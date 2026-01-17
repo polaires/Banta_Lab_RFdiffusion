@@ -1,5 +1,7 @@
 'use client';
 
+import { CheckCircle, XCircle, Brain, BarChart3, Link, Droplets, Layers, CheckSquare, Circle, FlaskConical, Lightbulb, Crosshair, Copy, AlertCircle, ArrowRight } from 'lucide-react';
+
 // Interaction profile data from PLIP analysis
 export interface InteractionProfile {
   hbonds: number;
@@ -79,9 +81,10 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
       <div className={`px-4 py-3 border-b ${evaluation.overall_pass ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`material-symbols-outlined ${evaluation.overall_pass ? 'text-emerald-600' : 'text-red-600'}`}>
-              {evaluation.overall_pass ? 'check_circle' : 'cancel'}
-            </span>
+            {evaluation.overall_pass
+              ? <CheckCircle className="h-5 w-5 text-emerald-600" />
+              : <XCircle className="h-5 w-5 text-red-600" />
+            }
             <h4 className="font-semibold text-slate-900 text-sm">
               {evaluation.overall_pass ? 'Binder Design Successful' : 'Design Needs Improvement'}
             </h4>
@@ -130,7 +133,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {/* ESM Metrics */}
             <div className="flex items-center justify-between py-2 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-violet-500 text-lg">psychology</span>
+                <Brain className="h-5 w-5 text-violet-500" />
                 <span className="text-sm text-slate-600">ESM Confidence</span>
               </div>
               <div className="flex items-center gap-2">
@@ -144,7 +147,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {best.esm_perplexity != null && (
               <div className="flex items-center justify-between py-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-violet-500 text-lg">analytics</span>
+                  <BarChart3 className="h-5 w-5 text-violet-500" />
                   <span className="text-sm text-slate-600">ESM Perplexity</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -158,7 +161,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {best.interface_contacts != null && (
               <div className="flex items-center justify-between py-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-teal-500 text-lg">link</span>
+                  <Link className="h-5 w-5 text-teal-500" />
                   <span className="text-sm text-slate-600">Interface Contacts</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -171,7 +174,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {best.interface_hbonds != null && (
               <div className="flex items-center justify-between py-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-blue-500 text-lg">humidity_percentage</span>
+                  <Droplets className="h-5 w-5 text-blue-500" />
                   <span className="text-sm text-slate-600">H-Bonds</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -184,7 +187,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {best.buried_sasa != null && (
               <div className="flex items-center justify-between py-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-amber-500 text-lg">layers</span>
+                  <Layers className="h-5 w-5 text-amber-500" />
                   <span className="text-sm text-slate-600">Buried SASA</span>
                 </div>
                 <span className="font-medium text-slate-900">{best.buried_sasa.toFixed(0)} Å²</span>
@@ -194,7 +197,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {best.packstat != null && (
               <div className="flex items-center justify-between py-2 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-emerald-500 text-lg">check_box</span>
+                  <CheckSquare className="h-5 w-5 text-emerald-500" />
                   <span className="text-sm text-slate-600">Packstat</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -207,7 +210,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {best.rg_ratio != null && (
               <div className="flex items-center justify-between py-2">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-indigo-500 text-lg">circle</span>
+                  <Circle className="h-5 w-5 text-indigo-500" />
                   <span className="text-sm text-slate-600">Compactness (Rg)</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -222,7 +225,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
           {evaluation.interactions && expanded && (
             <div className="mt-4 p-3 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-100">
               <div className="flex items-center gap-2 mb-3">
-                <span className="material-symbols-outlined text-blue-600 text-sm">science</span>
+                <FlaskConical className="h-4 w-4 text-blue-600" />
                 <span className="text-xs font-medium text-blue-700 uppercase">Interaction Profile</span>
               </div>
               <div className="grid grid-cols-5 gap-2 text-center">
@@ -272,7 +275,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
           {evaluation.recommendations && evaluation.recommendations.length > 0 && expanded && (
             <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
               <div className="flex items-center gap-2 mb-2">
-                <span className="material-symbols-outlined text-amber-600 text-sm">lightbulb</span>
+                <Lightbulb className="h-4 w-4 text-amber-600" />
                 <span className="text-xs font-medium text-amber-700 uppercase">Suggestions for Improvement</span>
               </div>
               <ul className="space-y-1">
@@ -290,7 +293,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
           {evaluation.hotspots_used && evaluation.hotspots_used.length > 0 && expanded && (
             <div className="mt-4 p-3 bg-indigo-50 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
-                <span className="material-symbols-outlined text-indigo-500 text-sm">my_location</span>
+                <Crosshair className="h-4 w-4 text-indigo-500" />
                 <span className="text-xs font-medium text-indigo-700 uppercase">
                   {evaluation.hotspots_auto_detected ? 'Auto-Detected Hotspots' : 'Manual Hotspots'}
                 </span>
@@ -314,7 +317,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
                   onClick={() => navigator.clipboard.writeText(best.binder_sequence)}
                   className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
                 >
-                  <span className="material-symbols-outlined text-sm">content_copy</span>
+                  <Copy className="h-4 w-4" />
                   Copy
                 </button>
               </div>
@@ -330,7 +333,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
       {evaluation.error && (
         <div className="px-4 py-4 bg-red-50">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-red-500">error</span>
+            <AlertCircle className="h-5 w-5 text-red-500" />
             <div>
               <p className="text-sm font-medium text-red-800">Design Failed</p>
               <p className="text-xs text-red-600 mt-1">{evaluation.error}</p>
@@ -347,7 +350,7 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             className="w-full text-sm text-teal-600 hover:text-teal-700 font-medium flex items-center justify-center gap-1"
           >
             View Full Results
-            <span className="material-symbols-outlined text-sm">arrow_forward</span>
+            <ArrowRight className="h-4 w-4" />
           </button>
         </div>
       )}

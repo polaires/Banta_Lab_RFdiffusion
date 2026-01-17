@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { BarChart3, ChevronUp, ChevronDown, XCircle, CheckCircle, Unlink, Link, Info, AlertTriangle, Hexagon } from 'lucide-react';
 
 // Ligand evaluation data structure
 export interface LigandEvaluation {
@@ -80,7 +81,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
       <div className="px-4 py-3 flex items-center justify-between border-b border-teal-100">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
-            <span className="material-symbols-outlined text-white text-sm">analytics</span>
+            <BarChart3 className="h-4 w-4 text-white" />
           </div>
           <h4 className="font-semibold text-slate-900">Dimer Evaluation</h4>
         </div>
@@ -92,9 +93,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
             onClick={() => setIsExpanded(!isExpanded)}
             className="text-sm text-teal-600 hover:text-teal-800 flex items-center gap-1"
           >
-            <span className="material-symbols-outlined text-sm">
-              {isExpanded ? 'expand_less' : 'expand_more'}
-            </span>
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
         </div>
       </div>
@@ -245,9 +244,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
                       <span className={`flex items-center gap-1 text-sm font-medium ${
                         evaluation.dimer.has_clashes ? 'text-red-600' : 'text-green-600'
                       }`}>
-                        <span className="material-symbols-outlined text-sm">
-                          {evaluation.dimer.has_clashes ? 'cancel' : 'check_circle'}
-                        </span>
+                        {evaluation.dimer.has_clashes ? <XCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                         {evaluation.dimer.has_clashes ? 'Detected' : 'None'}
                       </span>
                     </div>
@@ -256,9 +253,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
                       <span className={`flex items-center gap-1 text-sm font-medium ${
                         evaluation.dimer.separable ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        <span className="material-symbols-outlined text-sm">
-                          {evaluation.dimer.separable ? 'call_split' : 'link'}
-                        </span>
+                        {evaluation.dimer.separable ? <Unlink className="h-4 w-4" /> : <Link className="h-4 w-4" />}
                         {evaluation.dimer.separable ? 'Separable' : 'Entangled'}
                       </span>
                     </div>
@@ -495,7 +490,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
             {/* No energy data message */}
             {activeTab === 'energy' && !evaluation.dimer?.energy_breakdown && (
               <div className="flex items-center justify-center h-32 text-slate-500 text-sm">
-                <span className="material-symbols-outlined mr-2">info</span>
+                <Info className="h-4 w-4 mr-2" />
                 Energy breakdown not available for this design
               </div>
             )}
@@ -506,7 +501,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
         {evaluation.warnings && evaluation.warnings.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
             <div className="flex items-center gap-2 text-amber-700 text-sm font-medium mb-1">
-              <span className="material-symbols-outlined text-sm">warning</span>
+              <AlertTriangle className="h-4 w-4" />
               Warnings
             </div>
             <ul className="space-y-1">
@@ -542,7 +537,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
               {/* Ligand */}
               <div className="flex flex-col items-center">
                 <div className="w-10 h-10 rounded bg-gradient-to-br from-pink-200 to-purple-200 flex items-center justify-center">
-                  <span className="material-symbols-outlined text-pink-600 text-lg">hexagon</span>
+                  <Hexagon className="h-5 w-5 text-pink-600" />
                 </div>
                 <span className="text-[10px] text-slate-500 mt-1">Ligand</span>
               </div>
@@ -566,11 +561,10 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
             {/* Separability indicator */}
             {evaluation.dimer && (
               <div className="mt-2 flex items-center justify-center gap-1 text-xs">
-                <span className={`material-symbols-outlined text-sm ${
-                  evaluation.dimer.separable ? 'text-green-500' : 'text-red-500'
-                }`}>
-                  {evaluation.dimer.separable ? 'check_circle' : 'cancel'}
-                </span>
+                {evaluation.dimer.separable
+                  ? <CheckCircle className="h-4 w-4 text-green-500" />
+                  : <XCircle className="h-4 w-4 text-red-500" />
+                }
                 <span className={evaluation.dimer.separable ? 'text-green-600' : 'text-red-600'}>
                   {evaluation.dimer.separable ? 'Chains can separate' : 'Chains entangled'}
                 </span>

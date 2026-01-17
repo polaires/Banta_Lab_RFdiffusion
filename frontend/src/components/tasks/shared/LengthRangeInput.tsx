@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { AlertCircle } from 'lucide-react';
 
 interface LengthRangeInputProps {
   value: string;
@@ -102,7 +103,7 @@ export function LengthRangeInput({
       </div>
       {error && (
         <p className="text-xs text-red-500 flex items-center gap-1">
-          <span className="material-symbols-outlined text-sm">error</span>
+          <AlertCircle className="h-4 w-4" />
           {error}
         </p>
       )}

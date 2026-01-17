@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SlidersHorizontal, ChevronDown } from 'lucide-react';
 
 interface AdvancedOptionsWrapperProps {
   children: React.ReactNode;
@@ -26,18 +27,14 @@ export function AdvancedOptionsWrapper({
         className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-slate-500 text-lg">
-            tune
-          </span>
+          <SlidersHorizontal className="h-5 w-5 text-slate-500" />
           <span className="text-sm font-medium text-slate-700">{title}</span>
         </div>
-        <span
-          className={`material-symbols-outlined text-slate-400 transition-transform duration-200 ${
+        <ChevronDown
+          className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${
             expanded ? 'rotate-180' : ''
           }`}
-        >
-          expand_more
-        </span>
+        />
       </button>
 
       {/* Expandable content */}

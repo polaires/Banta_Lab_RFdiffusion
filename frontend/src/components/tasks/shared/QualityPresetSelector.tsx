@@ -1,5 +1,6 @@
 'use client';
 
+import { Info } from 'lucide-react';
 import { QUALITY_PRESETS } from './types';
 
 export type QualityPreset = keyof typeof QUALITY_PRESETS | 'Custom';
@@ -58,7 +59,7 @@ export function QualityPresetSelector({
 
       {showDescription && currentPreset && (
         <p className="text-xs text-slate-500 flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-sm text-slate-400">info</span>
+          <Info className="h-4 w-4 text-slate-400" />
           {currentPreset.description}
         </p>
       )}

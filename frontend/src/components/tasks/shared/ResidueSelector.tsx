@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { X } from 'lucide-react';
 
 interface ResidueSelectorProps {
   value: string[];
@@ -157,7 +158,7 @@ export function ResidueSelector({
                     onClick={() => removeResidue(res)}
                     className="hover:text-blue-900 transition-colors"
                   >
-                    <span className="material-symbols-outlined text-sm">close</span>
+                    <X className="h-3.5 w-3.5" />
                   </button>
                 </span>
               ))}

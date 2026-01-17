@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { FlaskConical, AlertTriangle } from 'lucide-react';
 import { COMMON_LIGANDS } from './types';
 
 interface LigandSelectorProps {
@@ -124,7 +125,7 @@ export function LigandSelector({
       {/* Show selected ligand info */}
       {selectedLigand && (
         <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="material-symbols-outlined text-sm text-slate-400">science</span>
+          <FlaskConical className="h-4 w-4 text-slate-400" />
           <span>{selectedLigand.category}</span>
           <span className="text-slate-300">|</span>
           <a
@@ -140,7 +141,7 @@ export function LigandSelector({
 
       {isCustom && customValue && (
         <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span className="material-symbols-outlined text-sm text-amber-500">warning</span>
+          <AlertTriangle className="h-4 w-4 text-amber-500" />
           <span>Custom code - verify it exists in the PDB</span>
           <a
             href={`https://www.rcsb.org/ligand/${customValue}`}

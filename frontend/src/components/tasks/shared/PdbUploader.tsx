@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { Check, Upload } from 'lucide-react';
 
 interface PdbUploaderProps {
   label: string;
@@ -92,7 +93,7 @@ export function PdbUploader({
         {value ? (
           <>
             <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center mb-2">
-              <span className="material-symbols-outlined text-slate-600 text-lg">check</span>
+              <Check className="h-5 w-5 text-slate-600" />
             </div>
             <div className="text-sm text-slate-700 font-medium">{fileName}</div>
             <button
@@ -105,7 +106,7 @@ export function PdbUploader({
         ) : (
           <>
             <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
-              <span className="material-symbols-outlined text-slate-400 text-lg">upload_file</span>
+              <Upload className="h-5 w-5 text-slate-400" />
             </div>
             <div className="text-sm text-slate-600">
               Drop file here or <span className="text-blue-600 font-medium">browse</span>

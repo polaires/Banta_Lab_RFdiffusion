@@ -59,3 +59,4 @@ experiments/*/archive/
 # Build artifacts
 frontend/.next/
 frontend/tsconfig.tsbuildinfo
+.worktrees/

@@ -6570,12 +6570,18 @@ def handle_interface_metal_ligand_design(job_input: Dict[str, Any]) -> Dict[str,
         }
 
     # Enhance with HSAB-compliant chemistry if available
-    oxidation_state = job_input.get("oxidation_state", 2)  # Default to +2
     hsab_bias = None
     ligand_compatibility = None
+    oxidation_state = job_input.get("oxidation_state", 2)  # Default fallback
 
     if METAL_CHEMISTRY_AVAILABLE and metal:
         try:
+            # Get default oxidation state from database if not specified
+            from metal_chemistry import METAL_DATABASE
+            if job_input.get("oxidation_state") is None:
+                # Use database default oxidation state for this metal
+                oxidation_state = METAL_DATABASE.get(metal, {}).get("default_oxidation", 2)
+
             # Get HSAB-compliant amino acid bias for LigandMPNN
             hsab_bias = get_amino_acid_bias(metal, oxidation_state)
             coord_info["hsab_bias"] = hsab_bias

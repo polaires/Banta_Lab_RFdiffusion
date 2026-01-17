@@ -152,6 +152,12 @@ COPY hbplus_utils.py /app/
 COPY architector_integration.py /app/
 COPY geometry_validation.py /app/
 
+# Copy enhanced metal chemistry modules (HSAB-compliant biases, database-first templates)
+COPY metal_chemistry.py /app/
+COPY metal_site_fetcher.py /app/
+COPY metal_ligand_templates.py /app/
+COPY ligand_donors.py /app/
+
 # Copy utils package (SASA calculator, DSSP for secondary structure)
 COPY utils/ /app/utils/
 

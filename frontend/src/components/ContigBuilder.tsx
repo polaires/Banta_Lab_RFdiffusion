@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Wrench, HelpCircle, Zap, GripVertical, Trash2, Plus } from 'lucide-react';
 
 type SegmentType = 'denovo' | 'fixed' | 'linker';
 
@@ -141,7 +142,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
     <div className="bg-white rounded-xl p-5 space-y-4 border border-slate-200 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-blue-600">construction</span>
+          <Wrench className="w-5 h-5 text-blue-600" />
           <h3 className="font-semibold text-slate-800">Contig Builder</h3>
         </div>
         <button
@@ -149,7 +150,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
           className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
           title="Help"
         >
-          <span className="material-symbols-outlined text-slate-400 text-xl">help</span>
+          <HelpCircle className="w-5 h-5 text-slate-400" />
         </button>
       </div>
 
@@ -170,7 +171,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
           onClick={() => setShowPresets(!showPresets)}
           className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
         >
-          <span className="material-symbols-outlined text-lg">bolt</span>
+          <Zap className="w-4 h-4" />
           {showPresets ? 'Hide Design Presets' : 'Show Design Presets'}
         </button>
 
@@ -199,7 +200,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
               key={segment.id}
               className={`flex items-center gap-3 p-3 rounded-lg border ${preset.lightBg} ${preset.border}`}
             >
-              <span className="material-symbols-outlined text-slate-400 cursor-grab">drag_indicator</span>
+              <GripVertical className="w-4 h-4 text-slate-400 cursor-grab" />
 
               <span className={`px-2 py-0.5 rounded text-xs font-semibold text-white ${preset.color}`}>
                 {index + 1}
@@ -313,7 +314,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
                 className="p-1.5 hover:bg-white/80 rounded-lg disabled:opacity-30 transition-colors"
                 title="Remove segment"
               >
-                <span className="material-symbols-outlined text-red-500 text-xl">delete</span>
+                <Trash2 className="w-5 h-5 text-red-500" />
               </button>
             </div>
           );
@@ -326,19 +327,19 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
           onClick={() => addSegment('denovo')}
           className="flex-1 py-2.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-300 rounded-lg text-sm font-medium text-blue-700 flex items-center justify-center gap-1.5 transition-all"
         >
-          <span className="material-symbols-outlined text-lg">add</span> De Novo
+          <Plus className="w-4 h-4" /> De Novo
         </button>
         <button
           onClick={() => addSegment('fixed')}
           className="flex-1 py-2.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 hover:border-emerald-300 rounded-lg text-sm font-medium text-emerald-700 flex items-center justify-center gap-1.5 transition-all"
         >
-          <span className="material-symbols-outlined text-lg">add</span> Fixed
+          <Plus className="w-4 h-4" /> Fixed
         </button>
         <button
           onClick={() => addSegment('linker')}
           className="flex-1 py-2.5 bg-violet-50 hover:bg-violet-100 border border-violet-200 hover:border-violet-300 rounded-lg text-sm font-medium text-violet-700 flex items-center justify-center gap-1.5 transition-all"
         >
-          <span className="material-symbols-outlined text-lg">add</span> Linker
+          <Plus className="w-4 h-4" /> Linker
         </button>
       </div>
 

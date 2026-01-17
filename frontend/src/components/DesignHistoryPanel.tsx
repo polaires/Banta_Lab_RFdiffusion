@@ -5,20 +5,21 @@ import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { getJobs as getJobsFromSupabase, deleteJob as deleteJobFromSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { ErrorDetails } from './ErrorDetails';
+import { Clock, Loader2, CheckCircle, AlertCircle, Building2, Brain, Type, History, Search, Inbox, ChevronDown, Timer, Eye, Trash2, type LucideIcon } from 'lucide-react';
 
 // Status display configuration
-const statusConfig: Record<string, { icon: string; color: string; bg: string; label: string; animate?: boolean }> = {
-  pending: { icon: 'schedule', color: 'text-amber-500', bg: 'bg-amber-50', label: 'Pending' },
-  running: { icon: 'progress_activity', color: 'text-blue-500', bg: 'bg-blue-50', label: 'Running', animate: true },
-  completed: { icon: 'check_circle', color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'Completed' },
-  failed: { icon: 'error', color: 'text-red-500', bg: 'bg-red-50', label: 'Failed' },
+const statusConfig: Record<string, { Icon: LucideIcon; color: string; bg: string; label: string; animate?: boolean }> = {
+  pending: { Icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50', label: 'Pending' },
+  running: { Icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-50', label: 'Running', animate: true },
+  completed: { Icon: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'Completed' },
+  failed: { Icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-50', label: 'Failed' },
 };
 
 // Type display configuration
-const typeConfig: Record<string, { color: string; label: string; icon: string }> = {
-  rfd3: { color: 'bg-blue-600', label: 'RFD3', icon: 'architecture' },
-  rf3: { color: 'bg-emerald-600', label: 'RF3', icon: 'psychology' },
-  mpnn: { color: 'bg-violet-600', label: 'MPNN', icon: 'text_format' },
+const typeConfig: Record<string, { color: string; label: string; Icon: LucideIcon }> = {
+  rfd3: { color: 'bg-blue-600', label: 'RFD3', Icon: Building2 },
+  rf3: { color: 'bg-emerald-600', label: 'RF3', Icon: Brain },
+  mpnn: { color: 'bg-violet-600', label: 'MPNN', Icon: Type },
 };
 
 type SortOption = 'date' | 'status' | 'type';
@@ -213,7 +214,7 @@ export function DesignHistoryPanel() {
       <div className="p-8">
         <div className="text-center py-16">
           <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-            <span className="material-symbols-outlined text-3xl text-slate-400 animate-spin">progress_activity</span>
+            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
           </div>
           <p className="text-slate-500 font-medium">Loading design history...</p>
         </div>
@@ -226,7 +227,7 @@ export function DesignHistoryPanel() {
       {/* Header */}
       <div className="border-b border-slate-100 pb-6">
         <div className="flex items-center gap-3 mb-2">
-          <span className="material-symbols-outlined text-blue-600 text-2xl">history</span>
+          <History className="w-6 h-6 text-blue-600" />
           <h2 className="text-xl font-bold text-slate-900">Design History</h2>
         </div>
         <p className="text-slate-500 text-sm">
@@ -258,9 +259,7 @@ export function DesignHistoryPanel() {
       <div className="flex flex-col sm:flex-row gap-3">
         {/* Search */}
         <div className="flex-1 relative">
-          <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
-            search
-          </span>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
             value={searchQuery}
@@ -299,7 +298,7 @@ export function DesignHistoryPanel() {
       {jobs.length === 0 && (
         <div className="text-center py-16">
           <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-            <span className="material-symbols-outlined text-3xl text-slate-400">inbox</span>
+            <Inbox className="w-8 h-8 text-slate-400" />
           </div>
           <p className="text-slate-500 font-medium">No designs yet</p>
           <p className="text-slate-400 text-sm mt-1">Submit a design task to get started</p>
@@ -315,13 +314,11 @@ export function DesignHistoryPanel() {
             className="w-full flex items-center justify-between py-2 text-left"
           >
             <div className="flex items-center gap-2">
-              <span
-                className={`material-symbols-outlined text-slate-400 transition-transform ${
+              <ChevronDown
+                className={`w-4 h-4 text-slate-400 transition-transform ${
                   collapsedGroups.has(group.label) ? '-rotate-90' : ''
                 }`}
-              >
-                expand_more
-              </span>
+              />
               <span className="text-sm font-semibold text-slate-700">{group.label}</span>
               <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
                 {group.jobs.length}
@@ -337,6 +334,8 @@ export function DesignHistoryPanel() {
                 const type = typeConfig[job.type];
                 const hasFailed = job.status === 'failed';
                 const expiration = hasFailed ? getExpirationInfo(job.createdAt) : null;
+                const StatusIcon = status.Icon;
+                const TypeIcon = type.Icon;
 
                 return (
                   <div
@@ -348,14 +347,12 @@ export function DesignHistoryPanel() {
                     <div className="flex items-center gap-3 p-3">
                       {/* Status Icon */}
                       <div className={`w-9 h-9 rounded-lg ${status.bg} flex items-center justify-center flex-shrink-0`}>
-                        <span className={`material-symbols-outlined text-lg ${status.color} ${status.animate ? 'animate-spin' : ''}`}>
-                          {status.icon}
-                        </span>
+                        <StatusIcon className={`w-4 h-4 ${status.color} ${status.animate ? 'animate-spin' : ''}`} />
                       </div>
 
                       {/* Type Badge */}
                       <div className={`flex items-center gap-1.5 px-2 py-1 text-xs font-semibold text-white rounded-lg ${type.color}`}>
-                        <span className="material-symbols-outlined text-sm">{type.icon}</span>
+                        <TypeIcon className="w-3 h-3" />
                         {type.label}
                       </div>
 
@@ -371,10 +368,10 @@ export function DesignHistoryPanel() {
 
                       {/* Expiration for failed jobs */}
                       {expiration && (
-                        <div className={`text-xs px-2 py-1 rounded-lg ${
+                        <div className={`text-xs px-2 py-1 rounded-lg flex items-center gap-1 ${
                           expiration.isExpiringSoon ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
                         }`}>
-                          <span className="material-symbols-outlined text-sm align-middle mr-1">timer</span>
+                          <Timer className="w-3 h-3" />
                           {expiration.remaining}
                         </div>
                       )}
@@ -392,7 +389,7 @@ export function DesignHistoryPanel() {
                             className="p-1.5 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-blue-600"
                             title="View result"
                           >
-                            <span className="material-symbols-outlined text-lg">visibility</span>
+                            <Eye className="w-4 h-4" />
                           </button>
                         )}
                         <button
@@ -400,7 +397,7 @@ export function DesignHistoryPanel() {
                           className="p-1.5 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-red-500"
                           title="Delete"
                         >
-                          <span className="material-symbols-outlined text-lg">delete</span>
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </div>

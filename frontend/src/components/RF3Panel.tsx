@@ -7,6 +7,7 @@ import { ConfidenceMetricsDisplay } from './ConfidenceMetrics';
 import { ExportPanel } from './ExportPanel';
 import type { ConfidenceMetrics, RMSDResult } from '@/lib/api';
 import { saveJob as saveJobToSupabase, updateJob as updateJobInSupabase } from '@/lib/supabase';
+import { FlaskConical, ArrowRight, ChevronUp, ChevronDown, Library, CheckCircle, X, Upload, Info, AlertCircle, Loader2, Play, Calculator } from 'lucide-react';
 
 const EXAMPLE_SEQUENCES = {
   'GFP (partial)': 'MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK',
@@ -246,7 +247,7 @@ export function RF3Panel() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                <span className="material-symbols-outlined text-blue-600">science</span>
+                <FlaskConical className="w-5 h-5 text-blue-600" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-blue-700">RFD3 Design Available</p>
@@ -259,7 +260,7 @@ export function RF3Panel() {
               onClick={useRfd3Sequence}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-all shadow-sm hover:shadow-md"
             >
-              <span className="material-symbols-outlined text-lg">arrow_forward</span>
+              <ArrowRight className="w-4 h-4" />
               Use Sequence
             </button>
           </div>
@@ -309,9 +310,7 @@ export function RF3Panel() {
         onClick={() => setShowAdvanced(!showAdvanced)}
         className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 transition-colors"
       >
-        <span className="material-symbols-outlined text-lg">
-          {showAdvanced ? 'expand_less' : 'expand_more'}
-        </span>
+        {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         Advanced Options
       </button>
 
@@ -321,7 +320,7 @@ export function RF3Panel() {
           {/* MSA Upload */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-              <span className="material-symbols-outlined text-base">library_books</span>
+              <Library className="w-4 h-4" />
               Multiple Sequence Alignment (Optional)
             </label>
             <p className="text-xs text-slate-500">
@@ -331,7 +330,7 @@ export function RF3Panel() {
             {msaFileName ? (
               <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-emerald-200">
                 <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-emerald-600">check_circle</span>
+                  <CheckCircle className="w-5 h-5 text-emerald-600" />
                   <div>
                     <p className="text-sm font-medium text-slate-700">{msaFileName}</p>
                     <p className="text-xs text-slate-500">
@@ -343,7 +342,7 @@ export function RF3Panel() {
                   onClick={clearMsa}
                   className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-lg">close</span>
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             ) : (
@@ -356,7 +355,7 @@ export function RF3Panel() {
                   className="absolute inset-0 opacity-0 cursor-pointer"
                 />
                 <div className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-emerald-400 hover:bg-emerald-50 transition-colors cursor-pointer">
-                  <span className="material-symbols-outlined text-slate-400">upload_file</span>
+                  <Upload className="w-5 h-5 text-slate-400" />
                   <span className="text-sm text-slate-600">Upload MSA file (.a3m, .fasta)</span>
                 </div>
               </div>
@@ -364,7 +363,7 @@ export function RF3Panel() {
 
             <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
               <div className="flex items-start gap-2">
-                <span className="material-symbols-outlined text-blue-500 text-base mt-0.5">info</span>
+                <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
                 <div className="text-xs text-blue-700">
                   <p className="font-medium">When to use MSA:</p>
                   <ul className="mt-1 space-y-0.5 text-blue-600">
@@ -385,7 +384,7 @@ export function RF3Panel() {
       {/* Error Display */}
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-start gap-3">
-          <span className="material-symbols-outlined text-red-500">error</span>
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           {error}
         </div>
       )}
@@ -398,12 +397,12 @@ export function RF3Panel() {
       >
         {submitting ? (
           <>
-            <span className="material-symbols-outlined animate-spin">progress_activity</span>
+            <Loader2 className="w-5 h-5 animate-spin" />
             Predicting Structure...
           </>
         ) : (
           <>
-            <span className="material-symbols-outlined">play_arrow</span>
+            <Play className="w-5 h-5" />
             Predict Structure
           </>
         )}
@@ -418,12 +417,12 @@ export function RF3Panel() {
         >
           {calculatingRmsd ? (
             <>
-              <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+              <Loader2 className="w-4 h-4 animate-spin" />
               Calculating RMSD...
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined text-lg">calculate</span>
+              <Calculator className="w-4 h-4" />
               Validate Design (Calculate RMSD vs RFD3)
             </>
           )}

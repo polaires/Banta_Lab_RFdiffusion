@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { Dna, Copy, Check } from 'lucide-react';
 
 interface SequenceViewerProps {
   sequence: string;
@@ -119,7 +120,7 @@ export function SequenceViewer({
       <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-3 border-b border-emerald-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-emerald-600">dna</span>
+            <Dna className="h-5 w-5 text-emerald-600" />
             <h4 className="font-semibold text-slate-900 text-sm">{title}</h4>
             <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
               {sequence.length} aa
@@ -129,9 +130,11 @@ export function SequenceViewer({
             onClick={handleCopy}
             className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors"
           >
-            <span className="material-symbols-outlined text-sm">
-              {copied ? 'check' : 'content_copy'}
-            </span>
+            {copied ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
             {copied ? 'Copied!' : 'Copy'}
           </button>
         </div>

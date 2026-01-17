@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/lib/store';
 import api, { ApiMode } from '@/lib/api';
+import { Wifi, WifiOff, X, MonitorSmartphone, Server, Cloud, Loader2, Zap, AlertTriangle, Sparkles, Cpu, AlertCircle, HelpCircle, ChevronUp, ChevronDown, ExternalLink } from 'lucide-react';
 
 export function ConnectionModal() {
   const {
@@ -102,16 +103,14 @@ export function ConnectionModal() {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <span className={`material-symbols-outlined ${isConnected ? 'text-emerald-600' : 'text-red-500'}`}>
-              {isConnected ? 'wifi' : 'wifi_off'}
-            </span>
+            {isConnected ? <Wifi className="w-5 h-5 text-emerald-600" /> : <WifiOff className="w-5 h-5 text-red-500" />}
             Backend Connection
           </h2>
           <button
             onClick={() => setConnectionModalOpen(false)}
             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
           >
-            <span className="material-symbols-outlined text-xl">close</span>
+            <X className="w-5 h-5" />
           </button>
         </div>
 
@@ -133,7 +132,7 @@ export function ConnectionModal() {
                 }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="material-symbols-outlined text-amber-600 text-lg">developer_mode</span>
+                  <MonitorSmartphone className="w-4 h-4 text-amber-600" />
                   <span className="font-semibold text-slate-900 text-xs">Local Dev</span>
                 </div>
                 <p className="text-[10px] text-slate-500">Docker on localhost</p>
@@ -147,7 +146,7 @@ export function ConnectionModal() {
                 }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="material-symbols-outlined text-slate-600 text-lg">dns</span>
+                  <Server className="w-4 h-4 text-slate-600" />
                   <span className="font-semibold text-slate-900 text-xs">Traditional</span>
                 </div>
                 <p className="text-[10px] text-slate-500">Always-on GPU Pod</p>
@@ -161,7 +160,7 @@ export function ConnectionModal() {
                 }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="material-symbols-outlined text-slate-600 text-lg">cloud</span>
+                  <Cloud className="w-4 h-4 text-slate-600" />
                   <span className="font-semibold text-slate-900 text-xs">Serverless</span>
                 </div>
                 <p className="text-[10px] text-slate-500">Pay-per-use</p>
@@ -189,7 +188,7 @@ export function ConnectionModal() {
                 >
                   {checking ? (
                     <>
-                      <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                      <Loader2 className="w-4 h-4 animate-spin" />
                       <span className="hidden sm:inline">Checking</span>
                     </>
                   ) : (
@@ -205,7 +204,7 @@ export function ConnectionModal() {
             <div className="space-y-4">
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="material-symbols-outlined text-emerald-600">bolt</span>
+                  <Zap className="w-4 h-4 text-emerald-600" />
                   <p className="text-sm font-semibold text-emerald-700">Serverless Mode</p>
                 </div>
                 <p className="text-xs text-emerald-600">
@@ -219,7 +218,7 @@ export function ConnectionModal() {
               >
                 {checking ? (
                   <>
-                    <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                    <Loader2 className="w-4 h-4 animate-spin" />
                     Checking Endpoint...
                   </>
                 ) : (
@@ -246,9 +245,7 @@ export function ConnectionModal() {
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-slate-600">Mode</span>
                   <span className={`text-sm font-semibold flex items-center gap-1.5 ${isMockMode ? 'text-amber-600' : 'text-emerald-600'}`}>
-                    <span className="material-symbols-outlined text-base">
-                      {isMockMode ? 'warning' : 'auto_awesome'}
-                    </span>
+                    {isMockMode ? <AlertTriangle className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
                     {isMockMode ? 'Mock (Demo)' : 'Real (Foundry)'}
                   </span>
                 </div>
@@ -259,7 +256,7 @@ export function ConnectionModal() {
                 <span className="text-sm text-slate-600">GPU</span>
                 {health.gpu_available ? (
                   <span className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-base">memory</span>
+                    <Cpu className="w-4 h-4" />
                     {health.gpu_name || 'Available'}
                     {health.gpu_memory_gb && ` (${Math.round(health.gpu_memory_gb)}GB)`}
                   </span>
@@ -279,7 +276,7 @@ export function ConnectionModal() {
           {/* Not connected warning */}
           {!health && !checking && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-              <span className="material-symbols-outlined text-red-500">error</span>
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
               <p className="text-sm text-red-700">
                 Unable to connect to backend. Make sure your RunPod pod is running.
               </p>
@@ -292,11 +289,9 @@ export function ConnectionModal() {
               onClick={() => setShowHelp(!showHelp)}
               className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 w-full transition-colors"
             >
-              <span className="material-symbols-outlined text-lg">help</span>
+              <HelpCircle className="w-4 h-4" />
               <span className="font-medium">Setup Instructions</span>
-              <span className="material-symbols-outlined text-lg ml-auto">
-                {showHelp ? 'expand_less' : 'expand_more'}
-              </span>
+              {showHelp ? <ChevronUp className="w-4 h-4 ml-auto" /> : <ChevronDown className="w-4 h-4 ml-auto" />}
             </button>
 
             {showHelp && (
@@ -313,7 +308,7 @@ export function ConnectionModal() {
                         className="text-blue-600 hover:underline font-medium"
                       >
                         RunPod
-                        <span className="material-symbols-outlined text-xs align-middle ml-0.5">open_in_new</span>
+                        <ExternalLink className="w-3 h-3 inline ml-0.5 align-middle" />
                       </a>
                     </li>
                     <li>
@@ -328,7 +323,7 @@ export function ConnectionModal() {
                         className="text-blue-600 hover:underline font-medium"
                       >
                         RUNPOD_QUICK_SETUP.md
-                        <span className="material-symbols-outlined text-xs align-middle ml-0.5">open_in_new</span>
+                        <ExternalLink className="w-3 h-3 inline ml-0.5 align-middle" />
                       </a>
                     </li>
                     <li>Copy your API URL and paste above</li>

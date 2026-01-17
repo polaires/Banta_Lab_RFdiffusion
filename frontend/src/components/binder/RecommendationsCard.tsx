@@ -1,5 +1,13 @@
 'use client';
 
+import {
+  Lightbulb,
+  Droplets,
+  Cylinder,
+  Hexagon,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 import { InteractionProfile } from './InterfaceMetrics';
 
 interface RecommendationsCardProps {
@@ -25,37 +33,43 @@ const categorizeRecommendation = (rec: string): 'polar' | 'hydrophobic' | 'aroma
   return 'general';
 };
 
-const CATEGORY_STYLES = {
+const CATEGORY_STYLES: Record<string, {
+  Icon: LucideIcon;
+  bg: string;
+  border: string;
+  text: string;
+  badge: string;
+}> = {
   polar: {
-    icon: 'water_drop',
+    Icon: Droplets,
     bg: 'bg-blue-50',
     border: 'border-blue-100',
     text: 'text-blue-700',
     badge: 'bg-blue-100 text-blue-700',
   },
   hydrophobic: {
-    icon: 'oil_barrel',
+    Icon: Cylinder,
     bg: 'bg-amber-50',
     border: 'border-amber-100',
     text: 'text-amber-700',
     badge: 'bg-amber-100 text-amber-700',
   },
   aromatic: {
-    icon: 'hexagon',
+    Icon: Hexagon,
     bg: 'bg-purple-50',
     border: 'border-purple-100',
     text: 'text-purple-700',
     badge: 'bg-purple-100 text-purple-700',
   },
   salt_bridge: {
-    icon: 'bolt',
+    Icon: Zap,
     bg: 'bg-red-50',
     border: 'border-red-100',
     text: 'text-red-700',
     badge: 'bg-red-100 text-red-700',
   },
   general: {
-    icon: 'lightbulb',
+    Icon: Lightbulb,
     bg: 'bg-slate-50',
     border: 'border-slate-200',
     text: 'text-slate-700',
@@ -85,7 +99,7 @@ export function RecommendationsCard({ recommendations, interactions }: Recommend
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-emerald-600">tips_and_updates</span>
+          <Lightbulb className="h-5 w-5 text-emerald-600" />
           <h4 className="font-semibold text-slate-900 text-sm">Design Recommendations</h4>
           <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
             {recommendations.length} suggestions
@@ -119,9 +133,7 @@ export function RecommendationsCard({ recommendations, interactions }: Recommend
               className={`p-3 rounded-lg ${styles.bg} border ${styles.border}`}
             >
               <div className="flex items-start gap-3">
-                <span className={`material-symbols-outlined text-lg ${styles.text} mt-0.5`}>
-                  {styles.icon}
-                </span>
+                <styles.Icon className={`h-5 w-5 ${styles.text} mt-0.5`} />
                 <div className="flex-1">
                   <p className={`text-sm ${styles.text}`}>{rec.text}</p>
                 </div>

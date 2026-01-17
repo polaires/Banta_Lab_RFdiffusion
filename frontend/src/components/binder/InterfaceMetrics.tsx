@@ -1,5 +1,18 @@
 'use client';
 
+import {
+  Network,
+  MousePointerClick,
+  Link2,
+  Layers,
+  Box,
+  FlaskConical,
+  BadgeCheck,
+  AlertTriangle,
+  Brain,
+  FileEdit,
+} from 'lucide-react';
+
 // PLIP interaction profile from ligand analysis
 export interface InteractionProfile {
   hydrogen_bonds: number;
@@ -111,7 +124,7 @@ export function InterfaceMetrics({
       {/* Header */}
       <div className="bg-gradient-to-r from-cyan-50 to-blue-50 px-4 py-3 border-b border-cyan-100">
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-cyan-600">hub</span>
+          <Network className="h-5 w-5 text-cyan-600" />
           <h4 className="font-semibold text-slate-900 text-sm">Interface Quality</h4>
         </div>
         <p className="text-xs text-slate-500 mt-1">
@@ -124,7 +137,7 @@ export function InterfaceMetrics({
         {/* Interface Contacts */}
         <div className="bg-slate-50 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">touch_app</span>
+            <MousePointerClick className="h-4 w-4 text-slate-400" />
             <span className="text-xs text-slate-500 uppercase tracking-wide">Contacts</span>
           </div>
           <div className="text-2xl font-bold text-slate-900">
@@ -138,7 +151,7 @@ export function InterfaceMetrics({
         {/* Hydrogen Bonds */}
         <div className="bg-slate-50 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">link</span>
+            <Link2 className="h-4 w-4 text-slate-400" />
             <span className="text-xs text-slate-500 uppercase tracking-wide">H-Bonds</span>
           </div>
           <div className="text-2xl font-bold text-slate-900">
@@ -152,7 +165,7 @@ export function InterfaceMetrics({
         {/* Buried SASA */}
         <div className="bg-slate-50 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">layers</span>
+            <Layers className="h-4 w-4 text-slate-400" />
             <span className="text-xs text-slate-500 uppercase tracking-wide">Buried SASA</span>
           </div>
           <div className="text-2xl font-bold text-slate-900">
@@ -167,7 +180,7 @@ export function InterfaceMetrics({
         {/* Packstat */}
         <div className="bg-slate-50 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <span className="material-symbols-outlined text-sm text-slate-400">deployed_code</span>
+            <Box className="h-4 w-4 text-slate-400" />
             <span className="text-xs text-slate-500 uppercase tracking-wide">Packstat</span>
           </div>
           <div className="text-2xl font-bold text-slate-900">
@@ -184,7 +197,7 @@ export function InterfaceMetrics({
         <div className="px-4 pb-4">
           <div className="bg-emerald-50 rounded-lg p-3 border border-emerald-100">
             <div className="flex items-center gap-2 mb-3">
-              <span className="material-symbols-outlined text-sm text-emerald-600">biotech</span>
+              <FlaskConical className="h-4 w-4 text-emerald-600" />
               <span className="text-xs text-emerald-700 font-medium uppercase tracking-wide">
                 BindCraft Metrics
               </span>
@@ -249,7 +262,7 @@ export function InterfaceMetrics({
           <div className="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg p-4 border border-blue-100">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-sm text-blue-600">science</span>
+                <FlaskConical className="h-4 w-4 text-blue-600" />
                 <span className="text-xs text-blue-700 font-medium uppercase tracking-wide">
                   Interaction Profile
                 </span>
@@ -351,11 +364,11 @@ export function InterfaceMetrics({
               : 'bg-amber-50 border-amber-100'
           }`}>
             <div className="flex items-center gap-2 mb-3">
-              <span className={`material-symbols-outlined text-sm ${
-                esmfold.validation_passed ? 'text-green-600' : 'text-amber-600'
-              }`}>
-                {esmfold.validation_passed ? 'verified' : 'warning'}
-              </span>
+              {esmfold.validation_passed ? (
+                <BadgeCheck className="h-4 w-4 text-green-600" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+              )}
               <span className={`text-xs font-medium uppercase tracking-wide ${
                 esmfold.validation_passed ? 'text-green-700' : 'text-amber-700'
               }`}>
@@ -399,7 +412,7 @@ export function InterfaceMetrics({
         <div className="px-4 pb-4">
           <div className="bg-violet-50 rounded-lg p-3 border border-violet-100">
             <div className="flex items-center gap-2 mb-3">
-              <span className="material-symbols-outlined text-sm text-violet-600">psychology</span>
+              <Brain className="h-4 w-4 text-violet-600" />
               <span className="text-xs text-violet-700 font-medium uppercase tracking-wide">
                 ESM-3 Sequence Quality
               </span>
@@ -444,7 +457,7 @@ export function InterfaceMetrics({
           <div className="bg-blue-50 rounded-lg p-3 border border-blue-100">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-sm text-blue-600">edit_note</span>
+                <FileEdit className="h-4 w-4 text-blue-600" />
                 <span className="text-xs text-blue-700 font-medium">MPNN Score</span>
               </div>
               <span className="text-lg font-bold text-slate-900">

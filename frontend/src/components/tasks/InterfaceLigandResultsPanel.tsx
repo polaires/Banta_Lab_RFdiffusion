@@ -1,6 +1,10 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import {
+  AlertCircle, Loader2, AlertTriangle, Network, SlidersHorizontal,
+  GitBranch, Link, Type, ShieldCheck, Layers, View, Download
+} from 'lucide-react';
 import { SuccessCriteriaCard, type FilterMode, type DesignMetrics } from '../binder/SuccessCriteriaCard';
 
 // Design result from the backend
@@ -36,11 +40,11 @@ interface InterfaceLigandResultsPanelProps {
 }
 
 // Approach display names
-const APPROACH_LABELS: Record<string, { name: string; icon: string; color: string }> = {
-  joint: { name: 'Joint Heterodimer', icon: 'hub', color: 'purple' },
-  asymmetric_rasa: { name: 'Asymmetric RASA', icon: 'tune', color: 'blue' },
-  induced: { name: 'Induced Dimerization', icon: 'account_tree', color: 'cyan' },
-  asymmetric: { name: 'Single Chain', icon: 'link', color: 'amber' },
+const APPROACH_LABELS: Record<string, { name: string; Icon: React.ComponentType<{ className?: string }>; color: string }> = {
+  joint: { name: 'Joint Heterodimer', Icon: Network, color: 'purple' },
+  asymmetric_rasa: { name: 'Asymmetric RASA', Icon: SlidersHorizontal, color: 'blue' },
+  induced: { name: 'Induced Dimerization', Icon: GitBranch, color: 'cyan' },
+  asymmetric: { name: 'Single Chain', Icon: Link, color: 'amber' },
 };
 
 export function InterfaceLigandResultsPanel({
@@ -135,7 +139,7 @@ export function InterfaceLigandResultsPanel({
     return (
       <div className="bg-red-50 rounded-xl border border-red-200 p-6">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-red-500 text-2xl">error</span>
+          <AlertCircle className="w-6 h-6 text-red-500" />
           <div>
             <h4 className="font-semibold text-red-900">Design Failed</h4>
             <p className="text-sm text-red-700 mt-1">{result.error || 'An error occurred during design.'}</p>
@@ -150,7 +154,7 @@ export function InterfaceLigandResultsPanel({
     return (
       <div className="bg-blue-50 rounded-xl border border-blue-200 p-6">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-blue-500 animate-spin text-2xl">progress_activity</span>
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <div>
             <h4 className="font-semibold text-blue-900">Designing...</h4>
             <p className="text-sm text-blue-700 mt-1">Running {approachInfo.name} pipeline. This may take a few minutes.</p>
@@ -165,7 +169,7 @@ export function InterfaceLigandResultsPanel({
     return (
       <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-amber-500 text-2xl">warning</span>
+          <AlertTriangle className="w-6 h-6 text-amber-500" />
           <div>
             <h4 className="font-semibold text-amber-900">No Designs Generated</h4>
             <p className="text-sm text-amber-700 mt-1">
@@ -184,7 +188,7 @@ export function InterfaceLigandResultsPanel({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-lg bg-${approachInfo.color}-500 flex items-center justify-center`}>
-              <span className="material-symbols-outlined text-white">{approachInfo.icon}</span>
+              <approachInfo.Icon className="w-5 h-5 text-white" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">{approachInfo.name} Results</h3>
@@ -211,7 +215,7 @@ export function InterfaceLigandResultsPanel({
         <div className="bg-white rounded-xl border border-slate-200 p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-slate-500">account_tree</span>
+              <GitBranch className="w-5 h-5 text-slate-500" />
               <h4 className="font-semibold text-slate-900 text-sm">Pipeline Actions</h4>
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -245,7 +249,7 @@ export function InterfaceLigandResultsPanel({
                     : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
                 }`}
               >
-                <span className="material-symbols-outlined text-sm">text_format</span>
+                <Type className="w-4 h-4" />
                 Run LigandMPNN
               </button>
             )}
@@ -262,7 +266,7 @@ export function InterfaceLigandResultsPanel({
                     : 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
                 }`}
               >
-                <span className="material-symbols-outlined text-sm">verified</span>
+                <ShieldCheck className="w-4 h-4" />
                 Validate Structure
               </button>
             )}
@@ -311,7 +315,7 @@ export function InterfaceLigandResultsPanel({
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-purple-600">view_module</span>
+            <Layers className="w-5 h-5 text-purple-600" />
             <h4 className="font-semibold text-slate-900 text-sm">Design Gallery</h4>
             <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
               {filteredDesigns.length} of {result.designs.length}
@@ -420,7 +424,7 @@ export function InterfaceLigandResultsPanel({
                       className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
                       title="View in 3D"
                     >
-                      <span className="material-symbols-outlined text-slate-500 text-sm">view_in_ar</span>
+                      <View className="w-4 h-4 text-slate-500" />
                     </button>
                     {onDownloadPdb && (
                       <button
@@ -428,7 +432,7 @@ export function InterfaceLigandResultsPanel({
                         className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
                         title="Download PDB"
                       >
-                        <span className="material-symbols-outlined text-slate-500 text-sm">download</span>
+                        <Download className="w-4 h-4 text-slate-500" />
                       </button>
                     )}
                   </div>

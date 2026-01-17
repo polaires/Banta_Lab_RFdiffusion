@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { saveJob as saveJobToSupabase, updateJob as updateJobInSupabase } from '@/lib/supabase';
+import { Sparkles, FlaskConical, Dna, Info, SlidersHorizontal, ChevronDown, AlertCircle, Loader2, Play, CheckCircle, Download, Upload } from 'lucide-react';
 
 type ModelType = 'ligand_mpnn' | 'protein_mpnn';
 
@@ -215,7 +216,7 @@ export function MPNNPanel() {
           onClick={handleUseLatestDesign}
           className="w-full py-3 bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md"
         >
-          <span className="material-symbols-outlined text-xl">auto_awesome</span>
+          <Sparkles className="w-5 h-5" />
           Use Latest Design from RFD3/RF3
         </button>
       )}
@@ -236,7 +237,7 @@ export function MPNNPanel() {
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="material-symbols-outlined text-violet-600 text-lg">biotech</span>
+                  <FlaskConical className="w-4 h-4 text-violet-600" />
                   <span className="font-semibold text-slate-900">LigandMPNN</span>
                 </div>
                 <p className="text-xs text-slate-500">Ligand-aware design (recommended)</p>
@@ -250,14 +251,14 @@ export function MPNNPanel() {
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="material-symbols-outlined text-slate-600 text-lg">genetics</span>
+                  <Dna className="w-4 h-4 text-slate-600" />
                   <span className="font-semibold text-slate-900">ProteinMPNN</span>
                 </div>
                 <p className="text-xs text-slate-500">Original protein-only model</p>
               </button>
             </div>
             <div className="flex items-start gap-2 text-xs text-slate-500 bg-slate-50 p-3 rounded-lg">
-              <span className="material-symbols-outlined text-sm mt-0.5">info</span>
+              <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>LigandMPNN is recommended for most use cases. Use ProteinMPNN for pure protein design without ligands.</span>
             </div>
           </div>
@@ -310,19 +311,17 @@ export function MPNNPanel() {
             className="w-full flex items-center justify-between p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-slate-600">tune</span>
+              <SlidersHorizontal className="w-4 h-4 text-slate-600" />
               <span className="text-sm font-medium text-slate-900">Advanced LigandMPNN Options</span>
             </div>
-            <span className={`material-symbols-outlined text-slate-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`}>
-              expand_more
-            </span>
+            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
           </button>
 
           {/* Advanced Options Panel */}
           {showAdvanced && (
             <div className="space-y-4 p-4 bg-gradient-to-b from-violet-50 to-slate-50 rounded-xl border border-violet-100">
               <div className="flex items-center gap-2 mb-2">
-                <span className="material-symbols-outlined text-violet-600 text-sm">science</span>
+                <FlaskConical className="w-4 h-4 text-violet-600" />
                 <span className="text-xs font-bold text-violet-700 uppercase tracking-wider">LigandMPNN Settings (Nature Methods 2025)</span>
               </div>
 
@@ -482,11 +481,11 @@ export function MPNNPanel() {
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
               pdbContent ? 'bg-emerald-100' : 'bg-white shadow-sm'
             }`}>
-              <span className={`material-symbols-outlined text-3xl ${
-                pdbContent ? 'text-emerald-600' : 'text-slate-400'
-              }`}>
-                {pdbContent ? 'check_circle' : 'upload_file'}
-              </span>
+              {pdbContent ? (
+                <CheckCircle className="w-8 h-8 text-emerald-600" />
+              ) : (
+                <Upload className="w-8 h-8 text-slate-400" />
+              )}
             </div>
             <div className="text-center">
               <p className={`font-semibold ${pdbContent ? 'text-emerald-700' : 'text-slate-700'}`}>
@@ -513,7 +512,7 @@ export function MPNNPanel() {
       {/* Error Display */}
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-start gap-3">
-          <span className="material-symbols-outlined text-red-500">error</span>
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
           {error}
         </div>
       )}
@@ -526,12 +525,12 @@ export function MPNNPanel() {
       >
         {submitting ? (
           <>
-            <span className="material-symbols-outlined animate-spin">progress_activity</span>
+            <Loader2 className="w-5 h-5 animate-spin" />
             Designing Sequences...
           </>
         ) : (
           <>
-            <span className="material-symbols-outlined">play_arrow</span>
+            <Play className="w-5 h-5" />
             Design Sequences
           </>
         )}
@@ -542,7 +541,7 @@ export function MPNNPanel() {
         <div className="space-y-3 pt-4 border-t border-slate-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-emerald-600">check_circle</span>
+              <CheckCircle className="w-5 h-5 text-emerald-600" />
               <label className="text-sm font-semibold text-slate-900">
                 Designed Sequences
                 {resultModelType && (
@@ -554,7 +553,7 @@ export function MPNNPanel() {
               onClick={downloadFasta}
               className="px-3 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center gap-1.5 transition font-medium"
             >
-              <span className="material-symbols-outlined text-sm">download</span>
+              <Download className="w-4 h-4" />
               Download FASTA
             </button>
           </div>

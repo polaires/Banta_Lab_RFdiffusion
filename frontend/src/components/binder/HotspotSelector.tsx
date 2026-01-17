@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Crosshair, Sparkles, Check, X } from 'lucide-react';
 import api, { HotspotResidue } from '@/lib/api';
 
 // Import Molstar CSS
@@ -454,7 +455,7 @@ export function HotspotSelector({
       <div className="bg-gradient-to-r from-teal-50 to-emerald-50 px-4 py-3 border-b border-teal-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-teal-600">my_location</span>
+            <Crosshair className="h-5 w-5 text-teal-600" />
             <h3 className="font-semibold text-slate-900">Select Binding Hotspots</h3>
           </div>
           <span className="text-xs text-slate-500">
@@ -545,7 +546,7 @@ export function HotspotSelector({
                   </>
                 ) : (
                   <>
-                    <span className="material-symbols-outlined text-sm">auto_awesome</span>
+                    <Sparkles className="h-4 w-4" />
                     Detect
                   </>
                 )}
@@ -608,7 +609,7 @@ export function HotspotSelector({
           <div className="flex-1 overflow-y-auto" style={{ maxHeight: '180px' }}>
             {autoDetectedHotspots.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4">
-                <span className="material-symbols-outlined text-3xl mb-2">auto_awesome</span>
+                <Sparkles className="h-8 w-8 mb-2" />
                 <p className="text-xs text-center">
                   Click "Detect" for AI suggestions<br />or select from sequence above
                 </p>
@@ -641,7 +642,7 @@ export function HotspotSelector({
                           isSelected ? 'border-violet-500 bg-violet-500' : 'border-slate-300'
                         }`}>
                           {isSelected && (
-                            <span className="material-symbols-outlined text-white text-[10px]">check</span>
+                            <Check className="h-2.5 w-2.5 text-white" />
                           )}
                         </div>
                         <div>
@@ -691,7 +692,7 @@ export function HotspotSelector({
                       onClick={() => toggleHotspot(id)}
                       className="hover:text-violet-900"
                     >
-                      <span className="material-symbols-outlined text-[10px]">close</span>
+                      <X className="h-2.5 w-2.5" />
                     </button>
                   </span>
                 ))
@@ -715,7 +716,7 @@ export function HotspotSelector({
           className="px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-lg hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
         >
           Confirm {selectedHotspots.length} Hotspot{selectedHotspots.length !== 1 ? 's' : ''}
-          <span className="material-symbols-outlined text-sm">check</span>
+          <Check className="h-4 w-4" />
         </button>
       </div>
     </div>

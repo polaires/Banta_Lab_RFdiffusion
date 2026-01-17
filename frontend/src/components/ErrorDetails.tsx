@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { AlertCircle, ChevronUp, ChevronDown, Check, Copy, Cpu, HardDrive, AlertTriangle } from 'lucide-react';
 
 interface ErrorContext {
   task?: string;
@@ -56,7 +57,7 @@ export function ErrorDetails({
     return (
       <div className={`bg-red-50 border border-red-200 rounded-lg p-3 ${className}`}>
         <div className="flex items-start gap-2">
-          <span className="material-symbols-outlined text-red-500 text-lg flex-shrink-0 mt-0.5">error</span>
+          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm text-red-700 font-medium truncate" title={error}>
               {errorType ? `${errorType}: ` : ''}{error}
@@ -66,9 +67,7 @@ export function ErrorDetails({
                 onClick={() => setExpanded(!expanded)}
                 className="text-xs text-red-600 hover:text-red-800 mt-1 flex items-center gap-1"
               >
-                <span className="material-symbols-outlined text-sm">
-                  {expanded ? 'expand_less' : 'expand_more'}
-                </span>
+                {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 {expanded ? 'Hide details' : 'Show details'}
               </button>
             )}
@@ -88,7 +87,7 @@ export function ErrorDetails({
       {/* Header */}
       <div className="p-4 flex items-start gap-3">
         <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
-          <span className="material-symbols-outlined text-red-600">error</span>
+          <AlertCircle className="w-5 h-5 text-red-600" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -108,9 +107,7 @@ export function ErrorDetails({
           className="p-2 hover:bg-red-100 rounded-lg transition-colors text-red-600 flex-shrink-0"
           title="Copy error details"
         >
-          <span className="material-symbols-outlined text-lg">
-            {copied ? 'check' : 'content_copy'}
-          </span>
+          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
         </button>
       </div>
 
@@ -119,13 +116,13 @@ export function ErrorDetails({
         <div className="px-4 pb-3 flex flex-wrap gap-3 text-xs">
           {context.gpu_info?.name && (
             <div className="flex items-center gap-1.5 text-red-600">
-              <span className="material-symbols-outlined text-sm">memory</span>
+              <Cpu className="w-3 h-3" />
               <span>{context.gpu_info.name}</span>
             </div>
           )}
           {context.gpu_memory_used_mb && context.gpu_memory_total_mb && (
             <div className="flex items-center gap-1.5 text-red-600">
-              <span className="material-symbols-outlined text-sm">data_usage</span>
+              <HardDrive className="w-3 h-3" />
               <span>
                 {Math.round(context.gpu_memory_used_mb / 1024 * 10) / 10}/
                 {Math.round(context.gpu_memory_total_mb / 1024 * 10) / 10} GB VRAM
@@ -137,7 +134,7 @@ export function ErrorDetails({
           )}
           {context.foundry_available === false && (
             <div className="flex items-center gap-1.5 text-red-700 font-medium">
-              <span className="material-symbols-outlined text-sm">warning</span>
+              <AlertTriangle className="w-3 h-3" />
               <span>Foundry not available</span>
             </div>
           )}
@@ -152,9 +149,7 @@ export function ErrorDetails({
             className="w-full px-4 py-2 flex items-center justify-between text-xs text-red-700 hover:bg-red-100 transition-colors"
           >
             <span className="font-medium">Stack Trace</span>
-            <span className="material-symbols-outlined text-lg">
-              {expanded ? 'expand_less' : 'expand_more'}
-            </span>
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
           {expanded && (
             <div className="px-4 pb-4">

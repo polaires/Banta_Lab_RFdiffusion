@@ -2,13 +2,14 @@
 
 import { useStore, TabId } from '@/lib/store';
 import { UserMenu } from './auth/UserMenu';
+import { FlaskConical, Sparkles, History, Server, type LucideIcon } from 'lucide-react';
 
-const workflowSteps = [
-  { id: 'ai' as const, label: 'AI Assistant', step: 0, icon: 'auto_awesome', gradient: true },
-  { id: 'task' as const, label: 'Design Task', step: 1 },
-  { id: 'rfd3' as const, label: 'RFdiffusion3', step: 2 },
-  { id: 'mpnn' as const, label: 'MPNN', step: 3 },
-  { id: 'rf3' as const, label: 'Validate', step: 4 },
+const workflowSteps: { id: 'ai' | 'task' | 'rfd3' | 'mpnn' | 'rf3'; label: string; step: number; Icon?: LucideIcon; gradient?: boolean }[] = [
+  { id: 'ai', label: 'AI Assistant', step: 0, Icon: Sparkles, gradient: true },
+  { id: 'task', label: 'Design Task', step: 1 },
+  { id: 'rfd3', label: 'RFdiffusion3', step: 2 },
+  { id: 'mpnn', label: 'MPNN', step: 3 },
+  { id: 'rf3', label: 'Validate', step: 4 },
 ];
 
 export function Header() {
@@ -44,7 +45,7 @@ export function Header() {
         {/* Logo & Brand */}
         <div className="flex items-center gap-3">
           <div className="text-blue-600 bg-blue-50 rounded-lg p-1.5 flex items-center justify-center">
-            <span className="material-symbols-outlined text-[24px]">biotech</span>
+            <FlaskConical className="w-6 h-6" />
           </div>
           <div>
             <h1 className="font-bold text-sm text-slate-900 leading-tight">Foundry Protein Design</h1>
@@ -72,13 +73,13 @@ export function Header() {
                       : 'opacity-50 grayscale hover:opacity-75'
                   }`}
                 >
-                  {step.icon ? (
+                  {step.Icon ? (
                     <span className={`w-5 h-5 flex items-center justify-center rounded-full ${
                       isActive
                         ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white'
                         : 'bg-slate-200 text-slate-600'
                     }`}>
-                      <span className="material-symbols-outlined text-[12px]">{step.icon}</span>
+                      <step.Icon className="w-3 h-3" />
                     </span>
                   ) : (
                     <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold ${
@@ -119,8 +120,8 @@ export function Header() {
                     : 'bg-slate-200 text-slate-600'
                 }`}
               >
-                {step.icon ? (
-                  <span className="material-symbols-outlined text-[14px]">{step.icon}</span>
+                {step.Icon ? (
+                  <step.Icon className="w-3.5 h-3.5" />
                 ) : (
                   step.step
                 )}
@@ -141,7 +142,7 @@ export function Header() {
             }`}
             title="Job History"
           >
-            <span className="material-symbols-outlined text-xl">history</span>
+            <History className="w-5 h-5" />
             {pendingJobs > 0 && (
               <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white">
                 {pendingJobs}
@@ -157,7 +158,7 @@ export function Header() {
             className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all relative"
             title={isConnected ? 'Connected to backend' : 'Connect to backend'}
           >
-            <span className="material-symbols-outlined text-xl">dns</span>
+            <Server className="w-5 h-5" />
             <span className={`absolute top-2 right-2 w-2 h-2 rounded-full border border-white ${
               isConnected ? 'bg-emerald-500' : 'bg-red-500'
             }`} />

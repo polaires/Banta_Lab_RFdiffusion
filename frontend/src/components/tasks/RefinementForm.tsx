@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SlidersHorizontal, Lightbulb, Loader2, Rocket } from 'lucide-react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { QualityPresetSelector, QualityPreset, QualityParams } from './shared/QualityPresetSelector';
@@ -57,7 +58,7 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
         <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center">
-          <span className="material-symbols-outlined text-slate-600">tune</span>
+          <SlidersHorizontal className="w-5 h-5 text-slate-600" />
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Structure Refinement</h2>
@@ -68,7 +69,7 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
       {/* Info Banner */}
       <div className="p-4 rounded-xl bg-slate-100 border border-slate-200">
         <div className="flex items-start gap-3">
-          <span className="material-symbols-outlined text-slate-600 text-xl">lightbulb</span>
+          <Lightbulb className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-slate-700">
             <strong>Partial diffusion</strong> adds controlled noise to your structure and then
             denoises it, allowing the model to explore nearby conformations while preserving
@@ -233,12 +234,12 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
         >
           {isSubmitting ? (
             <>
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Loader2 className="w-5 h-5 animate-spin" />
               Submitting...
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined">rocket_launch</span>
+              <Rocket className="w-5 h-5" />
               Refine {numDesigns} Structure{numDesigns > 1 ? 's' : ''}
             </>
           )}

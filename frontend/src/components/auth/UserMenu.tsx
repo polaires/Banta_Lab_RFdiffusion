@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { LogOut } from 'lucide-react';
 
 export function UserMenu() {
   const { user, loading, isConfigured, signInWithGoogle, signOut } = useAuth();
@@ -111,7 +112,7 @@ export function UserMenu() {
               }}
               className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
             >
-              <span className="material-symbols-outlined text-lg">logout</span>
+              <LogOut className="w-4 h-4" />
               Sign out
             </button>
           </div>

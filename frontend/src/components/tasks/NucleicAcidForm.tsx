@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Dna, Info, Loader2, Rocket } from 'lucide-react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { LengthRangeInput } from './shared/LengthRangeInput';
@@ -119,7 +120,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
         <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <span className="material-symbols-outlined text-slate-600">gesture</span>
+          <Dna className="w-5 h-5 text-slate-600" />
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Nucleic Acid Binder Design</h2>
@@ -130,7 +131,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
       {/* Info Banner */}
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
         <div className="flex items-start gap-3">
-          <span className="material-symbols-outlined text-slate-600 text-xl">info</span>
+          <Info className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-slate-700">
             <strong>Requirements:</strong> Your PDB must contain the DNA or RNA structure you want
             to target. The model will design a protein that interacts with the nucleic acid.
@@ -418,12 +419,12 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
         >
           {isSubmitting ? (
             <>
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Loader2 className="w-5 h-5 animate-spin" />
               Submitting...
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined">rocket_launch</span>
+              <Rocket className="w-5 h-5" />
               Design {numDesigns} NA Binder{numDesigns > 1 ? 's' : ''}
             </>
           )}

@@ -1,6 +1,22 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  ClipboardCheck,
+  Zap,
+  Link2,
+  Fingerprint,
+  Shield,
+  Droplets,
+  Network,
+  Brain,
+  FlaskConical,
+  Box,
+  HelpCircle,
+  CheckCircle2,
+  Info,
+  type LucideIcon,
+} from 'lucide-react';
 
 export type FilterMode = 'heterodimer' | 'rfdiffusion3';
 
@@ -55,21 +71,23 @@ const THRESHOLDS = {
   },
 };
 
-const METRIC_LABELS = {
+const METRIC_LABELS: Record<string, { name: string; Icon: LucideIcon }> = {
   // Heterodimer
-  affinity: { name: 'GNINA Affinity', icon: 'bolt' },
-  contacts_a: { name: 'Chain A Contacts', icon: 'link' },
-  contacts_b: { name: 'Chain B Contacts', icon: 'link' },
-  sequence_identity: { name: 'Sequence Identity', icon: 'fingerprint' },
-  anti_homo_score: { name: 'Anti-Homo Score', icon: 'shield' },
-  n7_hbonds: { name: 'N7 H-bonds', icon: 'humidity_percentage' },
-  n8_hbonds: { name: 'N8 H-bonds', icon: 'humidity_percentage' },
+  affinity: { name: 'GNINA Affinity', Icon: Zap },
+  contacts_a: { name: 'Chain A Contacts', Icon: Link2 },
+  contacts_b: { name: 'Chain B Contacts', Icon: Link2 },
+  sequence_identity: { name: 'Sequence Identity', Icon: Fingerprint },
+  anti_homo_score: { name: 'Anti-Homo Score', Icon: Shield },
+  n7_hbonds: { name: 'N7 H-bonds', Icon: Droplets },
+  n8_hbonds: { name: 'N8 H-bonds', Icon: Droplets },
   // RFdiffusion3
-  pae_interaction: { name: 'pAE (Interface)', icon: 'hub' },
-  plddt: { name: 'pLDDT', icon: 'psychology' },
-  ddg: { name: 'Rosetta ddG', icon: 'science' },
-  total_hbonds: { name: 'Total H-bonds', icon: 'humidity_percentage' },
-  shape_complementarity: { name: 'Shape Comp.', icon: 'deployed_code' },
+  pae_interaction: { name: 'pAE (Interface)', Icon: Network },
+  plddt: { name: 'pLDDT', Icon: Brain },
+  ddg: { name: 'Rosetta ddG', Icon: FlaskConical },
+  total_hbonds: { name: 'Total H-bonds', Icon: Droplets },
+  shape_complementarity: { name: 'Shape Comp.', Icon: Box },
+  // Fallback for unknown metrics
+  help: { name: 'Unknown', Icon: HelpCircle },
 };
 
 type MetricStatus = 'excellent' | 'good' | 'moderate' | 'poor' | 'unknown';
@@ -135,12 +153,13 @@ export function SuccessCriteriaCard({
     if (typeof value === 'boolean') {
       const status: MetricStatus = key === 'has_clashes' ? (value ? 'poor' : 'excellent') : (value ? 'excellent' : 'poor');
       const styles = STATUS_STYLES[status];
-      const label = METRIC_LABELS[key as keyof typeof METRIC_LABELS] || { name: key, icon: 'help' };
+      const label = METRIC_LABELS[key] || METRIC_LABELS.help;
+      const IconComponent = label.Icon;
 
       return (
         <div key={key} className={`p-3 rounded-lg ${styles.bg}`}>
           <div className="flex items-center gap-2 mb-1">
-            <span className={`material-symbols-outlined text-sm ${styles.text}`}>{label.icon}</span>
+            <IconComponent className={`h-4 w-4 ${styles.text}`} />
             <span className="text-xs text-slate-500">{label.name}</span>
           </div>
           <div className="flex items-center justify-between">
@@ -158,7 +177,8 @@ export function SuccessCriteriaCard({
     const numValue = value as number | undefined;
     const status = getMetricStatus(key, numValue, filterMode);
     const styles = STATUS_STYLES[status];
-    const label = METRIC_LABELS[key as keyof typeof METRIC_LABELS] || { name: key, icon: 'help' };
+    const label = METRIC_LABELS[key] || METRIC_LABELS.help;
+    const IconComponent = label.Icon;
     // Get threshold for this metric
     const modeThresholds = THRESHOLDS[filterMode] as Record<string, ThresholdConfig>;
     const threshold = modeThresholds?.[key];
@@ -167,7 +187,7 @@ export function SuccessCriteriaCard({
     return (
       <div key={key} className={`p-3 rounded-lg ${styles.bg}`}>
         <div className="flex items-center gap-2 mb-1">
-          <span className={`material-symbols-outlined text-sm ${styles.text}`}>{label.icon}</span>
+          <IconComponent className={`h-4 w-4 ${styles.text}`} />
           <span className="text-xs text-slate-500">{label.name}</span>
         </div>
         <div className="flex items-center justify-between">
@@ -237,7 +257,7 @@ export function SuccessCriteriaCard({
       <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-slate-600">checklist</span>
+            <ClipboardCheck className="h-5 w-5 text-slate-600" />
             <h4 className="font-semibold text-slate-900 text-sm">Success Criteria</h4>
           </div>
 
@@ -272,9 +292,11 @@ export function SuccessCriteriaCard({
       <div className={`px-4 py-3 ${overallStyles.bg} border-b border-slate-100`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`material-symbols-outlined ${overallStyles.text}`}>
-              {overall.status === 'excellent' || overall.status === 'good' ? 'check_circle' : 'info'}
-            </span>
+            {overall.status === 'excellent' || overall.status === 'good' ? (
+              <CheckCircle2 className={`h-5 w-5 ${overallStyles.text}`} />
+            ) : (
+              <Info className={`h-5 w-5 ${overallStyles.text}`} />
+            )}
             <span className={`font-medium ${overallStyles.text}`}>
               {overall.passed}/{overall.total} criteria passed
             </span>

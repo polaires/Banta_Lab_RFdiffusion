@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Network, X, Lightbulb, Loader2, PlayCircle } from 'lucide-react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { LengthRangeInput } from './shared/LengthRangeInput';
@@ -162,7 +163,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
         <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-          <span className="material-symbols-outlined text-slate-600">hub</span>
+          <Network className="w-5 h-5 text-slate-600" />
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Protein Binder Design</h2>
@@ -275,7 +276,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
                   onClick={() => removeHotspot(i)}
                   className="ml-1 hover:text-red-600 transition-colors"
                 >
-                  <span className="material-symbols-outlined text-sm">close</span>
+                  <X className="w-4 h-4" />
                 </button>
               </div>
             ))}
@@ -315,7 +316,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
 
         {hotspots.length === 0 && (
           <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
-            <span className="material-symbols-outlined text-sm text-slate-400">lightbulb</span>
+            <Lightbulb className="w-4 h-4 text-slate-400" />
             Adding 2-5 hotspot residues is strongly recommended for successful binder design
           </p>
         )}
@@ -428,12 +429,12 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
         >
           {isSubmitting ? (
             <>
-              <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+              <Loader2 className="w-5 h-5 animate-spin" />
               {usePipeline ? 'Running Pipeline...' : 'Submitting...'}
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined text-lg">{usePipeline ? 'hub' : 'play_circle'}</span>
+              {usePipeline ? <Network className="w-5 h-5" /> : <PlayCircle className="w-5 h-5" />}
               {usePipeline
                 ? `Design & Validate ${numDesigns} Binder${numDesigns > 1 ? 's' : ''}`
                 : `Design ${numDesigns} Binder${numDesigns > 1 ? 's' : ''}`

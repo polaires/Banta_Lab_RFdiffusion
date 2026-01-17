@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react';
 import * as d3 from 'd3';
+import { LayoutGrid, Info } from 'lucide-react';
 
 interface Contact {
   target_res: number;
@@ -167,7 +168,7 @@ export function InterfaceHeatmap({
       <div className="bg-gradient-to-r from-indigo-50 to-purple-50 px-4 py-3 border-b border-indigo-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-indigo-600">grid_view</span>
+            <LayoutGrid className="h-5 w-5 text-indigo-600" />
             <h4 className="font-semibold text-slate-900 text-sm">Interface Heatmap</h4>
           </div>
           <div className="text-xs text-slate-500">
@@ -226,8 +227,8 @@ export function InterfaceHeatmap({
       </div>
 
       {/* Instructions */}
-      <div className="bg-slate-50 px-4 py-2 border-t border-slate-200 text-xs text-slate-500">
-        <span className="material-symbols-outlined text-xs align-middle mr-1">info</span>
+      <div className="bg-slate-50 px-4 py-2 border-t border-slate-200 text-xs text-slate-500 flex items-center gap-1">
+        <Info className="h-3 w-3" />
         Hover over cells to see contact details. Click to highlight in 3D viewer.
       </div>
     </div>

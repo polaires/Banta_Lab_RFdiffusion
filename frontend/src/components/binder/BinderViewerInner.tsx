@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { Box, AlertCircle } from 'lucide-react';
 
 // Import Molstar CSS
 import 'molstar/lib/mol-plugin-ui/skin/light.scss';
@@ -326,7 +327,7 @@ export function BinderViewerInner({
       <div className="bg-gradient-to-r from-violet-50 to-purple-50 px-4 py-3 border-b border-violet-100">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-violet-600">view_in_ar</span>
+            <Box className="h-5 w-5 text-violet-600" />
             <h4 className="font-semibold text-slate-900 text-sm">3D Structure</h4>
           </div>
 
@@ -373,7 +374,7 @@ export function BinderViewerInner({
         {error && (
           <div className="absolute inset-0 flex items-center justify-center bg-red-50">
             <div className="text-center p-4">
-              <span className="material-symbols-outlined text-red-500 text-3xl mb-2">error</span>
+              <AlertCircle className="h-8 w-8 text-red-500 mx-auto mb-2" />
               <p className="text-red-600 text-sm">{error}</p>
             </div>
           </div>

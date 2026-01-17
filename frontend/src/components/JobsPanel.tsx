@@ -5,12 +5,13 @@ import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { getJobs as getJobsFromSupabase, deleteJob as deleteJobFromSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { ErrorDetails } from './ErrorDetails';
+import { Clock, Loader2, CheckCircle, AlertCircle, Inbox, History, Eye, Trash2, type LucideIcon } from 'lucide-react';
 
-const statusConfig: Record<string, { icon: string; color: string; bg: string; label: string; animate?: boolean }> = {
-  pending: { icon: 'schedule', color: 'text-amber-500', bg: 'bg-amber-50', label: 'Pending' },
-  running: { icon: 'progress_activity', color: 'text-blue-500', bg: 'bg-blue-50', label: 'Running', animate: true },
-  completed: { icon: 'check_circle', color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'Done' },
-  failed: { icon: 'error', color: 'text-red-500', bg: 'bg-red-50', label: 'Failed' },
+const statusConfig: Record<string, { Icon: LucideIcon; color: string; bg: string; label: string; animate?: boolean }> = {
+  pending: { Icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50', label: 'Pending' },
+  running: { Icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-50', label: 'Running', animate: true },
+  completed: { Icon: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'Done' },
+  failed: { Icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-50', label: 'Failed' },
 };
 
 const typeConfig = {
@@ -81,7 +82,7 @@ export function JobsPanel() {
     return (
       <div className="text-center py-16">
         <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-          <span className="material-symbols-outlined text-3xl text-slate-400 animate-spin">progress_activity</span>
+          <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
         </div>
         <p className="text-slate-500 font-medium">Loading job history...</p>
       </div>
@@ -92,7 +93,7 @@ export function JobsPanel() {
     return (
       <div className="text-center py-16">
         <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-          <span className="material-symbols-outlined text-3xl text-slate-400">inbox</span>
+          <Inbox className="w-8 h-8 text-slate-400" />
         </div>
         <p className="text-slate-500 font-medium">No jobs yet</p>
         <p className="text-slate-400 text-sm mt-1">Submit a design or prediction to get started</p>
@@ -104,7 +105,7 @@ export function JobsPanel() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-slate-600">history</span>
+          <History className="w-5 h-5 text-slate-600" />
           <h2 className="text-lg font-bold text-slate-900">Job History</h2>
         </div>
         <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
@@ -117,6 +118,7 @@ export function JobsPanel() {
           const status = statusConfig[job.status];
           const type = typeConfig[job.type];
           const hasFailed = job.status === 'failed' && job.error;
+          const StatusIcon = status.Icon;
 
           return (
             <div
@@ -128,9 +130,7 @@ export function JobsPanel() {
               <div className="flex items-center gap-4 p-4">
                 {/* Status Icon */}
                 <div className={`w-10 h-10 rounded-xl ${status.bg} flex items-center justify-center flex-shrink-0`}>
-                  <span className={`material-symbols-outlined ${status.color} ${status.animate ? 'animate-spin' : ''}`}>
-                    {status.icon}
-                  </span>
+                  <StatusIcon className={`w-5 h-5 ${status.color} ${status.animate ? 'animate-spin' : ''}`} />
                 </div>
 
                 {/* Type Badge */}
@@ -161,7 +161,7 @@ export function JobsPanel() {
                       className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-blue-600"
                       title="View result"
                     >
-                      <span className="material-symbols-outlined text-xl">visibility</span>
+                      <Eye className="w-5 h-5" />
                     </button>
                   )}
                   <button
@@ -169,7 +169,7 @@ export function JobsPanel() {
                     className="p-2 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-red-500"
                     title="Delete job"
                   >
-                    <span className="material-symbols-outlined text-xl">delete</span>
+                    <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
               </div>

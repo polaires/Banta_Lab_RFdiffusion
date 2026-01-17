@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { GitBranch, CheckCircle, AlertCircle, Check, X, Loader2, Building2, Type, ShieldCheck, FlaskConical } from 'lucide-react';
 
 export type PipelineStage = 'idle' | 'backbone' | 'ligandmpnn' | 'validation' | 'analysis' | 'complete' | 'error';
 
@@ -21,28 +22,28 @@ const STAGES = [
   {
     id: 'backbone',
     name: 'Backbone',
-    icon: 'architecture',
+    Icon: Building2,
     description: 'RFD3 generating structure',
     color: 'purple'
   },
   {
     id: 'ligandmpnn',
     name: 'LigandMPNN',
-    icon: 'text_format',
+    Icon: Type,
     description: 'Sequence design',
     color: 'blue'
   },
   {
     id: 'validation',
     name: 'Validation',
-    icon: 'verified',
+    Icon: ShieldCheck,
     description: 'ESM + structure checks',
     color: 'teal'
   },
   {
     id: 'analysis',
     name: 'Analysis',
-    icon: 'science',
+    Icon: FlaskConical,
     description: 'PLIP interaction profiling',
     color: 'emerald'
   },
@@ -110,17 +111,17 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
     <div className="w-full py-6">
       {/* Header */}
       <div className="flex items-center gap-2 mb-6">
-        <span className="material-symbols-outlined text-purple-600">timeline</span>
+        <GitBranch className="w-5 h-5 text-purple-600" />
         <span className="font-medium text-slate-700">Design Pipeline</span>
         {isComplete && (
           <span className="ml-auto text-sm text-emerald-600 flex items-center gap-1">
-            <span className="material-symbols-outlined text-sm">check_circle</span>
+            <CheckCircle className="w-4 h-4" />
             Complete
           </span>
         )}
         {isError && (
           <span className="ml-auto text-sm text-red-600 flex items-center gap-1">
-            <span className="material-symbols-outlined text-sm">error</span>
+            <AlertCircle className="w-4 h-4" />
             Failed
           </span>
         )}
@@ -148,6 +149,7 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
             const styles = getStageStyles(status, stage.color);
             const isAnimating = animatedStage === stage.id;
             const details = stageDetails?.[stage.id as keyof StageDetails];
+            const StageIcon = stage.Icon;
 
             return (
               <div key={stage.id} className="flex flex-col items-center w-24">
@@ -161,13 +163,13 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
                   `}
                 >
                   {status === 'complete' ? (
-                    <span className="material-symbols-outlined">check</span>
+                    <Check className="w-5 h-5" />
                   ) : status === 'error' && index === currentIndex ? (
-                    <span className="material-symbols-outlined">close</span>
+                    <X className="w-5 h-5" />
+                  ) : isAnimating ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <span className={`material-symbols-outlined ${isAnimating ? 'animate-spin' : ''}`}>
-                      {isAnimating ? 'progress_activity' : stage.icon}
-                    </span>
+                    <StageIcon className="w-5 h-5" />
                   )}
                 </div>
 
@@ -196,7 +198,7 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
       {isError && error && (
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-start gap-2">
-            <span className="material-symbols-outlined text-red-500 text-sm mt-0.5">error</span>
+            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-red-700">{error}</p>
           </div>
         </div>
@@ -206,9 +208,7 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
       {currentStage !== 'idle' && currentStage !== 'complete' && currentStage !== 'error' && (
         <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-slate-400 text-sm animate-spin">
-              progress_activity
-            </span>
+            <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
             <span className="text-sm text-slate-600">
               {stageDetails?.[currentStage as keyof StageDetails]?.message ||
                `Running ${STAGES.find(s => s.id === currentStage)?.name}...`}

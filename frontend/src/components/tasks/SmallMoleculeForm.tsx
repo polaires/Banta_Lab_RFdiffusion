@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { FlaskConical, Loader2, Rocket } from 'lucide-react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { LengthRangeInput } from './shared/LengthRangeInput';
@@ -257,7 +258,7 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
         <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <span className="material-symbols-outlined text-slate-600">science</span>
+          <FlaskConical className="w-5 h-5 text-slate-600" />
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Small Molecule Binder Design</h2>
@@ -682,12 +683,12 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
         >
           {isSubmitting ? (
             <>
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Loader2 className="w-5 h-5 animate-spin" />
               Submitting...
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined">rocket_launch</span>
+              <Rocket className="w-5 h-5" />
               Design {numDesigns} {currentLigand || 'Ligand'} Binder{numDesigns > 1 ? 's' : ''}
             </>
           )}

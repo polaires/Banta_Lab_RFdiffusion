@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Beaker, Info, X, AlertTriangle, Plus, Loader2, Rocket } from 'lucide-react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { LengthRangeInput } from './shared/LengthRangeInput';
@@ -193,7 +194,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
         <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <span className="material-symbols-outlined text-slate-600">biotech</span>
+          <Beaker className="w-5 h-5 text-slate-600" />
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Enzyme Scaffold Design</h2>
@@ -204,7 +205,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
       {/* Info Banner */}
       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
         <div className="flex items-start gap-3">
-          <span className="material-symbols-outlined text-slate-600 text-xl">info</span>
+          <Info className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
           <div className="text-sm text-slate-700">
             <strong>Theozyme scaffolding:</strong> Your PDB should contain the active site model
             with catalytic residues and substrate/ligand. The model will design a protein scaffold
@@ -272,7 +273,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                     onClick={() => removeCatalyticResidue(i)}
                     className="ml-1 hover:text-red-600 transition-colors"
                   >
-                    <span className="material-symbols-outlined text-sm">close</span>
+                    <X className="w-4 h-4" />
                   </button>
                 </div>
               ))}
@@ -320,7 +321,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
           {catalyticResidues.length === 0 && (
             <p className="text-xs text-amber-600 flex items-center gap-1">
-              <span className="material-symbols-outlined text-sm">warning</span>
+              <AlertTriangle className="w-4 h-4" />
               Add at least one catalytic residue for enzyme scaffolding
             </p>
           )}
@@ -401,7 +402,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                         onClick={() => removeCovalentBond(i)}
                         className="text-slate-400 hover:text-red-600 transition-colors"
                       >
-                        <span className="material-symbols-outlined text-sm">close</span>
+                        <X className="w-4 h-4" />
                       </button>
                     </div>
                   ))}
@@ -508,7 +509,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                   }`}
                 >
                   <span className="flex items-center justify-center gap-2">
-                    <span className="material-symbols-outlined text-sm">add</span>
+                    <Plus className="w-4 h-4" />
                     Add Covalent Bond
                   </span>
                 </button>
@@ -610,12 +611,12 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
         >
           {isSubmitting ? (
             <>
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Loader2 className="w-5 h-5 animate-spin" />
               Submitting...
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined">rocket_launch</span>
+              <Rocket className="w-5 h-5" />
               Design {numDesigns} Enzyme Scaffold{numDesigns > 1 ? 's' : ''}
             </>
           )}

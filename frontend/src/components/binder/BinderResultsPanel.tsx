@@ -1,6 +1,18 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  AlertCircle,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+  LayoutGrid,
+  Copy,
+  Check,
+  Download,
+  BadgeCheck,
+  Dna,
+} from 'lucide-react';
 import { PipelineFunnel } from './PipelineFunnel';
 import { InterfaceMetrics } from './InterfaceMetrics';
 
@@ -75,7 +87,7 @@ export function BinderResultsPanel({
     return (
       <div className="bg-red-50 rounded-xl border border-red-200 p-6">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-red-500">error</span>
+          <AlertCircle className="h-6 w-6 text-red-500" />
           <div>
             <h4 className="font-semibold text-red-900">Pipeline Error</h4>
             <p className="text-sm text-red-700">
@@ -91,7 +103,7 @@ export function BinderResultsPanel({
     return (
       <div className="bg-slate-50 rounded-xl border border-slate-200 p-6">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-blue-500 animate-spin">progress_activity</span>
+          <Loader2 className="h-6 w-6 text-blue-500 animate-spin" />
           <div>
             <h4 className="font-semibold text-slate-900">Designing Binders...</h4>
             <p className="text-sm text-slate-600">
@@ -107,7 +119,7 @@ export function BinderResultsPanel({
     return (
       <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
         <div className="flex items-center gap-3">
-          <span className="material-symbols-outlined text-amber-500">warning</span>
+          <AlertTriangle className="h-6 w-6 text-amber-500" />
           <div>
             <h4 className="font-semibold text-amber-900">No Designs Passed Filters</h4>
             <p className="text-sm text-amber-700">
@@ -130,7 +142,7 @@ export function BinderResultsPanel({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center">
-              <span className="material-symbols-outlined text-white">check_circle</span>
+              <CheckCircle2 className="h-6 w-6 text-white" />
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">
@@ -157,7 +169,7 @@ export function BinderResultsPanel({
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-violet-600">view_module</span>
+            <LayoutGrid className="h-5 w-5 text-violet-600" />
             <h4 className="font-semibold text-slate-900 text-sm">Design Gallery</h4>
             <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
               {designs.length} designs
@@ -195,9 +207,11 @@ export function BinderResultsPanel({
                       className="p-1.5 rounded hover:bg-slate-100 transition-colors"
                       title="Copy sequence"
                     >
-                      <span className="material-symbols-outlined text-sm text-slate-500">
-                        {copiedIndex === index ? 'check' : 'content_copy'}
-                      </span>
+                      {copiedIndex === index ? (
+                        <Check className="h-4 w-4 text-slate-500" />
+                      ) : (
+                        <Copy className="h-4 w-4 text-slate-500" />
+                      )}
                     </button>
                     {design.pdb_content && onDownloadPdb && (
                       <button
@@ -208,7 +222,7 @@ export function BinderResultsPanel({
                         className="p-1.5 rounded hover:bg-slate-100 transition-colors"
                         title="Download PDB"
                       >
-                        <span className="material-symbols-outlined text-sm text-slate-500">download</span>
+                        <Download className="h-4 w-4 text-slate-500" />
                       </button>
                     )}
                   </div>
@@ -262,9 +276,11 @@ export function BinderResultsPanel({
                         ? 'bg-green-100 text-green-700'
                         : 'bg-amber-100 text-amber-700'
                     }`}>
-                      <span className="material-symbols-outlined text-xs">
-                        {design.esmfold_validation_passed ? 'verified' : 'warning'}
-                      </span>
+                      {design.esmfold_validation_passed ? (
+                        <BadgeCheck className="h-3 w-3" />
+                      ) : (
+                        <AlertTriangle className="h-3 w-3" />
+                      )}
                       pLDDT: {(design.esmfold_plddt * 100).toFixed(0)}%
                     </span>
                     {design.esmfold_rmsd != null && (
@@ -316,7 +332,7 @@ export function BinderResultsPanel({
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-slate-600">dna</span>
+                <Dna className="h-5 w-5 text-slate-600" />
                 <h4 className="font-semibold text-slate-900 text-sm">Binder Sequence</h4>
                 <span className="text-xs text-slate-500">
                   {selectedDesign.binder_sequence.length} residues
@@ -326,9 +342,11 @@ export function BinderResultsPanel({
                 onClick={() => handleCopySequence(selectedDesign.binder_sequence, selectedDesignIndex)}
                 className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
               >
-                <span className="material-symbols-outlined text-sm">
-                  {copiedIndex === selectedDesignIndex ? 'check' : 'content_copy'}
-                </span>
+                {copiedIndex === selectedDesignIndex ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
                 {copiedIndex === selectedDesignIndex ? 'Copied!' : 'Copy'}
               </button>
             </div>

@@ -1,5 +1,26 @@
 'use client';
 
+import {
+  Filter,
+  Blocks,
+  FileEdit,
+  Brain,
+  Network,
+  FilterX,
+  CheckCircle2,
+  type LucideIcon,
+} from 'lucide-react';
+
+// Map stage names to Lucide icons
+const STAGE_ICONS: Record<string, LucideIcon> = {
+  'Generated': Blocks,
+  'MPNN Designed': FileEdit,
+  'ESM Passed': Brain,
+  'Interface Analyzed': Network,
+  'Passed Filters': FilterX,
+  'Returned': CheckCircle2,
+};
+
 interface PipelineStage {
   name: string;
   count: number;
@@ -42,7 +63,7 @@ export function PipelineFunnel({ statistics }: PipelineFunnelProps) {
       <div className="bg-gradient-to-r from-slate-50 to-slate-100 px-4 py-3 border-b border-slate-200">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-slate-600">funnel</span>
+            <Filter className="h-5 w-5 text-slate-600" />
             <h4 className="font-semibold text-slate-900 text-sm">Pipeline Progress</h4>
           </div>
           <div className="flex items-center gap-2">
@@ -69,9 +90,12 @@ export function PipelineFunnel({ statistics }: PipelineFunnelProps) {
               <div className="flex items-center gap-3">
                 {/* Icon */}
                 <div className={`w-8 h-8 rounded-lg ${stage.color} bg-opacity-10 flex items-center justify-center`}>
-                  <span className={`material-symbols-outlined text-sm ${stage.color.replace('bg-', 'text-')}`}>
-                    {stage.icon}
-                  </span>
+                  {(() => {
+                    const IconComponent = STAGE_ICONS[stage.name];
+                    return IconComponent ? (
+                      <IconComponent className={`h-4 w-4 ${stage.color.replace('bg-', 'text-')}`} />
+                    ) : null;
+                  })()}
                 </div>
 
                 {/* Bar Container */}

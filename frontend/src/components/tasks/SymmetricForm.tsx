@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Hexagon, Info, AlertTriangle, Loader2, Rocket } from 'lucide-react';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { LengthRangeInput } from './shared/LengthRangeInput';
@@ -93,7 +94,7 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
       {/* Header */}
       <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
         <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <span className="material-symbols-outlined text-slate-600">hexagon</span>
+          <Hexagon className="w-5 h-5 text-slate-600" />
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Symmetric Oligomer Design</h2>
@@ -167,11 +168,11 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
           isHighSymmetry ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'
         }`}>
           <div className="flex items-start gap-2">
-            <span className={`material-symbols-outlined text-lg ${
-              isHighSymmetry ? 'text-amber-600' : 'text-slate-600'
-            }`}>
-              {isHighSymmetry ? 'warning' : 'info'}
-            </span>
+            {isHighSymmetry ? (
+              <AlertTriangle className={`w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5`} />
+            ) : (
+              <Info className={`w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5`} />
+            )}
             <div className={`text-sm ${isHighSymmetry ? 'text-amber-800' : 'text-slate-700'}`}>
               <strong>{symmetry}</strong> with {estimatedLength} residues/subunit
               = <strong>{totalLength} total residues</strong> ({totalSubunits} subunits)
@@ -329,12 +330,12 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
         >
           {isSubmitting ? (
             <>
-              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+              <Loader2 className="w-5 h-5 animate-spin" />
               Submitting...
             </>
           ) : (
             <>
-              <span className="material-symbols-outlined">rocket_launch</span>
+              <Rocket className="w-5 h-5" />
               Generate {numDesigns} {symmetry} Oligomer{numDesigns > 1 ? 's' : ''}
             </>
           )}

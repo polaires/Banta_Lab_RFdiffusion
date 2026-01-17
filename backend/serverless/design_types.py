@@ -16,6 +16,8 @@ from enum import Enum, auto
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Tuple
 
+from metal_chemistry import get_amino_acid_bias, get_coordination_number_range
+
 
 # Valid single-letter amino acid codes
 VALID_AA_CODES = set("ACDEFGHIKLMNPQRSTVWY")
@@ -307,41 +309,105 @@ DESIGN_PRESETS: Dict[DesignType, DesignConfig] = {
 # METAL-SPECIFIC PRESETS
 # =============================================================================
 
+# Metal presets with HSAB-compliant chemistry
 METAL_PRESETS: Dict[str, Dict[str, Any]] = {
+    # Zinc (Borderline acid - prefers S, N donors)
     "zinc": {
-        "bias_AA": "A:-2.0,H:2.0,C:1.5,E:1.0,D:1.0",
-        "omit_AA": None,
-        "coordinating_residues": ["HIS", "CYS", "GLU", "ASP"],
-        "coordination_distance": 2.8,
+        "description": "Zinc binding (general)",
+        "bias_AA": "C:2.5,H:2.0,E:1.0,D:1.0,A:-2.0",
         "coordination_numbers": [4, 5, 6],
+        "preferred_residues": ["C", "H", "D", "E"],
     },
+    "zinc_structural": {
+        "description": "Zinc structural site (Cys4 or Cys3His)",
+        "bias_AA": get_amino_acid_bias("ZN", 2, site_type="structural"),
+        "coordination_numbers": [4],
+        "preferred_residues": ["C", "H"],
+    },
+    "zinc_catalytic": {
+        "description": "Zinc catalytic site (His-rich + water)",
+        "bias_AA": "H:3.0,E:2.0,D:2.0,C:1.0,A:-2.0",
+        "coordination_numbers": [4, 5],
+        "preferred_residues": ["H", "E", "D"],
+    },
+    # Lanthanides (Hard acids - O donors only, EXCLUDE Cys)
     "lanthanide": {
-        "bias_AA": "A:-2.0,E:2.5,D:2.5,N:1.0,Q:1.0,C:-2.0",
-        "omit_AA": "C",  # Soft donor incompatible
-        "coordinating_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "coordination_distance": 2.4,
+        "description": "Lanthanide binding (Tb, Eu, Gd, etc.)",
+        "bias_AA": get_amino_acid_bias("TB", 3),
+        "coordination_numbers": [8, 9],
+        "preferred_residues": ["E", "D", "N", "Q"],
+        "excluded_residues": ["C"],
+    },
+    "terbium": {
+        "description": "Terbium binding site",
+        "bias_AA": get_amino_acid_bias("TB", 3),
+        "coordination_numbers": [8, 9],
+        "geometry": "square_antiprism",
+    },
+    "europium": {
+        "description": "Europium binding site",
+        "bias_AA": get_amino_acid_bias("EU", 3),
         "coordination_numbers": [8, 9],
     },
+    "gadolinium": {
+        "description": "Gadolinium binding site (MRI)",
+        "bias_AA": get_amino_acid_bias("GD", 3),
+        "coordination_numbers": [8, 9],
+    },
+    # Iron (oxidation state dependent)
     "iron": {
-        "bias_AA": "A:-2.0,H:2.0,E:1.5,D:1.5,C:1.0,M:0.5",
-        "omit_AA": None,
-        "coordinating_residues": ["HIS", "CYS", "GLU", "ASP", "MET"],
-        "coordination_distance": 2.2,
+        "description": "Iron binding (default Fe2+)",
+        "bias_AA": get_amino_acid_bias("FE", 2),
         "coordination_numbers": [4, 5, 6],
     },
+    "iron_ii": {
+        "description": "Iron(II) - borderline, accepts S/N/O",
+        "bias_AA": get_amino_acid_bias("FE", 2),
+        "coordination_numbers": [4, 5, 6],
+    },
+    "iron_iii": {
+        "description": "Iron(III) - harder, prefers O/N over S",
+        "bias_AA": get_amino_acid_bias("FE", 3),
+        "coordination_numbers": [5, 6],
+    },
+    "iron_sulfur": {
+        "description": "Iron-sulfur cluster (FeS)",
+        "bias_AA": "C:3.5,H:1.5,A:-2.0",
+        "coordination_numbers": [4],
+    },
+    # Copper (oxidation state dependent)
     "copper": {
-        "bias_AA": "A:-2.0,H:2.0,C:1.5,M:1.5,E:1.0,D:1.0",
-        "omit_AA": None,
-        "coordinating_residues": ["HIS", "CYS", "MET", "GLU", "ASP"],
-        "coordination_distance": 2.1,
+        "description": "Copper binding (default Cu2+)",
+        "bias_AA": get_amino_acid_bias("CU", 2),
         "coordination_numbers": [4, 5, 6],
     },
+    "copper_type1": {
+        "description": "Type I blue copper (Cu+, 2His+Cys+Met)",
+        "bias_AA": "C:3.0,H:2.5,M:2.0,A:-2.0",
+        "coordination_numbers": [4],
+        "histidine_tautomer": "ND1",
+    },
+    "copper_type2": {
+        "description": "Type II copper (Cu2+, His-rich)",
+        "bias_AA": "H:3.0,E:1.5,D:1.5,C:0.5,A:-2.0",
+        "coordination_numbers": [4, 5, 6],
+        "histidine_tautomer": "NE2",
+    },
+    # Other metals
     "calcium": {
-        "bias_AA": "A:-2.0,E:2.0,D:2.0,N:1.5,Q:1.0",
-        "omit_AA": "C",
-        "coordinating_residues": ["GLU", "ASP", "ASN"],
-        "coordination_distance": 2.4,
+        "description": "Calcium binding (EF-hand style)",
+        "bias_AA": get_amino_acid_bias("CA", 2),
         "coordination_numbers": [6, 7, 8],
+    },
+    "magnesium": {
+        "description": "Magnesium binding (octahedral)",
+        "bias_AA": get_amino_acid_bias("MG", 2),
+        "coordination_numbers": [6],
+    },
+    "manganese": {
+        "description": "Manganese binding",
+        "bias_AA": get_amino_acid_bias("MN", 2),
+        "coordination_numbers": [5, 6],
     },
 }
 
@@ -407,7 +473,7 @@ def get_recommended_config(
             metal = METAL_PRESETS[metal_key]
             if "bias_AA" not in overrides:
                 config_dict["bias_AA"] = metal["bias_AA"]
-            if "omit_AA" not in overrides:
+            if "omit_AA" not in overrides and "omit_AA" in metal:
                 config_dict["omit_AA"] = metal["omit_AA"]
             config_dict["coordination_cutoff"] = metal.get("coordination_distance", 3.5)
         else:

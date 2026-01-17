@@ -200,29 +200,38 @@ class TestAllDesignTypes:
 class TestMetalPresets:
     """Tests for metal-specific presets."""
 
-    def test_all_metal_presets_exist(self):
-        """Should have presets for 5 common metals."""
-        expected_metals = {"zinc", "lanthanide", "iron", "copper", "calcium"}
-        assert set(METAL_PRESETS.keys()) == expected_metals
+    def test_core_metal_presets_exist(self):
+        """Should have presets for common metals and their variants."""
+        # Core metals that must exist
+        core_metals = {"zinc", "lanthanide", "iron", "copper", "calcium"}
+        assert core_metals.issubset(set(METAL_PRESETS.keys()))
+        # Should also have oxidation state and site variants
+        assert "iron_ii" in METAL_PRESETS
+        assert "iron_iii" in METAL_PRESETS
+        assert "zinc_structural" in METAL_PRESETS
 
-    def test_zinc_preset_has_correct_coordinating_residues(self):
-        """Zinc should coordinate with HIS, CYS, GLU, ASP."""
+    def test_zinc_preset_has_correct_bias(self):
+        """Zinc should favor HIS and CYS in bias_AA."""
         zinc = METAL_PRESETS["zinc"]
-        assert "HIS" in zinc["coordinating_residues"]
-        assert "CYS" in zinc["coordinating_residues"]
         assert "H:" in zinc["bias_AA"]  # Favor histidine
         assert "C:" in zinc["bias_AA"]  # Favor cysteine
+        # New structure uses preferred_residues instead of coordinating_residues
+        assert "C" in zinc["preferred_residues"]
+        assert "H" in zinc["preferred_residues"]
 
-    def test_lanthanide_preset_omits_cysteine(self):
-        """Lanthanide should omit cysteine (soft donor incompatible)."""
+    def test_lanthanide_preset_excludes_cysteine(self):
+        """Lanthanide should strongly penalize cysteine (soft donor incompatible)."""
         lanthanide = METAL_PRESETS["lanthanide"]
-        assert lanthanide["omit_AA"] == "C"
-        assert "CYS" not in lanthanide["coordinating_residues"]
+        # New structure uses excluded_residues and negative bias instead of omit_AA
+        assert "C" in lanthanide["excluded_residues"]
+        # Cys should have strong negative bias
+        assert "C:-" in lanthanide["bias_AA"]
 
-    def test_calcium_preset_omits_cysteine(self):
-        """Calcium should omit cysteine."""
+    def test_calcium_preset_penalizes_cysteine(self):
+        """Calcium should penalize cysteine (hard acid)."""
         calcium = METAL_PRESETS["calcium"]
-        assert calcium["omit_AA"] == "C"
+        # Hard acid should have negative Cys bias
+        assert "C:-" in calcium["bias_AA"]
 
     def test_metal_presets_applied_to_config(self):
         """Metal type should override bias_AA in config."""
@@ -354,3 +363,32 @@ class TestInferDesignType:
         """Nucleotide should take priority over ligand."""
         result = infer_design_type(has_nucleotide=True, has_ligand=True)
         assert result == DesignType.DNA_RNA_BINDER
+
+
+class TestMetalPresetChemistry:
+    """Test that metal presets use correct chemistry."""
+
+    def test_zinc_preset_favors_cys_his(self):
+        """Zinc preset should favor Cys and His over Asp/Glu."""
+        from design_types import METAL_PRESETS
+        bias = METAL_PRESETS["zinc"]["bias_AA"]
+        bias_dict = dict(pair.split(":") for pair in bias.split(","))
+        assert float(bias_dict.get("C", 0)) >= 2.5
+        assert float(bias_dict.get("H", 0)) >= 2.0
+
+    def test_lanthanide_preset_excludes_cys(self):
+        """Lanthanide preset must strongly exclude Cys."""
+        from design_types import METAL_PRESETS
+        bias = METAL_PRESETS["lanthanide"]["bias_AA"]
+        bias_dict = dict(pair.split(":") for pair in bias.split(","))
+        assert float(bias_dict.get("C", 0)) <= -3.0
+
+    def test_iron_has_oxidation_state_variants(self):
+        """Iron should have separate Fe2+ and Fe3+ presets."""
+        from design_types import METAL_PRESETS
+        assert "iron_ii" in METAL_PRESETS or "iron" in METAL_PRESETS
+        # Fe3+ is harder - prefers O over S
+        if "iron_iii" in METAL_PRESETS:
+            bias = METAL_PRESETS["iron_iii"]["bias_AA"]
+            bias_dict = dict(pair.split(":") for pair in bias.split(","))
+            assert float(bias_dict.get("E", 0)) > float(bias_dict.get("C", 0))

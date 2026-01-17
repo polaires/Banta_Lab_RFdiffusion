@@ -1,5 +1,7 @@
 'use client';
 
+import { LucideIcon, PlusCircle, Network, FlaskConical, Dna, Beaker, Hexagon, SlidersHorizontal, Link, Circle } from 'lucide-react';
+
 export type DesignTask =
   | 'denovo'
   | 'protein_binder'
@@ -15,7 +17,7 @@ interface TaskConfig {
   id: DesignTask;
   name: string;
   description: string;
-  icon: string;
+  Icon: LucideIcon;
   requirements: string[];
 }
 
@@ -24,63 +26,63 @@ const TASKS: TaskConfig[] = [
     id: 'denovo',
     name: 'De Novo Protein',
     description: 'Generate a new protein structure from scratch',
-    icon: 'add_circle',
+    Icon: PlusCircle,
     requirements: ['Length specification'],
   },
   {
     id: 'protein_binder',
     name: 'Protein Binder',
     description: 'Design a protein that binds to a target protein',
-    icon: 'hub',
+    Icon: Network,
     requirements: ['Target PDB', 'Hotspot residues'],
   },
   {
     id: 'small_molecule',
     name: 'Small Molecule Binder',
     description: 'Design a binding pocket for a ligand (ATP, NAD, etc.)',
-    icon: 'science',
+    Icon: FlaskConical,
     requirements: ['PDB with ligand', 'Ligand code'],
   },
   {
     id: 'nucleic_acid',
     name: 'Nucleic Acid Binder',
     description: 'Design a protein that binds DNA or RNA',
-    icon: 'gesture',
+    Icon: Dna,
     requirements: ['PDB with DNA/RNA', 'NA chain selection'],
   },
   {
     id: 'enzyme',
     name: 'Enzyme Scaffold',
     description: 'Build a protein scaffold around an active site',
-    icon: 'biotech',
+    Icon: Beaker,
     requirements: ['Theozyme PDB', 'Catalytic residues'],
   },
   {
     id: 'symmetric',
     name: 'Symmetric Oligomer',
     description: 'Design homo-oligomers (dimers, trimers, etc.)',
-    icon: 'hexagon',
+    Icon: Hexagon,
     requirements: ['Symmetry type', 'Subunit length'],
   },
   {
     id: 'refinement',
     name: 'Structure Refinement',
     description: 'Refine an existing structure with partial diffusion',
-    icon: 'tune',
+    Icon: SlidersHorizontal,
     requirements: ['Input PDB', 'Noise level'],
   },
   {
     id: 'interface_ligand',
     name: 'Interface Ligand Dimer',
     description: 'Design separable protein dimers with ligand at the interface',
-    icon: 'link',
+    Icon: Link,
     requirements: ['Ligand SMILES', 'Approach'],
   },
   {
     id: 'interface_metal',
     name: 'Interface Metal Dimer',
     description: 'Design protein heterodimers with metal coordination at the interface',
-    icon: 'brightness_1',
+    Icon: Circle,
     requirements: ['Metal ion', 'Coordination split'],
   },
 ];
@@ -116,9 +118,7 @@ export function TaskSelector({ onTaskSelect }: TaskSelectorProps) {
             <div className="flex items-start gap-3 mb-2">
               <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center
                              group-hover:bg-blue-600 transition-colors flex-shrink-0">
-                <span className="material-symbols-outlined text-slate-600 group-hover:text-white transition-colors text-lg">
-                  {task.icon}
-                </span>
+                <task.Icon className="h-5 w-5 text-slate-600 group-hover:text-white transition-colors" />
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-slate-900 text-sm group-hover:text-blue-700 transition-colors">

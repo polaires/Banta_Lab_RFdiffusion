@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ArrowLeft, Download, Plus } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { DesignTask } from './TaskSelector';
@@ -501,7 +502,7 @@ export function RFD3Panel() {
           onClick={() => setActiveTab('task')}
           className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
         >
-          <span className="material-symbols-outlined">arrow_back</span>
+          <ArrowLeft className="h-5 w-5" />
           Choose Design Task
         </button>
       </div>
@@ -529,9 +530,7 @@ export function RFD3Panel() {
           onClick={handleBackToTaskSelection}
           className="flex items-center gap-2 text-slate-600 hover:text-blue-600 transition-colors group"
         >
-          <span className="material-symbols-outlined text-lg group-hover:-translate-x-1 transition-transform">
-            arrow_back
-          </span>
+          <ArrowLeft className="h-5 w-5 group-hover:-translate-x-1 transition-transform" />
           <span className="text-sm font-medium">Change Design Task</span>
         </button>
 
@@ -578,7 +577,7 @@ export function RFD3Panel() {
                 }}
                 className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
               >
-                <span className="material-symbols-outlined text-sm">add</span>
+                <Plus className="h-4 w-4" />
                 New Design
               </button>
             </div>
@@ -601,7 +600,7 @@ export function RFD3Panel() {
             onClick={downloadPdb}
             className="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
           >
-            <span className="material-symbols-outlined text-lg">download</span>
+            <Download className="h-5 w-5" />
             Download Design (PDB)
           </button>
         )}

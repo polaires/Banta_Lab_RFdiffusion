@@ -176,8 +176,8 @@ class TestBiasGenerationPipeline:
 
         assert glu_weight is not None, "Glu not found in lanthanide bias"
         assert asp_weight is not None, "Asp not found in lanthanide bias"
-        assert glu_weight > 0, f"Lanthanide should favor Glu, got {glu_weight}"
-        assert asp_weight > 0, f"Lanthanide should favor Asp, got {asp_weight}"
+        assert glu_weight > 2.0, f"Lanthanide should strongly favor Glu (> 2.0), got {glu_weight}"
+        assert asp_weight > 2.0, f"Lanthanide should strongly favor Asp (> 2.0), got {asp_weight}"
 
     def test_metal_presets_have_correct_bias(self):
         """METAL_PRESETS should have bias_AA matching HSAB chemistry."""
@@ -219,7 +219,8 @@ class TestLigandAnalysisPipeline:
         citrate_smiles = "OC(CC(=O)[O-])(CC(=O)[O-])C(=O)[O-]"
         donors = identify_donors_from_smiles(citrate_smiles)
 
-        assert len(donors) > 0, "No donors identified from citrate"
+        # Citrate should have at least 4 donors (3 carboxylates + hydroxyl)
+        assert len(donors) >= 4, f"Citrate should have >= 4 donors, got {len(donors)}"
 
         # Should have O donors
         o_donors = [d for d in donors if d["element"] == "O"]
@@ -388,11 +389,21 @@ class TestEndToEndDesign:
 
     def test_zinc_dimer_design_workflow(self):
         """Test complete workflow for zinc-mediated dimer design."""
-        # Step 1: Get coordination number range
+        # Step 1: Get reference template (may fail without network)
+        try:
+            ref_template = get_reference_template("ZN")
+            # If template retrieved, verify it has coordination info
+            if ref_template:
+                assert "coordination_number" in ref_template or "pdb_id" in ref_template
+        except Exception:
+            # Network unavailable - skip reference template step
+            pass
+
+        # Step 2: Get coordination number range
         min_cn, max_cn = get_coordination_number_range("ZN", 2)
         assert 4 in range(min_cn, max_cn + 1)
 
-        # Step 2: Get amino acid bias
+        # Step 3: Get amino acid bias
         bias = get_amino_acid_bias("ZN", 2)
 
         # Verify Cys and His are preferred (weight > 0)
@@ -407,13 +418,13 @@ class TestEndToEndDesign:
         assert cys_weight is not None and cys_weight > 0
         assert his_weight is not None and his_weight > 0
 
-        # Step 3: Validate example coordination
+        # Step 4: Validate example coordination
         residues = ["HIS", "HIS", "CYS", "CYS"]
         result = validate_coordination_chemistry("ZN", residues, 2)
         assert result["valid"] == True
         assert result["hsab_compatible"] == True
 
-        # Step 4: Get design config
+        # Step 5: Get design config
         config = get_recommended_config(
             DesignType.METAL_MEDIATED_DIMER,
             metal_type="zinc"

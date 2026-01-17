@@ -1,29 +1,90 @@
 @import "tailwindcss";
 
-:root {
-  --background: #f8fafc;
-  --foreground: #1e293b;
+@layer base {
+  :root {
+    /* Backgrounds */
+    --background: 30 6% 98%;
+    --foreground: 24 10% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 24 10% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 24 10% 10%;
 
-  /* Brand colors */
-  --brand-50: #eff6ff;
-  --brand-100: #dbeafe;
-  --brand-200: #bfdbfe;
-  --brand-500: #3b82f6;
-  --brand-600: #2563eb;
-  --brand-700: #1d4ed8;
-  --brand-900: #1e3a8a;
+    /* Primary - stone-800 */
+    --primary: 24 10% 15%;
+    --primary-foreground: 30 6% 98%;
 
-  /* Neutral colors */
-  --neutral-50: #f8fafc;
-  --neutral-100: #f1f5f9;
-  --neutral-200: #e2e8f0;
-  --neutral-300: #cbd5e1;
-  --neutral-400: #94a3b8;
-  --neutral-500: #64748b;
-  --neutral-600: #475569;
-  --neutral-700: #334155;
-  --neutral-800: #1e293b;
-  --neutral-900: #0f172a;
+    /* Secondary - stone-100 */
+    --secondary: 60 5% 96%;
+    --secondary-foreground: 24 10% 10%;
+
+    /* Muted - stone-100/500 */
+    --muted: 60 5% 96%;
+    --muted-foreground: 25 6% 45%;
+
+    /* Accent - stone-100 */
+    --accent: 60 5% 96%;
+    --accent-foreground: 24 10% 10%;
+
+    /* Semantic */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders & Rings */
+    --border: 24 6% 90%;
+    --input: 24 6% 90%;
+    --ring: 24 6% 65%;
+
+    /* Chart colors */
+    --chart-1: 24 10% 15%;
+    --chart-2: 25 6% 45%;
+    --chart-3: 24 6% 65%;
+    --chart-4: 24 6% 80%;
+    --chart-5: 60 5% 96%;
+
+    /* Radius */
+    --radius: 0.5rem;
+
+    /* Sidebar specific */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 24 10% 10%;
+    --sidebar-primary: 24 10% 15%;
+    --sidebar-primary-foreground: 30 6% 98%;
+    --sidebar-accent: 60 5% 96%;
+    --sidebar-accent-foreground: 24 10% 10%;
+    --sidebar-border: 24 6% 90%;
+    --sidebar-ring: 24 6% 65%;
+
+    /* Legacy Brand colors (kept for backward compatibility) */
+    --brand-50: #eff6ff;
+    --brand-100: #dbeafe;
+    --brand-200: #bfdbfe;
+    --brand-500: #3b82f6;
+    --brand-600: #2563eb;
+    --brand-700: #1d4ed8;
+    --brand-900: #1e3a8a;
+
+    /* Legacy Neutral colors (kept for backward compatibility) */
+    --neutral-50: #f8fafc;
+    --neutral-100: #f1f5f9;
+    --neutral-200: #e2e8f0;
+    --neutral-300: #cbd5e1;
+    --neutral-400: #94a3b8;
+    --neutral-500: #64748b;
+    --neutral-600: #475569;
+    --neutral-700: #334155;
+    --neutral-800: #1e293b;
+    --neutral-900: #0f172a;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
 
 @theme inline {

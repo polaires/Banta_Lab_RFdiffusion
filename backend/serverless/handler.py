@@ -6752,17 +6752,125 @@ def _design_metal_ligand_joint(
     print(f"[MetalLigandJoint] Contig: {contig}")
     print(f"[MetalLigandJoint] Ligand in PDB: {ligand_name} (chain {ligand_chain})")
 
+    # === CRITICAL FIX: Calculate ori_token to offset protein COM from metal ===
+    # The ori_token tells RFD3 where to center the protein.
+    # By offsetting from the metal, we create a coordination buffer zone that
+    # keeps backbone atoms further from the metal while allowing sidechains to reach it.
+    #
+    # Strategy: Offset along the ligand's "axis away from metal"
+    # This pushes protein to wrap around the ligand (which is offset from metal)
+    # rather than centering on the metal itself.
+    #
+    # Default offset: 5Å from metal center in the direction away from ligand
+    # This creates ~5Å buffer for backbone, leaving room for ~2.5Å sidechain reach
+    ORI_TOKEN_OFFSET = 5.0  # Å - offset from metal center
+
+    # Find metal position for ori_token calculation
+    metal_pos = [0.0, 0.0, 0.0]  # Default
+    ligand_com = [0.0, 0.0, 0.0]  # Ligand center of mass
+    ligand_atom_count = 0
+
+    for line in complex_pdb.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+
+                if res_name == metal:
+                    metal_pos = [x, y, z]
+                elif res_name == ligand_name:
+                    ligand_com[0] += x
+                    ligand_com[1] += y
+                    ligand_com[2] += z
+                    ligand_atom_count += 1
+            except (ValueError, IndexError):
+                pass
+
+    # Calculate ligand COM and offset direction
+    if ligand_atom_count > 0:
+        ligand_com = [c / ligand_atom_count for c in ligand_com]
+
+        # Direction from metal to ligand COM
+        direction = [
+            ligand_com[0] - metal_pos[0],
+            ligand_com[1] - metal_pos[1],
+            ligand_com[2] - metal_pos[2]
+        ]
+        magnitude = (direction[0]**2 + direction[1]**2 + direction[2]**2) ** 0.5
+
+        if magnitude > 0.1:  # Non-zero direction
+            # Normalize and scale by offset distance
+            ori_token = [
+                ligand_com[0] + (direction[0] / magnitude) * ORI_TOKEN_OFFSET,
+                ligand_com[1] + (direction[1] / magnitude) * ORI_TOKEN_OFFSET,
+                ligand_com[2] + (direction[2] / magnitude) * ORI_TOKEN_OFFSET,
+            ]
+            print(f"[MetalLigandJoint] ori_token: {ori_token} ({ORI_TOKEN_OFFSET}Å offset from ligand COM, away from metal)")
+        else:
+            # Ligand is centered on metal - use Z offset
+            ori_token = [metal_pos[0], metal_pos[1], metal_pos[2] + ORI_TOKEN_OFFSET]
+            print(f"[MetalLigandJoint] ori_token: {ori_token} ({ORI_TOKEN_OFFSET}Å Z offset from metal)")
+    else:
+        # No ligand atoms found - use simple Z offset from metal
+        ori_token = [metal_pos[0], metal_pos[1], metal_pos[2] + ORI_TOKEN_OFFSET]
+        print(f"[MetalLigandJoint] ori_token: {ori_token} ({ORI_TOKEN_OFFSET}Å Z offset, no ligand COM found)")
+
+    # === CRITICAL FIX: Add exclusion sphere around metal ===
+    # The metal is a single point, so burying it puts backbone directly adjacent (~2Å).
+    # We add "dummy" atoms around the metal to create an exclusion sphere.
+    # These are inert atoms at ~3.5Å from metal that force RFD3 to keep backbone
+    # further away while allowing sidechains to reach the coordination sphere.
+    EXCLUSION_RADIUS = 3.5  # Å - minimum backbone distance from metal
+    EXCLUSION_ELEMENT = "DUM"  # Dummy element name
+
+    # Add exclusion sphere atoms to the complex PDB
+    # Place 6 dummy atoms at octahedral positions around the metal
+    exclusion_positions = [
+        (EXCLUSION_RADIUS, 0, 0), (-EXCLUSION_RADIUS, 0, 0),
+        (0, EXCLUSION_RADIUS, 0), (0, -EXCLUSION_RADIUS, 0),
+        (0, 0, EXCLUSION_RADIUS), (0, 0, -EXCLUSION_RADIUS),
+    ]
+
+    modified_pdb_lines = []
+    hetatm_count = 0
+
+    for line in complex_pdb.split('\n'):
+        modified_pdb_lines.append(line)
+        if line.startswith('HETATM'):
+            hetatm_count += 1
+
+    # Add exclusion sphere atoms if metal position is known
+    if metal_pos[0] != 0 or metal_pos[1] != 0 or metal_pos[2] != 0:
+        atom_serial = hetatm_count + 1000  # Start with high serial to avoid conflicts
+        for i, (dx, dy, dz) in enumerate(exclusion_positions):
+            x = metal_pos[0] + dx
+            y = metal_pos[1] + dy
+            z = metal_pos[2] + dz
+            # Create a HETATM record for the exclusion atom
+            # Using chain X, residue EXC to mark them as exclusion sphere
+            exc_line = f"HETATM{atom_serial:5d}  X   EXC X   1    {x:8.3f}{y:8.3f}{z:8.3f}  0.00  0.00           X"
+            # NOTE: We don't add these to PDB - RFD3 might reject unknown residue types
+            # Instead, this is a conceptual placeholder for future implementation
+            atom_serial += 1
+
+        print(f"[MetalLigandJoint] Exclusion sphere concept: {len(exclusion_positions)} positions at {EXCLUSION_RADIUS}Å from metal")
+        print(f"[MetalLigandJoint] Note: For reliable metal coordination, consider motif scaffolding approach")
+
+    # Use original complex_pdb (exclusion sphere not yet implemented in RFD3-compatible way)
+    modified_complex_pdb = complex_pdb
+
     # Build RFD3 configuration for small molecule binder design
     # Key: use `ligand` parameter to tell RFD3 about the small molecule
     # RFD3 will automatically design protein chains around the ligand
     #
-    # CRITICAL: Use RASA conditioning to force close protein contact!
-    # From interface_ligand_design: select_buried buries the ligand so protein
-    # MUST form close contacts around it. Without this, RFD3 may generate
-    # protein that doesn't actually coordinate the metal.
+    # STRATEGY: Bury the ENTIRE complex as a single unit
+    # By burying both metal AND ligand, we tell RFD3 "wrap protein around ALL of this"
+    # The ori_token offset ensures protein COM is positioned away from metal
     rfd3_config = {
         "contig": contig,
-        "pdb_content": complex_pdb,
+        "pdb_content": modified_complex_pdb,
         "num_designs": 1,
         # NOTE: Do NOT pass ligand code here. When we pass ligand="PQQ", RFD3 looks up
         # PQQ in the Chemical Component Dictionary (CCD) and tries to match our input
@@ -6772,25 +6880,26 @@ def _design_metal_ligand_joint(
         # use them directly without CCD validation.
     }
 
-    # === IMPROVEMENT 1: select_buried to force METAL burial ===
-    # CRITICAL INSIGHT: We must bury the METAL, not just the ligand!
-    # The citrate-metal complex has asymmetric geometry - citrate atoms are
-    # spread to one side of the metal. If we only bury citrate, protein wraps
-    # around citrate (away from metal). We need protein to wrap around the METAL.
+    # === IMPROVEMENT 1: select_buried for BOTH metal AND ligand as SINGLE UNIT ===
+    # STRATEGY: Treat metal-ligand complex as a unified entity
     #
-    # Strategy: Bury the metal AND the metal-coordinating ligand atoms
+    # Key insight: The ori_token offset (calculated above) positions the protein COM
+    # AWAY from the metal. Combined with burying the entire complex, this should:
+    # 1. Tell RFD3 "wrap protein around this whole complex"
+    # 2. But position protein COM offset from metal (via ori_token)
+    # 3. Result: protein wraps around ligand side, sidechains can reach metal
+    #
+    # The increased ORI_TOKEN_OFFSET (5Å) compensates for burying both.
     metal_chain_resnum = f"{metal_chain}{metal_resnum}" if metal_chain and metal_resnum else "M1"
     ligand_chain_resnum = f"{ligand_chain}{ligand_resnum}" if ligand_chain and ligand_resnum else "L1"
 
-    # Bury metal AND ligand to ensure protein wraps around the complex
-    # IMPORTANT: Use "ALL" for ligand because RFD3 uses CCD (Chemical Component Dictionary)
-    # atom names which may differ from our template atom names. Specifying individual atoms
-    # like "O5,N6,O7A" will fail if the CCD uses different names like "O1,N5,O19".
+    # Bury BOTH metal AND ligand as a single unit
+    # The ori_token offset prevents backbone from crowding the metal
     rfd3_config["select_buried"] = {
-        metal_chain_resnum: "ALL",  # Bury the metal
-        ligand_chain_resnum: "ALL"  # Bury the entire ligand (CCD-safe)
+        metal_chain_resnum: "ALL",  # Bury metal (complex is single unit)
+        ligand_chain_resnum: "ALL"  # Bury ligand (complex is single unit)
     }
-    print(f"[MetalLigandJoint] Added select_buried: {{{metal_chain_resnum}: 'ALL', {ligand_chain_resnum}: 'ALL'}} (bury metal + ligand)")
+    print(f"[MetalLigandJoint] Added select_buried: {{{metal_chain_resnum}: 'ALL', {ligand_chain_resnum}: 'ALL'}} (bury as SINGLE UNIT, offset by ori_token)")
 
     # === IMPROVEMENT 2: select_fixed_atoms to lock metal position ===
     # Fix the metal atom so RFD3 designs around its exact position
@@ -6801,8 +6910,12 @@ def _design_metal_ligand_joint(
         print(f"[MetalLigandJoint] Added select_fixed_atoms: {{{metal_chain_resnum}: 'ALL'}} (locks metal position)")
 
     # === IMPROVEMENT 3: select_hotspots for BOTH metal AND ligand ===
-    # Treat metal-ligand complex as a single unit - protein must contact both!
-    # run_rfd3_inference expects hotspots as List[str] like ["M1", "L1"]
+    # STRATEGY: Treat metal-ligand complex as a unified hotspot
+    #
+    # Combined with the ori_token offset, including both as hotspots ensures:
+    # 1. Protein makes contact with the entire complex
+    # 2. ori_token biases protein COM toward ligand side (away from metal)
+    # 3. Result: protein wraps around complex, sidechains can reach metal
     hotspots = []
     if metal_chain and metal_resnum:
         hotspots.append(metal_chain_resnum)
@@ -6810,7 +6923,7 @@ def _design_metal_ligand_joint(
         hotspots.append(ligand_chain_resnum)
     if hotspots:
         rfd3_config["hotspots"] = hotspots
-        print(f"[MetalLigandJoint] Added hotspots: {hotspots} (ensures metal+ligand contact)")
+        print(f"[MetalLigandJoint] Added hotspots: {hotspots} (BOTH metal+ligand as single unit)")
 
     # === IMPROVEMENT 4: H-bond conditioning for carboxylate oxygens ===
     # For citrate and similar ligands, condition H-bonds to carboxylate oxygens
@@ -6861,6 +6974,10 @@ def _design_metal_ligand_joint(
                 select_fixed_atoms=rfd3_config.get("select_fixed_atoms"),
                 hotspots=rfd3_config.get("hotspots"),  # List of "ChainResNum" strings
                 select_hbond_acceptor=rfd3_config.get("select_hbond_acceptor"),
+                # CRITICAL FIX: ori_token offsets protein COM away from metal
+                # This creates a coordination buffer zone, keeping backbone further
+                # from metal while allowing sidechains to reach coordination distance
+                ori_token=ori_token,
             )
 
         if result.get("status") != "completed":
@@ -6923,6 +7040,62 @@ def _design_metal_ligand_joint(
                 pdb_content = '\n'.join(atom_lines) + '\n' + '\n'.join(renumbered_hetatm) + '\nEND\n'
                 print(f"[MetalLigandJoint] Replaced with {len(hetatm_lines)} HETATM from template (correct geometry)")
 
+        # === CRITICAL FIX: Check for backbone clashes with metal ===
+        # RFD3 doesn't understand coordination chemistry and may place backbone
+        # atoms within the metal's coordination sphere. We detect and log this.
+        # For metal coordination, backbone atoms should be >4Å from metal to
+        # leave room for sidechain coordination (sidechains reach ~3Å toward metal).
+        BACKBONE_EXCLUSION_RADIUS = 3.5  # Å - minimum distance for backbone atoms
+        backbone_atoms = {'N', 'CA', 'C', 'O'}
+
+        # Find metal position
+        metal_coords = None
+        for line in pdb_content.split('\n'):
+            if line.startswith('HETATM'):
+                res_name = line[17:20].strip()
+                if res_name == metal:
+                    try:
+                        x = float(line[30:38])
+                        y = float(line[38:46])
+                        z = float(line[46:54])
+                        metal_coords = (x, y, z)
+                        break
+                    except (ValueError, IndexError):
+                        pass
+
+        if metal_coords:
+            # Check backbone distances
+            backbone_clashes = []
+            for line in pdb_content.split('\n'):
+                if line.startswith('ATOM'):
+                    atom_name = line[12:16].strip()
+                    if atom_name in backbone_atoms:
+                        try:
+                            x = float(line[30:38])
+                            y = float(line[38:46])
+                            z = float(line[46:54])
+                            dist = ((x - metal_coords[0])**2 +
+                                   (y - metal_coords[1])**2 +
+                                   (z - metal_coords[2])**2) ** 0.5
+                            if dist < BACKBONE_EXCLUSION_RADIUS:
+                                res_name = line[17:20].strip()
+                                chain = line[21]
+                                res_num = line[22:26].strip()
+                                backbone_clashes.append({
+                                    'atom': atom_name,
+                                    'residue': f"{res_name}:{chain}:{res_num}",
+                                    'distance': dist
+                                })
+                        except (ValueError, IndexError):
+                            pass
+
+            if backbone_clashes:
+                print(f"[MetalLigandJoint] WARNING: {len(backbone_clashes)} backbone atoms within {BACKBONE_EXCLUSION_RADIUS}Å of metal!")
+                for clash in backbone_clashes[:5]:  # Show first 5
+                    print(f"[MetalLigandJoint]   {clash['residue']} {clash['atom']}: {clash['distance']:.2f}Å")
+                if len(backbone_clashes) > 5:
+                    print(f"[MetalLigandJoint]   ... and {len(backbone_clashes) - 5} more")
+                print(f"[MetalLigandJoint] Note: Backbone clashes reduce coordination quality. Consider motif scaffolding for better results.")
 
         # Run LigandMPNN sequence design with HSAB-compliant bias
         # RFD3 only generates backbone - we need to design coordinating residues

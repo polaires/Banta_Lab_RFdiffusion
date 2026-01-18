@@ -97,7 +97,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
     // Focus on a metal site
     const focusOnMetal = useCallback(async (index: number) => {
-      if (!globalPlugin || !metalCoordination || !metalCoordination[index]) return;
+      if (!globalPlugin || !metalCoordination || !metalCoordination[index] || !pdbContent) return;
 
       const plugin = globalPlugin;
       const metal = metalCoordination[index];
@@ -109,13 +109,13 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         await plugin.clear();
 
         // Reload structure
-        const isCif = pdbContent?.trimStart().startsWith('data_');
+        const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
 
-        const data = await plugin.builders.data.rawData({
-          data: pdbContent,
-          label: 'structure.pdb',
-        });
+        const data = await plugin.builders.data.rawData(
+          { data: pdbContent, label: 'structure.pdb' },
+          { state: { isGhost: true } }
+        );
 
         const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
         const model = await plugin.builders.structure.createModel(trajectory);
@@ -236,7 +236,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
     // Focus on a ligand site
     const focusOnLigand = useCallback(async (index: number) => {
-      if (!globalPlugin || !ligandData || !ligandData.ligandDetails[index]) return;
+      if (!globalPlugin || !ligandData || !ligandData.ligandDetails[index] || !pdbContent) return;
 
       const plugin = globalPlugin;
       const ligand = ligandData.ligandDetails[index];
@@ -248,13 +248,13 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         await plugin.clear();
 
         // Reload structure
-        const isCif = pdbContent?.trimStart().startsWith('data_');
+        const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
 
-        const data = await plugin.builders.data.rawData({
-          data: pdbContent,
-          label: 'structure.pdb',
-        });
+        const data = await plugin.builders.data.rawData(
+          { data: pdbContent, label: 'structure.pdb' },
+          { state: { isGhost: true } }
+        );
 
         const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
         const model = await plugin.builders.structure.createModel(trajectory);
@@ -484,10 +484,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
 
-        const data = await globalPlugin.builders.data.rawData({
-          data: pdbContent,
-          label: 'structure.pdb',
-        });
+        const data = await globalPlugin.builders.data.rawData(
+          { data: pdbContent, label: 'structure.pdb' },
+          { state: { isGhost: true } }
+        );
 
         const trajectory = await globalPlugin.builders.structure.parseTrajectory(data, format);
         await globalPlugin.builders.structure.hierarchy.applyPreset(trajectory, 'default');
@@ -706,6 +706,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       if (lastPdbContentRef.current === pdbContent) return;
       lastPdbContentRef.current = pdbContent;
 
+      // Capture plugin reference for async function (TypeScript narrowing)
+      const plugin = globalPlugin;
+
       const loadStructure = async () => {
         setLoading(true);
         setError(null);
@@ -713,7 +716,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         try {
           console.log('[ProteinViewer] Clearing existing structures...');
-          await globalPlugin.clear();
+          await plugin.clear();
 
           const isCif = pdbContent.trimStart().startsWith('data_');
           const format = isCif ? 'mmcif' : 'pdb';
@@ -721,14 +724,14 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
           console.log(`[ProteinViewer] Detected format: ${format}`);
 
-          const data = await globalPlugin.builders.data.rawData({
-            data: pdbContent,
-            label: `structure.${extension}`,
-          });
+          const data = await plugin.builders.data.rawData(
+            { data: pdbContent, label: `structure.${extension}` },
+            { state: { isGhost: true } }
+          );
 
-          const trajectory = await globalPlugin.builders.structure.parseTrajectory(data, format);
-          const model = await globalPlugin.builders.structure.createModel(trajectory);
-          const structure = await globalPlugin.builders.structure.createStructure(model);
+          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+          const model = await plugin.builders.structure.createModel(trajectory);
+          const structure = await plugin.builders.structure.createStructure(model);
 
           // Store structure reference
           globalStructureRef = structure.ref;
@@ -738,14 +741,14 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           // Create polymer component and add cartoon representation
           try {
             // Get polymer component using expression constant
-            const polymerComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
+            const polymerComp = await plugin.builders.structure.tryCreateComponentFromExpression(
               structure.ref,
               POLYMER_EXPRESSION,
               'polymer'
             );
 
             if (polymerComp) {
-              await globalPlugin.builders.structure.representation.addRepresentation(polymerComp, {
+              await plugin.builders.structure.representation.addRepresentation(polymerComp, {
                 type: 'cartoon',
                 color: 'chain-id',
               });
@@ -753,14 +756,14 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             }
 
             // Add ball-and-stick for ligands/heteroatoms using expression constant
-            const hetComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
+            const hetComp = await plugin.builders.structure.tryCreateComponentFromExpression(
               structure.ref,
               NON_POLYMER_EXPRESSION,
               'ligand'
             );
 
             if (hetComp) {
-              await globalPlugin.builders.structure.representation.addRepresentation(hetComp, {
+              await plugin.builders.structure.representation.addRepresentation(hetComp, {
                 type: 'ball-and-stick',
                 color: 'element-symbol',
               });
@@ -769,14 +772,14 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           } catch (reprErr) {
             console.log('[ProteinViewer] Custom representation failed, trying preset fallback:', reprErr);
             // Fallback to preset
-            await globalPlugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+            await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
               representationPreset: 'polymer-cartoon',
             });
           }
 
           console.log('[ProteinViewer] Representation applied');
 
-          globalPlugin.canvas3d?.requestCameraReset();
+          plugin.canvas3d?.requestCameraReset();
           console.log('[ProteinViewer] Structure loaded successfully');
         } catch (err) {
           console.error('[ProteinViewer] Failed to load structure:', err);

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import type { MetalCoordination } from '@/lib/metalAnalysis';
 import type { LigandData, PharmacophoreFeature } from '@/lib/ligandAnalysis';
+import { useStore } from '@/lib/store';
 
 // Types for Mol* that we'll import dynamically
 type PluginUIContext = any;
@@ -99,6 +100,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       ligandIndex: undefined,
     });
 
+    // Get focus settings from store
+    const { focusSettings } = useStore();
+
     // Focus on a metal site
     const focusOnMetal = useCallback(async (index: number) => {
       if (!globalPlugin || !metalCoordination || !metalCoordination[index]) return;
@@ -139,7 +143,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         // Coordination sphere (residues within radius + 2A margin)
         const coordSphereExpression = MS.struct.modifier.includeSurroundings({
           0: metalExpression,
-          radius: 5.0, // coordination radius + margin
+          radius: focusSettings.coordinationRadius + 2.0,
           'as-whole-residues': true
         });
 
@@ -259,7 +263,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       } catch (err) {
         console.error('[ProteinViewer] Failed to focus on metal:', err);
       }
-    }, [pdbContent, metalCoordination]);
+    }, [pdbContent, metalCoordination, focusSettings]);
 
     // Focus on a ligand site
     const focusOnLigand = useCallback(async (index: number) => {
@@ -298,10 +302,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           ])
         });
 
-        // Binding site (residues within 5A)
+        // Binding site (residues within configurable radius)
         const bindingSiteExpression = MS.struct.modifier.includeSurroundings({
           0: ligandExpression,
-          radius: 5.0,
+          radius: focusSettings.bindingPocketRadius,
           'as-whole-residues': true
         });
 
@@ -313,7 +317,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           by: bindingSiteExpression
         });
 
-        // 1. Ligand - ball-and-stick with element colors
+        // 1. Ligand - ball-and-stick with green carbons for visibility
         const ligandComp = await plugin.builders.structure.tryCreateComponentFromExpression(
           structure.ref,
           ligandExpression,
@@ -322,7 +326,8 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         if (ligandComp) {
           await plugin.builders.structure.representation.addRepresentation(ligandComp, {
             type: 'ball-and-stick',
-            color: 'element-symbol',
+            color: 'uniform',
+            colorParams: { value: Color(focusSettings.ligandCarbonColor) },
             typeParams: { sizeFactor: 0.4 },
           });
         }
@@ -395,7 +400,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       } catch (err) {
         console.error('[ProteinViewer] Failed to focus on ligand:', err);
       }
-    }, [pdbContent, ligandData]);
+    }, [pdbContent, ligandData, focusSettings]);
 
     // Clear all pharmacophore representations
     const clearPharmacophores = useCallback(async () => {

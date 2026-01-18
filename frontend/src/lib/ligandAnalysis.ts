@@ -56,6 +56,130 @@ export interface PharmacophoreFeature {
   position?: [number, number, number];
 }
 
+// Pi-stacking geometry types
+export interface RingGeometry {
+  centroid: [number, number, number];
+  normal: [number, number, number];
+}
+
+export interface PiStackingResult {
+  type: 'parallel' | 't-shaped' | 'offset-parallel' | 'none';
+  distance: number;
+  angle: number;
+  offset: number;
+  isStacking: boolean;
+  ligandRingIdx?: number;
+  proteinResidue?: string;
+  proteinChain?: string;
+}
+
+// Aromatic ring atom patterns for known residues
+export const AROMATIC_PATTERNS: Record<string, string[][]> = {
+  'PHE': [['CG', 'CD1', 'CE1', 'CZ', 'CE2', 'CD2']],
+  'TYR': [['CG', 'CD1', 'CE1', 'CZ', 'CE2', 'CD2']],
+  'TRP': [['CG', 'CD1', 'NE1', 'CE2', 'CD2'], ['CE2', 'CD2', 'CE3', 'CZ3', 'CH2', 'CZ2']],
+  'HIS': [['CG', 'ND1', 'CE1', 'NE2', 'CD2']],
+};
+
+/**
+ * Calculate ring geometry (centroid and normal vector) from atom positions
+ * Requires at least 5 atoms to form an aromatic ring
+ */
+export function calculateRingGeometry(
+  positions: [number, number, number][]
+): RingGeometry | null {
+  if (positions.length < 5) return null;
+
+  // Calculate centroid
+  const centroid: [number, number, number] = [0, 0, 0];
+  for (const pos of positions) {
+    centroid[0] += pos[0];
+    centroid[1] += pos[1];
+    centroid[2] += pos[2];
+  }
+  centroid[0] /= positions.length;
+  centroid[1] /= positions.length;
+  centroid[2] /= positions.length;
+
+  // Calculate normal using first 3 points (cross product of two edge vectors)
+  const v1: [number, number, number] = [
+    positions[1][0] - positions[0][0],
+    positions[1][1] - positions[0][1],
+    positions[1][2] - positions[0][2],
+  ];
+  const v2: [number, number, number] = [
+    positions[2][0] - positions[0][0],
+    positions[2][1] - positions[0][1],
+    positions[2][2] - positions[0][2],
+  ];
+
+  // Cross product
+  const normal: [number, number, number] = [
+    v1[1] * v2[2] - v1[2] * v2[1],
+    v1[2] * v2[0] - v1[0] * v2[2],
+    v1[0] * v2[1] - v1[1] * v2[0],
+  ];
+
+  // Normalize
+  const length = Math.sqrt(normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2);
+  if (length < 0.0001) return null;
+
+  normal[0] /= length;
+  normal[1] /= length;
+  normal[2] /= length;
+
+  return { centroid, normal };
+}
+
+/**
+ * Analyze pi-stacking interaction between two aromatic rings
+ * Returns stacking type (parallel, t-shaped, offset-parallel, or none)
+ */
+export function analyzePiStacking(
+  ring1: RingGeometry,
+  ring2: RingGeometry
+): PiStackingResult {
+  // Distance between centroids
+  const dx = ring2.centroid[0] - ring1.centroid[0];
+  const dy = ring2.centroid[1] - ring1.centroid[1];
+  const dz = ring2.centroid[2] - ring1.centroid[2];
+  const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  // Angle between normals (dot product)
+  const dotProduct = Math.abs(
+    ring1.normal[0] * ring2.normal[0] +
+    ring1.normal[1] * ring2.normal[1] +
+    ring1.normal[2] * ring2.normal[2]
+  );
+  const angle = Math.acos(Math.min(1, dotProduct)) * 180 / Math.PI;
+
+  // Calculate offset (horizontal displacement from stacking axis)
+  const projection =
+    dx * ring1.normal[0] + dy * ring1.normal[1] + dz * ring1.normal[2];
+  const offset = Math.sqrt(Math.max(0, distance * distance - projection * projection));
+
+  // Classify stacking type
+  let type: PiStackingResult['type'] = 'none';
+
+  if (distance <= 4.5) {
+    if (angle < 30) {
+      // Rings are roughly parallel
+      type = offset < 2.0 ? 'parallel' : 'offset-parallel';
+    } else if (angle > 60) {
+      // Rings are roughly perpendicular
+      type = 't-shaped';
+    }
+  }
+
+  return {
+    type,
+    distance,
+    angle,
+    offset,
+    isStacking: type !== 'none',
+  };
+}
+
 export interface LigandContact {
   residue: string;
   chain: string;

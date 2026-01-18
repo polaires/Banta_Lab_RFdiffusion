@@ -208,27 +208,29 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           });
         }
 
-        // 3. Coordinating waters
-        const waterExpression = MS.struct.modifier.intersectBy({
-          0: coordWithoutMetal,
-          by: MS.struct.generator.atomGroups({
-            'residue-test': MS.core.logic.or([
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT'])
-            ])
-          })
-        });
-        const waterComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-          structure.ref,
-          waterExpression,
-          'coord-water'
-        );
-        if (waterComp) {
-          await plugin.builders.structure.representation.addRepresentation(waterComp, {
-            type: 'ball-and-stick',
-            color: 'element-symbol',
-            typeParams: { sizeFactor: 0.2 },
+        // 3. Coordinating waters - conditionally rendered
+        if (focusSettings.showWaters) {
+          const waterExpression = MS.struct.modifier.intersectBy({
+            0: coordWithoutMetal,
+            by: MS.struct.generator.atomGroups({
+              'residue-test': MS.core.logic.or([
+                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
+                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT'])
+              ])
+            })
           });
+          const waterComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structure.ref,
+            waterExpression,
+            'coord-water'
+          );
+          if (waterComp) {
+            await plugin.builders.structure.representation.addRepresentation(waterComp, {
+              type: 'ball-and-stick',
+              color: 'element-symbol',
+              typeParams: { sizeFactor: 0.2, alpha: 0.7 },
+            });
+          }
         }
 
         // 4. Rest of protein - semi-transparent cartoon
@@ -368,7 +370,32 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           });
         }
 
-        // 3. Rest of protein - semi-transparent cartoon
+        // 3. Binding site waters - conditionally rendered
+        if (focusSettings.showWaters) {
+          const waterExpression = MS.struct.modifier.intersectBy({
+            0: siteWithoutLigand,
+            by: MS.struct.generator.atomGroups({
+              'residue-test': MS.core.logic.or([
+                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
+                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT'])
+              ])
+            })
+          });
+          const waterComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structure.ref,
+            waterExpression,
+            'binding-water'
+          );
+          if (waterComp) {
+            await plugin.builders.structure.representation.addRepresentation(waterComp, {
+              type: 'ball-and-stick',
+              color: 'element-symbol',
+              typeParams: { sizeFactor: 0.15, alpha: 0.7 },
+            });
+          }
+        }
+
+        // 4. Rest of protein - semi-transparent cartoon
         const proteinComp = await plugin.builders.structure.tryCreateComponentFromExpression(
           structure.ref,
           proteinExpression,
@@ -382,7 +409,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           });
         }
 
-        // 4. Focus camera
+        // 5. Focus camera
         const state = plugin.state.data;
         const cell = state.cells.get(structure.ref);
         if (cell?.obj?.data) {

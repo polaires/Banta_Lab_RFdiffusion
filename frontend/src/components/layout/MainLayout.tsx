@@ -8,6 +8,9 @@ import { GripVertical, PanelRightClose, PanelRight } from 'lucide-react';
 export const ViewerResizeContext = createContext<{ width: number; collapsed: boolean }>({ width: 400, collapsed: false });
 export const useViewerResize = () => useContext(ViewerResizeContext);
 
+// Layout constants
+const MIN_VIEWER_WIDTH = 300;
+
 interface MainLayoutProps {
   sidebar: React.ReactNode;
   main: React.ReactNode;
@@ -21,22 +24,21 @@ export function MainLayout({ sidebar, main, viewer, header }: MainLayoutProps) {
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
 
-  const minWidth = 300;
-  const maxWidth = 700;
-
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsResizing(true);
   }, []);
 
+  // Handle resize drag - no max limit
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return;
 
       // Calculate new width based on mouse position from right edge
       const newWidth = window.innerWidth - e.clientX;
-      setViewerWidth(Math.min(maxWidth, Math.max(minWidth, newWidth)));
+      // Only enforce minimum width, no maximum
+      setViewerWidth(Math.max(MIN_VIEWER_WIDTH, newWidth));
     };
 
     const handleMouseUp = () => {
@@ -69,13 +71,15 @@ export function MainLayout({ sidebar, main, viewer, header }: MainLayoutProps) {
 
       {/* Main Content Area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-60 border-r border-border flex flex-col shrink-0 bg-sidebar-background">
-          {sidebar}
+        {/* Sidebar - handles overflow gracefully */}
+        <aside className="w-60 border-r border-border flex flex-col shrink-0 overflow-hidden bg-sidebar-background">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden">
+            {sidebar}
+          </div>
         </aside>
 
-        {/* Main Content */}
-        <main className="flex-1 overflow-auto">
+        {/* Main Content - can shrink but handles overflow */}
+        <main className="flex-1 min-w-0 overflow-hidden">
           {main}
         </main>
 

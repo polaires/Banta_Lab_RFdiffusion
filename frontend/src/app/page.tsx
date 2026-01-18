@@ -43,8 +43,13 @@ export default function Home() {
     connectionModalOpen,
     setConnectionModalOpen,
     selectedPdb,
-    latestConfidences,
-    latestRmsdResult,
+    // Analysis state for viewer
+    focusedMetalIndex,
+    focusedLigandIndex,
+    metalCoordination,
+    ligandData,
+    pharmacophoreFeatures,
+    showPharmacophores3D,
   } = useStore();
 
   const [isSpinning, setIsSpinning] = useState(false);
@@ -190,18 +195,22 @@ export default function Home() {
         }
         viewer={showViewer ? (
           <ViewerPanel
-            structureInfo={selectedPdb ? {
-              residues: 150, // TODO: extract from PDB
-              plddt: latestConfidences?.summary_confidences?.overall_plddt,
-              rmsd: latestRmsdResult?.rmsd,
-            } : undefined}
             isSpinning={isSpinning}
             onToggleSpin={() => setIsSpinning(!isSpinning)}
             onReset={() => {/* TODO: reset viewer */}}
             onExpand={() => {/* TODO: expand viewer */}}
           >
             {selectedPdb ? (
-              <ProteinViewerClient pdbContent={selectedPdb} />
+              <ProteinViewerClient
+                pdbContent={selectedPdb}
+                className="h-full w-full"
+                focusedMetalIndex={focusedMetalIndex}
+                focusedLigandIndex={focusedLigandIndex}
+                metalCoordination={metalCoordination}
+                ligandData={ligandData}
+                pharmacophoreFeatures={pharmacophoreFeatures ?? undefined}
+                showPharmacophores={showPharmacophores3D}
+              />
             ) : (
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
                 No structure loaded

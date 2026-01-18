@@ -1,0 +1,18 @@
+{
+    "name": "No Template (De Novo)",
+    "description": "De novo design without templates for baseline comparison",
+    "input": {
+        "task": "interface_metal_design",
+        "approach": "joint_metal",
+        "metal": "TB",
+        "use_template": false,
+        "chain_length": "60-80",
+        "num_designs": 3
+    },
+    "expected": {
+        "coordination_number_min": 2,
+        "carboxylate_donors_min": 0,
+        "bond_distance_range": [2.0, 3.5],
+        "note": "Baseline - coordination may be low without template guidance"
+    }
+}

@@ -125,15 +125,20 @@ class TestPreferredDonors:
         assert donors["S"] > 0  # Positive weight
         assert donors["N"] > 0  # Positive weight
 
-    def test_lanthanide_only_oxygen_donors(self):
-        """Lanthanides (hard acids) ONLY accept O donors."""
+    def test_lanthanide_prefers_oxygen_allows_nitrogen(self):
+        """Lanthanides (hard acids) prefer O, allow N with lower priority, exclude S."""
         for metal in ["TB", "EU", "GD", "LA", "CE", "SM", "YB"]:
             donors = get_preferred_donors(metal, 3, "structural")
+            # O strongly preferred
             assert "O" in donors
             assert donors["O"] > 0
-            # S should be excluded or heavily penalized
+            # N allowed with lower priority than O
+            assert "N" in donors
+            assert donors["N"] > 0
+            assert donors["O"] > donors["N"]  # O preferred over N
+            # S excluded (Cys forbidden)
             if "S" in donors:
-                assert donors["S"] < 0  # Negative weight (penalized)
+                assert donors["S"] < 0  # Negative weight (excluded)
 
     def test_copper1_prefers_soft_donors(self):
         """Cu1+ (soft) prefers S and N donors."""
@@ -319,14 +324,13 @@ class TestCoordinationValidation:
                "soft" in result.get("warnings", [""])[0].lower() or \
                "incompatible" in result.get("warnings", [""])[0].lower()
 
-    def test_invalid_lanthanide_with_his(self):
-        """Lanthanide with His (N donor) may trigger warning."""
+    def test_lanthanide_with_his_is_valid(self):
+        """Lanthanide with His (N donor) is valid - His allowed with lower priority."""
         residues = ["GLU", "GLU", "ASP", "HIS", "GLU", "ASP", "ASN", "GLN"]
         result = validate_coordination_chemistry("TB", residues, 3)
-        # His is not ideal for lanthanides but may be tolerated
-        # At minimum, it should be flagged in warnings
-        if result["hsab_compatible"]:
-            assert len(result.get("warnings", [])) > 0
+        # His is allowed for lanthanides (N donor with lower priority than O)
+        assert result["hsab_compatible"] == True
+        assert result["valid"] == True
 
     def test_valid_calcium_coordination(self):
         """Valid calcium coordination with O donors."""

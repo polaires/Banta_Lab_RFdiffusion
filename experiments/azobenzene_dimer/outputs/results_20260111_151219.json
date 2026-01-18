@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-01-11T15:11:11.156602",
+  "approach_1": {
+    "approach": 1,
+    "name": "offset_origin",
+    "status": "completed",
+    "designs": [
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\azo_offset_10_0.pdb",
+        "config": "azo_offset_10",
+        "metrics": {
+          "affinity": 12.99109,
+          "contacts": 16,
+          "has_clashes": false
+        }
+      }
+    ],
+    "dimers": [
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\azo_offset_10_0_dimer.pdb"
+    ]
+  }
+}

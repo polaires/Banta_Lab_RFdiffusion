@@ -164,6 +164,9 @@ COPY utils/ /app/utils/
 # Copy shared package (interaction analysis module)
 COPY shared/ /app/shared/
 
+# Copy validation pipeline package (geometry, clash detection, coordination analysis)
+COPY validation_pipeline/ /app/validation_pipeline/
+
 # Copy test input for local testing mode
 COPY test_input.json /app/test_input.json
 

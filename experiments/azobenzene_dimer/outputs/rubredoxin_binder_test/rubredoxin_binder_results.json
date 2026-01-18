@@ -1,0 +1,36 @@
+{
+  "status": "completed",
+  "statistics": {
+    "generated": 4,
+    "mpnn_designed": 4,
+    "esm_passed": 4,
+    "relaxed": 0,
+    "interface_analyzed": 4,
+    "passed_filters": 4,
+    "returned": 2
+  },
+  "designs": [
+    {
+      "binder_sequence": "ASAATAAAIQAQTGIAPWAGSAAAPPPGLKVAPTGQTAAGASPAPPTTVVPA",
+      "mpnn_score": 0.0,
+      "esm_perplexity": 6.249999999999998,
+      "esm_confidence": 0.7000000000000003,
+      "interface_contacts": 6574,
+      "interface_hbonds": 15,
+      "buried_sasa": 1353.5,
+      "packstat": 1.0,
+      "rank": 1
+    },
+    {
+      "binder_sequence": "ATDAAGCLFGASAATGGFTAPVTAGNTCDPALAAARGYALATGAAAPALAAIADA",
+      "mpnn_score": 0.0,
+      "esm_perplexity": 6.2499999999999964,
+      "esm_confidence": 0.7000000000000004,
+      "interface_contacts": 6052,
+      "interface_hbonds": 11,
+      "buried_sasa": 1258.3,
+      "packstat": 1.0,
+      "rank": 2
+    }
+  ]
+}

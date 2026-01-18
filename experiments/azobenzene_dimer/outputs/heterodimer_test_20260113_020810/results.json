@@ -1,0 +1,363 @@
+{
+  "timestamp": "20260113_020810",
+  "config": {
+    "ligand_smiles": "c1ccc(/N=N\\c2ccccc2)cc1",
+    "chain_length": "50-70",
+    "num_designs_per_approach": 5
+  },
+  "summary": {
+    "joint": {
+      "total": 5,
+      "successful": 5,
+      "success_rate": 100.0,
+      "anti_homo_passed": 0,
+      "anti_homo_rate": 0.0,
+      "heterodimers": 5,
+      "heterodimer_rate": 100.0,
+      "avg_affinity": -1.3292519999999999,
+      "best_affinity": -6.38078,
+      "avg_identity": 34.019999999999996
+    },
+    "asymmetric_rasa": {
+      "total": 5,
+      "successful": 5,
+      "success_rate": 100.0,
+      "anti_homo_passed": 0,
+      "anti_homo_rate": 0.0,
+      "heterodimers": 5,
+      "heterodimer_rate": 100.0,
+      "avg_affinity": 1.4657120000000001,
+      "best_affinity": -6.43711,
+      "avg_identity": 38.64
+    },
+    "induced": {
+      "total": 5,
+      "successful": 5,
+      "success_rate": 100.0,
+      "anti_homo_passed": 0,
+      "anti_homo_rate": 0.0,
+      "heterodimers": 5,
+      "heterodimer_rate": 100.0,
+      "avg_affinity": -1.29941,
+      "best_affinity": -6.73389,
+      "avg_identity": 39.059999999999995
+    }
+  },
+  "all_results": [
+    {
+      "approach": "joint",
+      "design_index": 0,
+      "elapsed_seconds": 26.49772334098816,
+      "metrics": {
+        "success": true,
+        "affinity": 2.92265,
+        "contacts_a": 8,
+        "contacts_b": 15,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 38.2,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 22.7582,
+        "aa_affinity": 63.3851,
+        "bb_affinity": 74.81905,
+        "selectivity": 40.626900000000006,
+        "anti_homo_score": 60
+      }
+    },
+    {
+      "approach": "joint",
+      "design_index": 1,
+      "elapsed_seconds": 27.620855808258057,
+      "metrics": {
+        "success": true,
+        "affinity": 0.8099,
+        "contacts_a": 8,
+        "contacts_b": 9,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 27.0,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 75.39827,
+        "aa_affinity": 57.97942,
+        "bb_affinity": 6.47031,
+        "selectivity": -68.92796,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "joint",
+      "design_index": 2,
+      "elapsed_seconds": 26.324373245239258,
+      "metrics": {
+        "success": true,
+        "affinity": -3.54081,
+        "contacts_a": 6,
+        "contacts_b": 16,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 40.0,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 44.44307,
+        "aa_affinity": 9.88704,
+        "bb_affinity": 80.96466,
+        "selectivity": -34.55603,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "joint",
+      "design_index": 3,
+      "elapsed_seconds": 25.364012002944946,
+      "metrics": {
+        "success": true,
+        "affinity": -0.45722,
+        "contacts_a": 8,
+        "contacts_b": 10,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 34.3,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 44.742,
+        "aa_affinity": 58.23637,
+        "bb_affinity": 76.48673,
+        "selectivity": 13.494370000000004,
+        "anti_homo_score": 60
+      }
+    },
+    {
+      "approach": "joint",
+      "design_index": 4,
+      "elapsed_seconds": 36.999350786209106,
+      "metrics": {
+        "success": true,
+        "affinity": -6.38078,
+        "contacts_a": 5,
+        "contacts_b": 12,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 30.6,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 32.52921,
+        "aa_affinity": 30.98161,
+        "bb_affinity": 52.27932,
+        "selectivity": -1.5475999999999992,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 0,
+      "elapsed_seconds": 42.95233488082886,
+      "metrics": {
+        "success": true,
+        "affinity": 11.37125,
+        "contacts_a": 17,
+        "contacts_b": 6,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 41.2,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 84.04775,
+        "aa_affinity": 6.95007,
+        "bb_affinity": 2.86418,
+        "selectivity": -81.18356999999999,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 1,
+      "elapsed_seconds": 42.8307409286499,
+      "metrics": {
+        "success": true,
+        "affinity": -0.44524,
+        "contacts_a": 18,
+        "contacts_b": 7,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 33.7,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 67.00555,
+        "aa_affinity": 45.88391,
+        "bb_affinity": 49.56573,
+        "selectivity": -21.12164,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 2,
+      "elapsed_seconds": 46.80368113517761,
+      "metrics": {
+        "success": true,
+        "affinity": 1.19598,
+        "contacts_a": 23,
+        "contacts_b": 4,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 52.3,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 41.83751,
+        "aa_affinity": 56.4748,
+        "bb_affinity": 4.68739,
+        "selectivity": -37.15012,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 3,
+      "elapsed_seconds": 37.68670296669006,
+      "metrics": {
+        "success": true,
+        "affinity": 1.64368,
+        "contacts_a": 27,
+        "contacts_b": 2,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 33.7,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 67.34535,
+        "aa_affinity": 76.54469,
+        "bb_affinity": 53.17859,
+        "selectivity": -14.166759999999996,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 4,
+      "elapsed_seconds": 39.66983914375305,
+      "metrics": {
+        "success": true,
+        "affinity": -6.43711,
+        "contacts_a": 14,
+        "contacts_b": 1,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 32.3,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 71.97307,
+        "aa_affinity": 41.23053,
+        "bb_affinity": 57.15519,
+        "selectivity": -30.742540000000005,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 0,
+      "elapsed_seconds": 49.62376594543457,
+      "metrics": {
+        "success": true,
+        "affinity": -0.45499,
+        "contacts_a": 17,
+        "contacts_b": 7,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 49.3,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 57.0271,
+        "aa_affinity": 22.51052,
+        "bb_affinity": 71.54198,
+        "selectivity": -34.51658,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 1,
+      "elapsed_seconds": 46.57421565055847,
+      "metrics": {
+        "success": true,
+        "affinity": -0.63713,
+        "contacts_a": 15,
+        "contacts_b": 3,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 29.9,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 29.0432,
+        "aa_affinity": 43.77591,
+        "bb_affinity": 58.66834,
+        "selectivity": 14.732710000000004,
+        "anti_homo_score": 60
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 2,
+      "elapsed_seconds": 45.27632546424866,
+      "metrics": {
+        "success": true,
+        "affinity": -6.73389,
+        "contacts_a": 21,
+        "contacts_b": 3,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 48.8,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 55.07296,
+        "aa_affinity": 65.23171,
+        "bb_affinity": 24.81112,
+        "selectivity": -30.261840000000003,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 3,
+      "elapsed_seconds": 40.17284655570984,
+      "metrics": {
+        "success": true,
+        "affinity": 0.72531,
+        "contacts_a": 27,
+        "contacts_b": 1,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 30.5,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 51.70504,
+        "aa_affinity": 89.0116,
+        "bb_affinity": 72.45388,
+        "selectivity": 20.74884,
+        "anti_homo_score": 60
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 4,
+      "elapsed_seconds": 43.427202224731445,
+      "metrics": {
+        "success": true,
+        "affinity": 0.60365,
+        "contacts_a": 20,
+        "contacts_b": 2,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 36.8,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 53.00329,
+        "aa_affinity": 47.45929,
+        "bb_affinity": 4.06816,
+        "selectivity": -48.93513,
+        "anti_homo_score": 50
+      }
+    }
+  ]
+}

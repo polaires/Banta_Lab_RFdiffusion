@@ -371,6 +371,337 @@ def replace_metal_in_pdb(pdb_content: str, target_metal: str, source_metal: str 
     return '\n'.join(modified_lines)
 
 
+# ============== Metal-Ligand Complex Support ==============
+
+@dataclass
+class MetalLigandComplex:
+    """
+    Represents a metal-ligand complex with coordination information.
+
+    Used for designing proteins around cofactors like PQQ-Ca, heme-Fe,
+    or citrate-lanthanide complexes where both the organic ligand and
+    coordinated metal are functionally important.
+    """
+    metal_code: str                              # e.g., "CA", "TB", "FE"
+    metal_coords: Tuple[float, float, float]     # Metal position
+    metal_chain: str                             # Chain ID for metal
+    metal_resnum: int                            # Residue number for metal
+    ligand_atoms: List[Dict[str, Any]]           # List of ligand atoms
+    ligand_res_name: str                         # e.g., "PQQ", "CIT"
+    ligand_chain: str                            # Chain ID for ligand
+    ligand_resnum: int                           # Residue number for ligand
+    coordination_bonds: List[Dict[str, Any]]     # Existing metal-ligand bonds
+    available_sites: int                         # Sites available for protein
+    coordination_geometry: str                   # "octahedral", "square_antiprism"
+    centroid: Tuple[float, float, float]         # Complex center
+
+    def get_ligand_coordinating_atoms(self) -> List[str]:
+        """Get names of ligand atoms coordinating the metal."""
+        return [bond["ligand_atom"] for bond in self.coordination_bonds]
+
+    def get_complex_pdb(self) -> str:
+        """Generate PDB content for just the metal-ligand complex."""
+        lines = []
+        atom_num = 1
+
+        # Write ligand atoms
+        for atom in self.ligand_atoms:
+            x, y, z = atom["coords"]
+            element = atom.get("element", atom["name"][0])
+            line = (
+                f"HETATM{atom_num:5d} {atom['name']:4s} {self.ligand_res_name:3s} "
+                f"{self.ligand_chain:1s}{self.ligand_resnum:4d}    "
+                f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {element:>2s}"
+            )
+            lines.append(line)
+            atom_num += 1
+
+        # Write metal atom
+        x, y, z = self.metal_coords
+        element = self.metal_code[:2]
+        line = (
+            f"HETATM{atom_num:5d} {self.metal_code:4s} {self.metal_code:3s} "
+            f"{self.metal_chain:1s}{self.metal_resnum:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00          {element:>2s}"
+        )
+        lines.append(line)
+        lines.append("END")
+
+        return "\n".join(lines)
+
+
+# Ligand atoms that can coordinate metals (oxygen, nitrogen donors)
+LIGAND_COORDINATING_ELEMENTS = {"O", "N", "S"}
+
+
+def parse_metal_ligand_complex(
+    pdb_content: str,
+    metal_codes: Optional[List[str]] = None,
+    ligand_names: Optional[List[str]] = None,
+    coordination_cutoff: float = 3.0,
+) -> List[MetalLigandComplex]:
+    """
+    Parse metal-ligand complex from PDB and identify coordination.
+
+    This function identifies metal ions and their coordinating organic ligands
+    (cofactors like PQQ, citrate, porphyrin) in PDB structures.
+
+    Args:
+        pdb_content: PDB file content
+        metal_codes: Expected metals (auto-detect from METAL_CODES if None)
+        ligand_names: Expected ligand residue names (auto-detect non-water HETATM)
+        coordination_cutoff: Distance cutoff for metal-ligand bonds (default 3.0 Å)
+
+    Returns:
+        List of MetalLigandComplex objects
+    """
+    if metal_codes is None:
+        metal_codes = list(METAL_CODES)
+
+    # Common water/solvent residue names to exclude
+    SOLVENT_RESIDUES = {"HOH", "WAT", "DOD", "H2O", "SOL"}
+
+    # Parse all HETATM records
+    metals = []
+    ligand_atoms_by_res = {}  # (chain, resnum, resname) -> [atoms]
+
+    for line in pdb_content.split('\n'):
+        if not line.startswith('HETATM'):
+            continue
+
+        try:
+            atom_name = line[12:16].strip()
+            res_name = line[17:20].strip()
+            chain_id = line[21] if len(line) > 21 else 'L'
+            res_num = int(line[22:26])
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+
+            # Get element (last 2 characters or infer from atom name)
+            element = line[76:78].strip() if len(line) >= 78 else atom_name[0]
+
+            if res_name in metal_codes:
+                # This is a metal ion
+                metals.append({
+                    "code": res_name,
+                    "coords": (x, y, z),
+                    "chain": chain_id,
+                    "resnum": res_num,
+                })
+            elif res_name not in SOLVENT_RESIDUES:
+                # This is a ligand atom (skip water)
+                if ligand_names is None or res_name in ligand_names:
+                    key = (chain_id, res_num, res_name)
+                    if key not in ligand_atoms_by_res:
+                        ligand_atoms_by_res[key] = []
+                    ligand_atoms_by_res[key].append({
+                        "name": atom_name,
+                        "coords": (x, y, z),
+                        "element": element,
+                        "res_name": res_name,
+                    })
+        except (ValueError, IndexError):
+            continue
+
+    if not metals:
+        return []
+
+    # For each metal, find coordinating ligand
+    complexes = []
+
+    for metal in metals:
+        mx, my, mz = metal["coords"]
+
+        # Find closest ligand and its coordinating atoms
+        best_ligand_key = None
+        coordination_bonds = []
+
+        for lig_key, atoms in ligand_atoms_by_res.items():
+            for atom in atoms:
+                # Check if this atom could coordinate (O, N, S)
+                if atom["element"] not in LIGAND_COORDINATING_ELEMENTS:
+                    continue
+
+                ax, ay, az = atom["coords"]
+                dist = math.sqrt((ax-mx)**2 + (ay-my)**2 + (az-mz)**2)
+
+                if dist <= coordination_cutoff:
+                    coordination_bonds.append({
+                        "ligand_atom": atom["name"],
+                        "ligand_element": atom["element"],
+                        "distance": dist,
+                        "ligand_key": lig_key,
+                    })
+                    if best_ligand_key is None:
+                        best_ligand_key = lig_key
+                    elif lig_key != best_ligand_key:
+                        # Multiple ligands - keep the one with most bonds
+                        pass
+
+        if not coordination_bonds or best_ligand_key is None:
+            continue
+
+        # Get ligand info
+        lig_chain, lig_resnum, lig_resname = best_ligand_key
+        lig_atoms = ligand_atoms_by_res[best_ligand_key]
+
+        # Calculate ligand centroid
+        if lig_atoms:
+            lig_coords = [a["coords"] for a in lig_atoms]
+            lig_centroid = (
+                sum(c[0] for c in lig_coords) / len(lig_coords),
+                sum(c[1] for c in lig_coords) / len(lig_coords),
+                sum(c[2] for c in lig_coords) / len(lig_coords),
+            )
+        else:
+            lig_centroid = metal["coords"]
+
+        # Calculate complex centroid (average of metal and ligand centroid)
+        complex_centroid = (
+            (mx + lig_centroid[0]) / 2,
+            (my + lig_centroid[1]) / 2,
+            (mz + lig_centroid[2]) / 2,
+        )
+
+        # Estimate coordination geometry based on bond count
+        num_ligand_bonds = len([b for b in coordination_bonds if b["ligand_key"] == best_ligand_key])
+        if num_ligand_bonds <= 2:
+            geometry = "linear_or_bent"
+            available_sites = 4  # Assume tetrahedral completion
+        elif num_ligand_bonds <= 4:
+            geometry = "tetrahedral_or_square_planar"
+            available_sites = 6 - num_ligand_bonds  # Assume octahedral completion
+        else:
+            geometry = "octahedral_or_higher"
+            available_sites = max(0, 8 - num_ligand_bonds)  # For lanthanides
+
+        # Adjust for known metals
+        if metal["code"] in {"TB", "EU", "GD", "LA", "CE"}:
+            # Lanthanides prefer 8-9 coordination
+            available_sites = max(0, 9 - num_ligand_bonds)
+            geometry = "square_antiprism" if num_ligand_bonds >= 4 else geometry
+
+        complexes.append(MetalLigandComplex(
+            metal_code=metal["code"],
+            metal_coords=metal["coords"],
+            metal_chain=metal["chain"],
+            metal_resnum=metal["resnum"],
+            ligand_atoms=lig_atoms,
+            ligand_res_name=lig_resname,
+            ligand_chain=lig_chain,
+            ligand_resnum=lig_resnum,
+            coordination_bonds=[b for b in coordination_bonds if b["ligand_key"] == best_ligand_key],
+            available_sites=available_sites,
+            coordination_geometry=geometry,
+            centroid=complex_centroid,
+        ))
+
+    return complexes
+
+
+def detect_available_coordination_sites(
+    complex_info: MetalLigandComplex,
+    target_coordination: int = 6,
+) -> List[Dict[str, Any]]:
+    """
+    Identify positions where protein residues can coordinate to the metal.
+
+    For octahedral (CN=6): 2 axial + 4 equatorial positions
+    For square antiprism (CN=8): 8 positions in two planes
+
+    Args:
+        complex_info: MetalLigandComplex object
+        target_coordination: Target coordination number
+
+    Returns:
+        List of available site dicts with coords and preferred_donors
+    """
+    import math
+
+    mx, my, mz = complex_info.metal_coords
+    occupied_directions = []
+
+    # Get directions to coordinated ligand atoms
+    for bond in complex_info.coordination_bonds:
+        # Find the atom in ligand_atoms
+        for atom in complex_info.ligand_atoms:
+            if atom["name"] == bond["ligand_atom"]:
+                ax, ay, az = atom["coords"]
+                dx, dy, dz = ax - mx, ay - my, az - mz
+                dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                if dist > 0:
+                    occupied_directions.append((dx/dist, dy/dist, dz/dist))
+                break
+
+    # Generate ideal coordination sites based on geometry
+    available_sites = []
+    bond_distance = 2.4  # Typical metal-ligand bond distance
+
+    # Determine preferred donors based on metal
+    if complex_info.metal_code in {"CA", "MG"}:
+        preferred = ["Glu", "Asp", "Asn", "Gln"]
+    elif complex_info.metal_code in {"TB", "EU", "GD", "LA"}:
+        preferred = ["Glu", "Asp", "Asn"]  # Carboxylate oxygens
+    elif complex_info.metal_code in {"ZN", "FE", "CU"}:
+        preferred = ["His", "Cys", "Glu", "Asp"]
+    else:
+        preferred = ["His", "Glu", "Asp", "Cys"]
+
+    if target_coordination == 6:
+        # Octahedral: check 6 cardinal directions
+        directions = [
+            (1, 0, 0), (-1, 0, 0),
+            (0, 1, 0), (0, -1, 0),
+            (0, 0, 1), (0, 0, -1),
+        ]
+    elif target_coordination == 8:
+        # Square antiprism: 8 positions
+        angle = math.pi / 4
+        directions = []
+        for i in range(4):
+            theta = i * math.pi / 2
+            directions.append((math.cos(theta), math.sin(theta), 0.5))
+            directions.append((math.cos(theta + angle), math.sin(theta + angle), -0.5))
+        # Normalize
+        directions = [(d[0]/math.sqrt(d[0]**2+d[1]**2+d[2]**2),
+                       d[1]/math.sqrt(d[0]**2+d[1]**2+d[2]**2),
+                       d[2]/math.sqrt(d[0]**2+d[1]**2+d[2]**2)) for d in directions]
+    else:
+        # Default tetrahedral
+        directions = [
+            (1, 1, 1), (-1, -1, 1), (-1, 1, -1), (1, -1, -1),
+        ]
+        directions = [(d[0]/math.sqrt(3), d[1]/math.sqrt(3), d[2]/math.sqrt(3)) for d in directions]
+
+    # Check which directions are not occupied
+    for d in directions:
+        is_occupied = False
+        for occ in occupied_directions:
+            # Check if directions are similar (dot product > 0.7)
+            dot = d[0]*occ[0] + d[1]*occ[1] + d[2]*occ[2]
+            if dot > 0.7:
+                is_occupied = True
+                break
+
+        if not is_occupied:
+            site_coords = (
+                mx + d[0] * bond_distance,
+                my + d[1] * bond_distance,
+                mz + d[2] * bond_distance,
+            )
+            site_type = "axial" if abs(d[2]) > 0.7 else "equatorial"
+            available_sites.append({
+                "coords": site_coords,
+                "direction": d,
+                "site_type": site_type,
+                "preferred_donors": preferred,
+                "bond_distance": bond_distance,
+            })
+
+    return available_sites
+
+
 def atom_array_to_pdb(atom_array) -> str:
     """Convert biotite AtomArray to PDB string"""
     from biotite.structure.io.pdb import PDBFile
@@ -611,6 +942,130 @@ def apply_sequence_to_pdb(
         new_lines.append(line)
 
     return '\n'.join(new_lines)
+
+
+def apply_designed_sequence_to_backbone(
+    pdb_content: str,
+    designed_sequence: str,
+) -> Optional[str]:
+    """
+    Apply a designed sequence to a backbone structure by mutating residue names.
+
+    This function takes a backbone PDB (e.g., from RFD3) and a designed sequence
+    (e.g., from LigandMPNN) and updates the residue names to match the designed
+    sequence. It preserves backbone atoms (N, CA, C, O) and removes sidechains
+    that don't match the new residue type.
+
+    Args:
+        pdb_content: PDB content with backbone structure
+        designed_sequence: Amino acid sequence from LigandMPNN (1-letter codes)
+
+    Returns:
+        Modified PDB content with updated residue names, or None if failed
+    """
+    from biotite.sequence import ProteinSequence
+
+    # 1-letter to 3-letter amino acid code conversion
+    AA_1TO3 = {
+        'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS',
+        'Q': 'GLN', 'E': 'GLU', 'G': 'GLY', 'H': 'HIS', 'I': 'ILE',
+        'L': 'LEU', 'K': 'LYS', 'M': 'MET', 'F': 'PHE', 'P': 'PRO',
+        'S': 'SER', 'T': 'THR', 'W': 'TRP', 'Y': 'TYR', 'V': 'VAL',
+    }
+
+    # Backbone atoms to keep (all other atoms depend on residue type)
+    BACKBONE_ATOMS = {'N', 'CA', 'C', 'O', 'CB'}  # CB is same for all except Gly
+
+    lines = pdb_content.split('\n')
+
+    # First pass: collect residue positions (chain, resnum) in order
+    residue_order = []
+    seen_residues = set()
+    residue_atoms = {}  # (chain, resnum) -> original res_name
+
+    for line in lines:
+        if line.startswith('ATOM'):
+            chain_id = line[21]
+            try:
+                res_num = int(line[22:26])
+            except ValueError:
+                continue
+            res_name = line[17:20].strip()
+
+            key = (chain_id, res_num)
+            if key not in seen_residues:
+                residue_order.append(key)
+                seen_residues.add(key)
+                residue_atoms[key] = res_name
+
+    # Split designed sequence by chains
+    # Assumption: designed_sequence contains sequences for all chains concatenated
+    # We need to match sequence length to residue count
+    total_residues = len(residue_order)
+    seq_len = len(designed_sequence)
+
+    if seq_len != total_residues:
+        print(f"[SeqApply] Warning: Sequence length ({seq_len}) != residue count ({total_residues})")
+        # If lengths don't match, we can't apply the sequence
+        if abs(seq_len - total_residues) > 5:  # Allow small mismatches
+            return None
+
+    # Create mapping of (chain, resnum) -> new 3-letter code
+    new_residues = {}
+    for i, key in enumerate(residue_order):
+        if i < seq_len:
+            aa_1 = designed_sequence[i].upper()
+            if aa_1 in AA_1TO3:
+                new_residues[key] = AA_1TO3[aa_1]
+            else:
+                # Unknown amino acid, keep original
+                new_residues[key] = residue_atoms.get(key, 'ALA')
+        else:
+            # No sequence for this residue, keep original
+            new_residues[key] = residue_atoms.get(key, 'ALA')
+
+    # Second pass: modify PDB lines
+    new_lines = []
+    for line in lines:
+        if line.startswith('ATOM'):
+            chain_id = line[21]
+            atom_name = line[12:16].strip()
+            try:
+                res_num = int(line[22:26])
+            except ValueError:
+                new_lines.append(line)
+                continue
+
+            key = (chain_id, res_num)
+            new_res_name = new_residues.get(key)
+
+            if new_res_name:
+                # Check if this is a backbone atom or CB (keep it)
+                if atom_name in BACKBONE_ATOMS:
+                    # Special case: GLY has no CB
+                    if atom_name == 'CB' and new_res_name == 'GLY':
+                        continue  # Skip CB for glycine
+
+                    # Update residue name in the line
+                    # PDB format: columns 18-20 are residue name
+                    new_line = line[:17] + f"{new_res_name:>3s}" + line[20:]
+                    new_lines.append(new_line)
+                else:
+                    # Sidechain atom - skip it (we only keep backbone)
+                    continue
+            else:
+                new_lines.append(line)
+        else:
+            new_lines.append(line)
+
+    result_pdb = '\n'.join(new_lines)
+
+    # Count how many E/D residues are now near the metal (for logging)
+    glu_count = designed_sequence.count('E')
+    asp_count = designed_sequence.count('D')
+    print(f"[SeqApply] Applied sequence with {glu_count} Glu + {asp_count} Asp = {glu_count+asp_count} carboxylate donors")
+
+    return result_pdb
 
 
 def fix_incomplete_backbone(pdb_content: str) -> str:
@@ -2456,11 +2911,29 @@ def run_mpnn_python_api(
                 })
 
             # Extract packed structure if available
-            if pack_side_chains and hasattr(item, 'pdb_content'):
-                pdb_structures.append({
-                    "design": i + 1,
-                    "pdb_content": item.pdb_content,
-                })
+            if pack_side_chains:
+                if hasattr(item, 'pdb_content') and item.pdb_content:
+                    pdb_structures.append({
+                        "design": i + 1,
+                        "pdb_content": item.pdb_content,
+                    })
+                elif hasattr(item, 'atom_array') and item.atom_array is not None:
+                    # Convert atom_array to PDB format
+                    try:
+                        from biotite.structure.io import pdb as pdb_io
+                        import io
+                        pdb_file = pdb_io.PDBFile()
+                        pdb_io.set_structure(pdb_file, item.atom_array)
+                        pdb_str = io.StringIO()
+                        pdb_file.write(pdb_str)
+                        pdb_content = pdb_str.getvalue()
+                        pdb_structures.append({
+                            "design": i + 1,
+                            "pdb_content": pdb_content,
+                        })
+                        print(f"[MPNN] Converted atom_array to PDB for design {i+1}")
+                    except Exception as e:
+                        print(f"[MPNN] Warning: Could not convert atom_array to PDB: {e}")
 
     fasta_content = "\n".join(sequences)
 

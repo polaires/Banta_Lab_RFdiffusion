@@ -1,0 +1,34 @@
+{
+    "azo_offset_10": {
+        "input": "experiments/azobenzene_dimer/setup/azobenzene_oriented.pdb",
+        "contig": "60-80",
+        "ligand": "AZO",
+        "ori_token": [10.0, 0.0, 0.0],
+        "select_exposed": {"AZO": "C7,C8,C9,C10,C11,C12"},
+        "select_buried": {"AZO": "C1,C2,C3,C4,C5,C6"}
+    },
+    "azo_offset_15": {
+        "input": "experiments/azobenzene_dimer/setup/azobenzene_oriented.pdb",
+        "contig": "60-80",
+        "ligand": "AZO",
+        "ori_token": [15.0, 0.0, 0.0],
+        "select_exposed": {"AZO": "C7,C8,C9,C10,C11,C12"},
+        "select_buried": {"AZO": "C1,C2,C3,C4,C5,C6"}
+    },
+    "azo_offset_20": {
+        "input": "experiments/azobenzene_dimer/setup/azobenzene_oriented.pdb",
+        "contig": "60-80",
+        "ligand": "AZO",
+        "ori_token": [20.0, 0.0, 0.0],
+        "select_exposed": {"AZO": "C7,C8,C9,C10,C11,C12"},
+        "select_buried": {"AZO": "C1,C2,C3,C4,C5,C6"}
+    },
+    "azo_offset_15_longer": {
+        "input": "experiments/azobenzene_dimer/setup/azobenzene_oriented.pdb",
+        "contig": "80-100",
+        "ligand": "AZO",
+        "ori_token": [15.0, 0.0, 0.0],
+        "select_exposed": {"AZO": "C7,C8,C9,C10,C11,C12"},
+        "select_buried": {"AZO": "C1,C2,C3,C4,C5,C6"}
+    }
+}

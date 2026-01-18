@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-01-11T15:00:30.478912",
+  "approach_2": {
+    "approach": 2,
+    "name": "binder_to_binder",
+    "status": "step1_failed",
+    "step1_designs": [],
+    "step2_designs": [],
+    "dimers": []
+  }
+}

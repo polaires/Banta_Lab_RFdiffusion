@@ -184,7 +184,7 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
     },
 
     # -------------------------------------------------------------------------
-    # LANTHANIDES - HARD ACIDS (ONLY O DONORS)
+    # LANTHANIDES - HARD ACIDS (O preferred, N allowed with lower priority, exclude Cys)
     # -------------------------------------------------------------------------
     "TB": {
         "name": "Terbium",
@@ -192,16 +192,17 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "default_oxidation": 3,
         "preferred_donors": {
             3: {
-                "catalytic": {"O": 3.0, "N": -2.0, "S": -5.0},
-                "structural": {"O": 3.0, "N": -2.0, "S": -5.0},
+                # O strongly preferred (Glu/Asp), N allowed lower priority (His), S excluded (Cys)
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
             }
         },
         "bond_distances": {
-            3: {"O": (2.30, 2.60)}
+            3: {"O": (2.30, 2.60), "N": (2.40, 2.70)}
         },
         "coordination_numbers": {3: (8, 9)},
-        "common_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "description": "Hard acid lanthanide, ONLY O donors, exclude Cys",
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, O donors preferred, His allowed, exclude Cys",
     },
 
     "EU": {
@@ -210,16 +211,16 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "default_oxidation": 3,
         "preferred_donors": {
             3: {
-                "catalytic": {"O": 3.0, "N": -2.0, "S": -5.0},
-                "structural": {"O": 3.0, "N": -2.0, "S": -5.0},
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
             }
         },
         "bond_distances": {
-            3: {"O": (2.35, 2.65)}
+            3: {"O": (2.35, 2.65), "N": (2.45, 2.75)}
         },
         "coordination_numbers": {3: (8, 9)},
-        "common_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "description": "Hard acid lanthanide, luminescent, ONLY O donors",
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, luminescent, O preferred, His allowed",
     },
 
     "GD": {
@@ -228,16 +229,16 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "default_oxidation": 3,
         "preferred_donors": {
             3: {
-                "catalytic": {"O": 3.0, "N": -2.0, "S": -5.0},
-                "structural": {"O": 3.0, "N": -2.0, "S": -5.0},
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
             }
         },
         "bond_distances": {
-            3: {"O": (2.30, 2.60)}
+            3: {"O": (2.30, 2.60), "N": (2.40, 2.70)}
         },
         "coordination_numbers": {3: (8, 9)},
-        "common_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "description": "Hard acid lanthanide, MRI contrast agent, ONLY O donors",
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, MRI contrast agent, O preferred, His allowed",
     },
 
     "LA": {
@@ -246,16 +247,16 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "default_oxidation": 3,
         "preferred_donors": {
             3: {
-                "catalytic": {"O": 3.0, "N": -2.0, "S": -5.0},
-                "structural": {"O": 3.0, "N": -2.0, "S": -5.0},
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
             }
         },
         "bond_distances": {
-            3: {"O": (2.40, 2.70)}
+            3: {"O": (2.40, 2.70), "N": (2.50, 2.80)}
         },
         "coordination_numbers": {3: (8, 10)},
-        "common_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "description": "Hard acid lanthanide, largest ionic radius, ONLY O donors",
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, largest ionic radius, O preferred, His allowed",
     },
 
     "CE": {
@@ -264,16 +265,16 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "default_oxidation": 3,
         "preferred_donors": {
             3: {
-                "catalytic": {"O": 3.0, "N": -2.0, "S": -5.0},
-                "structural": {"O": 3.0, "N": -2.0, "S": -5.0},
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
             }
         },
         "bond_distances": {
-            3: {"O": (2.35, 2.65)}
+            3: {"O": (2.35, 2.65), "N": (2.45, 2.75)}
         },
         "coordination_numbers": {3: (8, 10)},
-        "common_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "description": "Hard acid lanthanide, ONLY O donors",
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, O preferred, His allowed",
     },
 
     "SM": {
@@ -282,16 +283,16 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "default_oxidation": 3,
         "preferred_donors": {
             3: {
-                "catalytic": {"O": 3.0, "N": -2.0, "S": -5.0},
-                "structural": {"O": 3.0, "N": -2.0, "S": -5.0},
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
             }
         },
         "bond_distances": {
-            3: {"O": (2.30, 2.60)}
+            3: {"O": (2.30, 2.60), "N": (2.40, 2.70)}
         },
         "coordination_numbers": {3: (8, 9)},
-        "common_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "description": "Hard acid lanthanide, ONLY O donors",
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, O preferred, His allowed",
     },
 
     "YB": {
@@ -300,16 +301,16 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "default_oxidation": 3,
         "preferred_donors": {
             3: {
-                "catalytic": {"O": 3.0, "N": -2.0, "S": -5.0},
-                "structural": {"O": 3.0, "N": -2.0, "S": -5.0},
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
             }
         },
         "bond_distances": {
-            3: {"O": (2.25, 2.55)}
+            3: {"O": (2.25, 2.55), "N": (2.35, 2.65)}
         },
         "coordination_numbers": {3: (8, 9)},
-        "common_residues": ["GLU", "ASP", "ASN", "GLN"],
-        "description": "Hard acid lanthanide, smallest lanthanide, ONLY O donors",
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, smallest lanthanide, O preferred, His allowed",
     },
 }
 
@@ -641,14 +642,10 @@ def validate_coordination_chemistry(
                 f"(soft S donor). Cysteine coordination is not favorable."
             )
 
-        # Hard acid with borderline donor (N from His) = suboptimal but tolerated
-        if hsab_class == "hard" and donor == "N":
-            # For lanthanides specifically, N is penalized
-            if metal in ["TB", "EU", "GD", "LA", "CE", "SM", "YB"]:
-                warnings.append(
-                    f"Suboptimal: {metal} (lanthanide) prefers O donors over N donors ({res}). "
-                    f"Consider using Glu/Asp instead of His."
-                )
+        # Hard acid with borderline donor (N from His)
+        # For lanthanides, N is allowed with lower priority (not warned)
+        # For other hard acids (Ca, Mg), N is less common but still acceptable
+        # No warning needed - N donors are valid for hard acids just with lower preference
 
         # Soft acid with hard donor (O) = suboptimal
         if hsab_class == "soft" and donor == "O":

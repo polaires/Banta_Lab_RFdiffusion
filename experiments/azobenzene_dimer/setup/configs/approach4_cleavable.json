@@ -1,0 +1,10 @@
+{
+  "cleavable_monomer": {
+    "input": "experiments/azobenzene_dimer/setup/azobenzene_oriented.pdb",
+    "contig": "80-120",
+    "ligand": "AZO",
+    "select_partially_buried": {
+      "AZO": "ALL"
+    }
+  }
+}

@@ -1,0 +1,237 @@
+{
+  "timestamp": "20260113_013759",
+  "config": {
+    "ligand_smiles": "c1ccc(/N=N\\c2ccccc2)cc1",
+    "chain_length": "50-70",
+    "num_designs_per_approach": 3
+  },
+  "summary": {
+    "joint": {
+      "total": 3,
+      "successful": 3,
+      "success_rate": 100.0,
+      "anti_homo_passed": 0,
+      "anti_homo_rate": 0.0,
+      "heterodimers": 3,
+      "heterodimer_rate": 100.0,
+      "avg_affinity": -1.912733333333333,
+      "best_affinity": -6.17341,
+      "avg_identity": 35.46666666666667
+    },
+    "asymmetric_rasa": {
+      "total": 3,
+      "successful": 3,
+      "success_rate": 100.0,
+      "anti_homo_passed": 0,
+      "anti_homo_rate": 0.0,
+      "heterodimers": 3,
+      "heterodimer_rate": 100.0,
+      "avg_affinity": 10.829006666666666,
+      "best_affinity": 2.88883,
+      "avg_identity": 27.7
+    },
+    "induced": {
+      "total": 3,
+      "successful": 3,
+      "success_rate": 100.0,
+      "anti_homo_passed": 0,
+      "anti_homo_rate": 0.0,
+      "heterodimers": 3,
+      "heterodimer_rate": 100.0,
+      "avg_affinity": 10.202753333333334,
+      "best_affinity": 0.84942,
+      "avg_identity": 31.133333333333336
+    }
+  },
+  "all_results": [
+    {
+      "approach": "joint",
+      "design_index": 0,
+      "elapsed_seconds": 29.947861433029175,
+      "metrics": {
+        "success": true,
+        "affinity": -6.17341,
+        "contacts_a": 9,
+        "contacts_b": 10,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 35.2,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 72.44164,
+        "aa_affinity": 59.52102,
+        "bb_affinity": 22.60044,
+        "selectivity": -49.84120000000001,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "joint",
+      "design_index": 1,
+      "elapsed_seconds": 35.13577938079834,
+      "metrics": {
+        "success": true,
+        "affinity": -1.03212,
+        "contacts_a": 5,
+        "contacts_b": 5,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 29.6,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 38.74926,
+        "aa_affinity": 46.63507,
+        "bb_affinity": 36.70255,
+        "selectivity": -2.0467099999999974,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "joint",
+      "design_index": 2,
+      "elapsed_seconds": 28.031114101409912,
+      "metrics": {
+        "success": true,
+        "affinity": 1.46733,
+        "contacts_a": 6,
+        "contacts_b": 16,
+        "has_clashes": false,
+        "separable": true,
+        "sequence_identity": 41.6,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 45.32893,
+        "aa_affinity": 38.47505,
+        "bb_affinity": 80.43349,
+        "selectivity": -6.853879999999997,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 0,
+      "elapsed_seconds": 47.48220944404602,
+      "metrics": {
+        "success": true,
+        "affinity": 10.26413,
+        "contacts_a": 17,
+        "contacts_b": 32,
+        "has_clashes": true,
+        "separable": true,
+        "sequence_identity": 22.4,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 71.49007,
+        "aa_affinity": 52.22419,
+        "bb_affinity": 29.65621,
+        "selectivity": -41.83386,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 1,
+      "elapsed_seconds": 55.07050180435181,
+      "metrics": {
+        "success": true,
+        "affinity": 2.88883,
+        "contacts_a": 23,
+        "contacts_b": 33,
+        "has_clashes": true,
+        "separable": true,
+        "sequence_identity": 29.4,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 4.91073,
+        "aa_affinity": 35.96022,
+        "bb_affinity": 60.01466,
+        "selectivity": 31.04949,
+        "anti_homo_score": 60
+      }
+    },
+    {
+      "approach": "asymmetric_rasa",
+      "design_index": 2,
+      "elapsed_seconds": 44.84543776512146,
+      "metrics": {
+        "success": true,
+        "affinity": 19.33406,
+        "contacts_a": 22,
+        "contacts_b": 33,
+        "has_clashes": true,
+        "separable": true,
+        "sequence_identity": 31.3,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 60.96365,
+        "aa_affinity": 68.77187,
+        "bb_affinity": 74.98494,
+        "selectivity": 7.808220000000006,
+        "anti_homo_score": 60
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 0,
+      "elapsed_seconds": 49.55846047401428,
+      "metrics": {
+        "success": true,
+        "affinity": 3.35465,
+        "contacts_a": 17,
+        "contacts_b": 38,
+        "has_clashes": true,
+        "separable": true,
+        "sequence_identity": 31.4,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 40.63269,
+        "aa_affinity": 77.46311,
+        "bb_affinity": 40.36082,
+        "selectivity": -0.27186999999999983,
+        "anti_homo_score": 50
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 1,
+      "elapsed_seconds": 44.48547554016113,
+      "metrics": {
+        "success": true,
+        "affinity": 26.40419,
+        "contacts_a": 17,
+        "contacts_b": 45,
+        "has_clashes": true,
+        "separable": true,
+        "sequence_identity": 30.6,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 0.1191,
+        "aa_affinity": 63.34908,
+        "bb_affinity": 86.70779,
+        "selectivity": 63.22998,
+        "anti_homo_score": 60
+      }
+    },
+    {
+      "approach": "induced",
+      "design_index": 2,
+      "elapsed_seconds": 45.756762981414795,
+      "metrics": {
+        "success": true,
+        "affinity": 0.84942,
+        "contacts_a": 18,
+        "contacts_b": 37,
+        "has_clashes": true,
+        "separable": true,
+        "sequence_identity": 31.4,
+        "is_heterodimer": true,
+        "passes_anti_homo": false,
+        "ab_affinity": 41.97462,
+        "aa_affinity": 50.07858,
+        "bb_affinity": 74.89736,
+        "selectivity": 8.10396,
+        "anti_homo_score": 60
+      }
+    }
+  ]
+}

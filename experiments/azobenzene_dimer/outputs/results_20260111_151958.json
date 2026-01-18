@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-01-11T15:18:41.038879",
+  "approach_1": {
+    "approach": 1,
+    "name": "offset_origin",
+    "status": "completed",
+    "designs": [
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\expose_ring2_60_80_0.pdb",
+        "config": "expose_ring2_60_80",
+        "metrics": {
+          "affinity": -1.92474,
+          "contacts": 25,
+          "has_clashes": false
+        }
+      },
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\expose_ring2_80_100_0.pdb",
+        "config": "expose_ring2_80_100",
+        "metrics": {
+          "affinity": -0.26729,
+          "contacts": 30,
+          "has_clashes": false
+        }
+      },
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\expose_ring1_azo_60_80_0.pdb",
+        "config": "expose_ring1_azo_60_80",
+        "metrics": {
+          "affinity": 0.57152,
+          "contacts": 21,
+          "has_clashes": false
+        }
+      },
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\expose_ring2_40_60_0.pdb",
+        "config": "expose_ring2_40_60",
+        "metrics": {
+          "affinity": -7.97496,
+          "contacts": 27,
+          "has_clashes": false
+        }
+      }
+    ],
+    "dimers": [
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\expose_ring2_60_80_0_dimer.pdb",
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\expose_ring2_80_100_0_dimer.pdb",
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\expose_ring1_azo_60_80_0_dimer.pdb",
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\expose_ring2_40_60_0_dimer.pdb"
+    ]
+  }
+}

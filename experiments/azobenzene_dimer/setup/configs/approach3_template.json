@@ -1,0 +1,30 @@
+{
+    "_comment": "Template-based design configs. Template PDBs need to be downloaded and prepared first.",
+    "_template_candidates": [
+        "2M0Z - Photoswitchable PDZ domain with azobenzene derivative",
+        "6HWU - p38alpha with azothiazol-based inhibitor",
+        "7LMN - Immunoglobulin light chain homodimer",
+        "4DM6 - RARb LBD homodimer with TTNPB"
+    ],
+    "template_2m0z": {
+        "input": "experiments/azobenzene_dimer/setup/templates/2m0z_with_azo.pdb",
+        "contig": "A1-60,\\0,B1-60",
+        "ligand": "AZO",
+        "select_unfixed_sequence": "A20-40,B20-40",
+        "partial_t": 10.0
+    },
+    "template_7lmn": {
+        "input": "experiments/azobenzene_dimer/setup/templates/7lmn_with_azo.pdb",
+        "contig": "A1-80,\\0,B1-80",
+        "ligand": "AZO",
+        "select_unfixed_sequence": "A30-50,B30-50",
+        "partial_t": 10.0
+    },
+    "template_4dm6": {
+        "input": "experiments/azobenzene_dimer/setup/templates/4dm6_with_azo.pdb",
+        "contig": "A1-100,\\0,B1-100",
+        "ligand": "AZO",
+        "select_unfixed_sequence": "A40-60,B40-60",
+        "partial_t": 10.0
+    }
+}

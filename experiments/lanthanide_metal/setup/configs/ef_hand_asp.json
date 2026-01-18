@@ -1,0 +1,21 @@
+{
+    "name": "EF-Hand ASP Template",
+    "description": "EF-hand template with Asp residues (recommended for tight lanthanide coordination)",
+    "input": {
+        "task": "interface_metal_design",
+        "approach": "joint_metal",
+        "metal": "TB",
+        "use_template": true,
+        "template_type": "ef_hand",
+        "donor_residue": "ASP",
+        "chain_length": "60-80",
+        "num_designs": 3,
+        "use_motif_scaffolding": true
+    },
+    "expected": {
+        "coordination_number_min": 6,
+        "carboxylate_donors_min": 6,
+        "bond_distance_range": [2.1, 2.6],
+        "template_residues_preserved": true
+    }
+}

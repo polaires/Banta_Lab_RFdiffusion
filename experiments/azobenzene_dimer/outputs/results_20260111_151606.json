@@ -1,0 +1,52 @@
+{
+  "timestamp": "2026-01-11T15:14:41.108144",
+  "approach_1": {
+    "approach": 1,
+    "name": "offset_origin",
+    "status": "completed",
+    "designs": [
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\azo_no_offset_60_80_0.pdb",
+        "config": "azo_no_offset_60_80",
+        "metrics": {
+          "affinity": -7.32215,
+          "contacts": 23,
+          "has_clashes": false
+        }
+      },
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\azo_no_offset_80_100_0.pdb",
+        "config": "azo_no_offset_80_100",
+        "metrics": {
+          "affinity": 0.90567,
+          "contacts": 15,
+          "has_clashes": false
+        }
+      },
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\azo_offset_10_0.pdb",
+        "config": "azo_offset_10",
+        "metrics": {
+          "affinity": 6.12893,
+          "contacts": 24,
+          "has_clashes": false
+        }
+      },
+      {
+        "path": "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\azo_offset_15_longer_0.pdb",
+        "config": "azo_offset_15_longer",
+        "metrics": {
+          "affinity": 66.9691,
+          "contacts": 19,
+          "has_clashes": false
+        }
+      }
+    ],
+    "dimers": [
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\azo_no_offset_60_80_0_dimer.pdb",
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\azo_no_offset_80_100_0_dimer.pdb",
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\azo_offset_10_0_dimer.pdb",
+      "G:\\Github_local_repo\\Banta_Lab_RFdiffusion\\experiments\\azobenzene_dimer\\outputs\\approach_1_offset\\dimers\\azo_offset_15_longer_0_dimer.pdb"
+    ]
+  }
+}

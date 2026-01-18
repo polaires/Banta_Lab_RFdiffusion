@@ -498,3 +498,295 @@ def batch_validate(
         "statistics": stats,
         "best_design_index": valid_results[0]["design_index"] if valid_results else None,
     }
+
+
+# ============== Metal-Ligand Complex Validation ==============
+
+def validate_metal_ligand_complex_site(
+    pdb_content: str,
+    metal: str,
+    ligand_name: str,
+    expected_ligand_donors: int = 4,
+    expected_protein_donors: int = 5,
+    metal_coordination_target: int = 9,
+    distance_cutoff: float = 3.5,
+    ligand_hbond_cutoff: float = 3.5,
+    ligand_hbond_acceptors: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Validate metal coordination in a metal-ligand complex design.
+
+    Coordination accounting for metal-ligand complex:
+    - Metal has a total coordination capacity (e.g., 9 for Tb³⁺)
+    - Ligand provides FIXED donors (pre-formed complex, e.g., 4 for citrate)
+    - Protein must provide REMAINING donors (e.g., 9 - 4 = 5)
+
+    This validates that:
+    1. Ligand-metal coordination is preserved (fixed, should not change)
+    2. Protein provides the remaining coordination sites
+    3. Both chains contribute to coordination (for dimers)
+    4. Optionally: ligand-protein H-bonds (additional stabilization)
+
+    Args:
+        pdb_content: PDB content with protein + metal-ligand complex
+        metal: Metal code (CA, TB, FE, etc.)
+        ligand_name: Ligand residue name (PQQ, CIT, etc.)
+        expected_ligand_donors: Donors from ligand to metal (FIXED, pre-formed)
+        expected_protein_donors: Donors protein must provide (REMAINING sites)
+        metal_coordination_target: Metal's total coordination capacity
+        distance_cutoff: Maximum distance for metal coordination (Å)
+        ligand_hbond_cutoff: Maximum distance for ligand-protein H-bonds (Å)
+        ligand_hbond_acceptors: Ligand atoms available for protein H-bonds
+
+    Returns:
+        Validation result dict with coordination accounting
+    """
+    # Parse metal position
+    metal_pos = None
+    metal_chain = None
+    metal_resnum = None
+
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name == metal:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_pos = (x, y, z)
+                    metal_chain = line[21] if len(line) > 21 else 'M'
+                    metal_resnum = int(line[22:26])
+                    break
+                except (ValueError, IndexError):
+                    continue
+
+    if metal_pos is None:
+        return {
+            "success": False,
+            "error": f"Metal {metal} not found in PDB",
+            "coordination_number": 0,
+            "ligand_coordination": 0,
+            "protein_coordination": 0,
+        }
+
+    mx, my, mz = metal_pos
+
+    # Find ligand donors within cutoff
+    ligand_donors = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name == ligand_name:
+                try:
+                    atom_name = line[12:16].strip()
+                    # Check if this is a potential donor (O, N, S)
+                    element = line[76:78].strip() if len(line) >= 78 else atom_name[0]
+                    if element not in {'O', 'N', 'S'}:
+                        continue
+
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    dist = math.sqrt((x-mx)**2 + (y-my)**2 + (z-mz)**2)
+
+                    if dist <= distance_cutoff:
+                        ligand_donors.append({
+                            "atom": atom_name,
+                            "element": element,
+                            "distance": round(dist, 2),
+                        })
+                except (ValueError, IndexError):
+                    continue
+
+    # Find protein donors within cutoff
+    protein_donors = []
+    coordinating_atoms = {"ND1", "NE2", "SG", "OD1", "OD2", "OE1", "OE2", "OG", "OG1"}
+
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            try:
+                atom_name = line[12:16].strip()
+                if atom_name not in coordinating_atoms:
+                    continue
+
+                res_name = line[17:20].strip()
+                chain = line[21]
+                resnum = int(line[22:26])
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                dist = math.sqrt((x-mx)**2 + (y-my)**2 + (z-mz)**2)
+
+                if dist <= distance_cutoff:
+                    protein_donors.append({
+                        "chain": chain,
+                        "resnum": resnum,
+                        "resname": res_name,
+                        "atom": atom_name,
+                        "distance": round(dist, 2),
+                    })
+            except (ValueError, IndexError):
+                continue
+
+    # Count donors per chain
+    chain_counts = {}
+    for donor in protein_donors:
+        chain = donor["chain"]
+        chain_counts[chain] = chain_counts.get(chain, 0) + 1
+
+    chain_a_donors = chain_counts.get("A", 0)
+    chain_b_donors = chain_counts.get("B", 0)
+
+    # =========================================================================
+    # Coordination Accounting
+    # =========================================================================
+    # Metal coordination: ligand (FIXED) + protein (NEEDED) = total capacity
+    #
+    # Example for Citrate-Tb:
+    #   Metal capacity: 9
+    #   Ligand provides: 4 (O1, O3, O5, O7 - pre-formed, should not change)
+    #   Protein needed: 5 (9 - 4 = 5 remaining sites)
+    # =========================================================================
+
+    total_metal_coord = len(ligand_donors) + len(protein_donors)
+
+    # Find ligand-protein H-bonds (non-coordinating ligand atoms -> protein)
+    ligand_protein_hbonds = []
+    if ligand_hbond_acceptors:
+        # Get positions of ligand H-bond acceptor atoms
+        ligand_hbond_positions = {}
+        for line in pdb_content.split('\n'):
+            if line.startswith('HETATM'):
+                res_name = line[17:20].strip()
+                if res_name == ligand_name:
+                    atom_name = line[12:16].strip()
+                    if atom_name in ligand_hbond_acceptors:
+                        try:
+                            x = float(line[30:38])
+                            y = float(line[38:46])
+                            z = float(line[46:54])
+                            ligand_hbond_positions[atom_name] = (x, y, z)
+                        except (ValueError, IndexError):
+                            continue
+
+        # Find protein H-bond donors near ligand acceptors
+        hbond_donor_atoms = {"N", "NE", "NH1", "NH2", "ND2", "NE2", "NZ", "OG", "OG1", "OH"}
+        for line in pdb_content.split('\n'):
+            if line.startswith('ATOM'):
+                try:
+                    atom_name = line[12:16].strip()
+                    if atom_name not in hbond_donor_atoms:
+                        continue
+                    res_name = line[17:20].strip()
+                    chain = line[21]
+                    resnum = int(line[22:26])
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+
+                    # Check distance to each ligand H-bond acceptor
+                    for lig_atom, (lx, ly, lz) in ligand_hbond_positions.items():
+                        dist = math.sqrt((x-lx)**2 + (y-ly)**2 + (z-lz)**2)
+                        if dist <= ligand_hbond_cutoff:
+                            ligand_protein_hbonds.append({
+                                "ligand_atom": lig_atom,
+                                "protein_chain": chain,
+                                "protein_resnum": resnum,
+                                "protein_resname": res_name,
+                                "protein_atom": atom_name,
+                                "distance": round(dist, 2),
+                            })
+                except (ValueError, IndexError):
+                    continue
+
+    # =========================================================================
+    # Issue Detection
+    # =========================================================================
+    issues = []
+
+    # Check 1: Ligand-metal coordination preserved (CRITICAL)
+    # The pre-formed complex should maintain its coordination
+    if len(ligand_donors) < expected_ligand_donors:
+        issues.append(
+            f"Ligand-metal bonds broken: {len(ligand_donors)}/{expected_ligand_donors} "
+            f"(complex geometry may be distorted)"
+        )
+
+    # Check 2: Protein provides remaining coordination sites
+    if len(protein_donors) < expected_protein_donors:
+        issues.append(
+            f"Insufficient protein coordination: {len(protein_donors)}/{expected_protein_donors} "
+            f"(metal coordination sphere incomplete)"
+        )
+
+    # Check 3: Total coordination meets metal's capacity
+    if total_metal_coord < metal_coordination_target:
+        issues.append(
+            f"Low total coordination: {total_metal_coord}/{metal_coordination_target}"
+        )
+
+    # Check 4: Both chains contribute (for dimer interface)
+    if chain_a_donors == 0 and chain_b_donors > 0:
+        issues.append("No coordination from chain A (asymmetric binding)")
+    if chain_b_donors == 0 and chain_a_donors > 0:
+        issues.append("No coordination from chain B (asymmetric binding)")
+
+    # =========================================================================
+    # Quality Score (0-150)
+    # =========================================================================
+    score = 0
+
+    # Ligand-metal coordination preserved (max 40)
+    if len(ligand_donors) >= expected_ligand_donors:
+        score += 40  # Full ligand coordination
+    elif len(ligand_donors) >= expected_ligand_donors - 1:
+        score += 20  # Minor loss
+
+    # Protein coordination complete (max 50)
+    protein_ratio = len(protein_donors) / max(expected_protein_donors, 1)
+    score += int(min(protein_ratio, 1.0) * 50)
+
+    # Both chains contributing (max 30)
+    if chain_a_donors >= 1 and chain_b_donors >= 1:
+        score += 30  # Both chains
+    elif chain_a_donors >= 1 or chain_b_donors >= 1:
+        score += 15  # One chain only
+
+    # Ligand-protein H-bonds bonus (max 30)
+    if ligand_protein_hbonds:
+        hbond_score = min(len(ligand_protein_hbonds) * 10, 30)
+        score += hbond_score
+
+    return {
+        "success": len(issues) == 0,
+        "quality_score": score,
+        # Coordination accounting
+        "metal_coordination_target": metal_coordination_target,
+        "coordination_number": total_metal_coord,
+        "ligand_coordination": len(ligand_donors),
+        "protein_coordination": len(protein_donors),
+        "coordination_complete": total_metal_coord >= metal_coordination_target,
+        # Chain distribution
+        "chain_a_donors": chain_a_donors,
+        "chain_b_donors": chain_b_donors,
+        # Budget tracking
+        "ligand_budget": {
+            "expected": expected_ligand_donors,
+            "actual": len(ligand_donors),
+            "preserved": len(ligand_donors) >= expected_ligand_donors,
+        },
+        "protein_budget": {
+            "expected": expected_protein_donors,
+            "actual": len(protein_donors),
+            "complete": len(protein_donors) >= expected_protein_donors,
+        },
+        # Ligand-protein interactions (beyond metal coordination)
+        "ligand_protein_hbonds": ligand_protein_hbonds,
+        "ligand_protein_hbond_count": len(ligand_protein_hbonds),
+        # Detailed donor lists
+        "donor_residues": protein_donors,
+        "ligand_donors": ligand_donors,
+        "issues": issues,
+        "metal_position": metal_pos,
+    }

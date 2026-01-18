@@ -41,6 +41,21 @@ from typing import Dict, List, Any, Optional, Literal
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from datetime import datetime
+from pathlib import Path
+
+# Import structure discovery with fallback
+try:
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent.parent / 'serverless'))
+    from structure_discovery import StructureDiscovery
+    from ai_structure_interface import (
+        answer_structure_question,
+        plan_structure_search,
+        get_design_recommendations,
+    )
+    STRUCTURE_DISCOVERY_AVAILABLE = True
+except ImportError:
+    STRUCTURE_DISCOVERY_AVAILABLE = False
 
 
 class TaskStepType(str, Enum):
@@ -56,6 +71,7 @@ class TaskStepType(str, Enum):
     EVALUATE = "evaluate"              # Evaluate design metrics
     COMPARE = "compare"                # Compare structures (RMSD, etc.)
     EXTRACT_LIGAND = "extract_ligand" # Extract ligand from structure
+    DISCOVER_STRUCTURES = "discover_structures"  # AI-driven structure discovery
     CUSTOM = "custom"                  # Custom operation
 
 
@@ -175,6 +191,12 @@ class TaskPlan:
             parts.append(f"{result['residue_count']} residues")
         if "chain_balance" in result:
             parts.append(f"Chain balance: {result['chain_balance']:.2%}")
+        if "structures_found" in result:
+            count = result["structures_found"]
+            pdb_ids = result.get("all_pdb_ids", [])[:3]
+            parts.append(f"{count} structures discovered: {', '.join(pdb_ids)}")
+        if "discovered_from" in result:
+            parts.append(f"Auto-discovered via {result['discovered_from'].get('method', 'search')}")
 
         if parts:
             return "; ".join(parts)
@@ -474,12 +496,42 @@ class TaskExecutor:
 
         if step.type == TaskStepType.FETCH_PDB:
             pdb_id = step.params.get("pdb_id")
+
+            # If no pdb_id provided, use StructureDiscovery to find one
+            if not pdb_id and STRUCTURE_DISCOVERY_AVAILABLE:
+                metal = step.params.get("metal")
+                ligand = step.params.get("ligand")
+                query = step.params.get("query")
+
+                if metal or ligand or query:
+                    discovery = StructureDiscovery()
+                    if query:
+                        results = discovery.search_by_intent(query, limit=5)
+                    elif metal:
+                        results = discovery.search_by_metal(metal, limit=5)
+                    else:
+                        results = discovery.search_by_intent(ligand, limit=5)
+
+                    if results:
+                        pdb_id = results[0].pdb_id
+                        self.artifacts["discovered_from"] = {
+                            "method": "structure_discovery",
+                            "query": query or metal or ligand,
+                            "alternatives": [r.pdb_id for r in results[1:5]],
+                        }
+
+            if not pdb_id:
+                return {"error": "No pdb_id specified and could not discover one"}
+
             import urllib.request
             url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
             with urllib.request.urlopen(url) as response:
                 content = response.read().decode()
             self.artifacts["pdb_content"] = content
-            return {"pdb_id": pdb_id, "size": len(content)}
+            result = {"pdb_id": pdb_id, "size": len(content)}
+            if self.artifacts.get("discovered_from"):
+                result["discovered_from"] = self.artifacts["discovered_from"]
+            return result
 
         elif step.type == TaskStepType.ANALYZE:
             pdb_content = self.artifacts.get("pdb_content") or step.params.get("pdb_content")
@@ -527,6 +579,46 @@ class TaskExecutor:
 
         elif step.type == TaskStepType.COMPARE:
             return await self._compare_structures(step.params)
+
+        elif step.type == TaskStepType.DISCOVER_STRUCTURES:
+            query = step.params.get("query", "")
+            metal = step.params.get("metal")
+            ligand = step.params.get("ligand")
+            limit = step.params.get("limit", 5)
+
+            if not STRUCTURE_DISCOVERY_AVAILABLE:
+                return {"error": "Structure discovery not available"}
+
+            discovery = StructureDiscovery()
+
+            if query:
+                results = discovery.search_by_intent(query, limit=limit)
+            elif metal:
+                results = discovery.search_by_metal(metal, limit=limit)
+            elif ligand:
+                results = discovery.search_by_intent(ligand, limit=limit)
+            else:
+                return {"error": "No query, metal, or ligand specified"}
+
+            # Convert results to serializable format
+            structures = [r.to_dict() for r in results]
+            self.artifacts["discovered_structures"] = structures
+
+            # Get design recommendations if metal is specified
+            recommendations = None
+            if metal:
+                try:
+                    recommendations = get_design_recommendations(metal, ligand=ligand)
+                    self.artifacts["recommendations"] = recommendations
+                except Exception as e:
+                    recommendations = {"error": str(e)}
+
+            return {
+                "structures_found": len(structures),
+                "structures": structures[:3],  # Return top 3 in result
+                "all_pdb_ids": [s["pdb_id"] for s in structures],
+                "recommendations": recommendations,
+            }
 
         else:
             raise ValueError(f"Unknown step type: {step.type}")

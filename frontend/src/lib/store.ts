@@ -216,6 +216,17 @@ interface AppState {
   focusedLigandIndex: number | null;
   setFocusedLigandIndex: (index: number | null) => void;
 
+  // Focus mode visualization settings
+  focusSettings: {
+    coordinationRadius: number;  // Metal coordination sphere radius (default 3.0)
+    bindingPocketRadius: number; // Ligand binding pocket radius (default 5.0)
+    showWaters: boolean;         // Show coordinating waters in focus view
+    showInteractionLines: boolean; // Show H-bond, salt bridge lines
+    showPharmacophores: boolean;  // Show pharmacophore spheres during focus
+    ligandCarbonColor: number;    // Ligand carbon color (default green 0x50C878)
+  };
+  setFocusSettings: (settings: Partial<AppState['focusSettings']>) => void;
+
   // Analysis loading state
   analysisLoading: boolean;
   setAnalysisLoading: (loading: boolean) => void;
@@ -367,6 +378,19 @@ export const useStore = create<AppState>()(
   setFocusedMetalIndex: (index) => set({ focusedMetalIndex: index }),
   focusedLigandIndex: null,
   setFocusedLigandIndex: (index) => set({ focusedLigandIndex: index }),
+
+  // Focus mode visualization settings
+  focusSettings: {
+    coordinationRadius: 3.0,
+    bindingPocketRadius: 5.0,
+    showWaters: false,
+    showInteractionLines: true,
+    showPharmacophores: false,
+    ligandCarbonColor: 0x50C878,
+  },
+  setFocusSettings: (settings) => set((state) => ({
+    focusSettings: { ...state.focusSettings, ...settings },
+  })),
 
   // Analysis loading state
   analysisLoading: false,

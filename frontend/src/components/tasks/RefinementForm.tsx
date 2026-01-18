@@ -56,21 +56,21 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-        <div className="w-10 h-10 rounded-lg bg-slate-200 flex items-center justify-center">
-          <SlidersHorizontal className="w-5 h-5 text-slate-600" />
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
+        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+          <SlidersHorizontal className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Structure Refinement</h2>
-          <p className="text-sm text-slate-500">Refine an existing structure using partial diffusion</p>
+          <h2 className="font-semibold text-foreground">Structure Refinement</h2>
+          <p className="text-sm text-muted-foreground">Refine an existing structure using partial diffusion</p>
         </div>
       </div>
 
       {/* Info Banner */}
-      <div className="p-4 rounded-xl bg-slate-100 border border-slate-200">
+      <div className="p-4 rounded-xl bg-muted border border-border">
         <div className="flex items-start gap-3">
-          <Lightbulb className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-slate-700">
+          <Lightbulb className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-foreground">
             <strong>Partial diffusion</strong> adds controlled noise to your structure and then
             denoises it, allowing the model to explore nearby conformations while preserving
             the overall fold. Higher noise levels allow more dramatic changes.
@@ -111,21 +111,21 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
                 onClick={() => setPartialT(level.value)}
                 className={`p-3 rounded-xl border-2 text-left transition-all ${
                   partialT === level.value
-                    ? 'border-blue-400 bg-blue-50'
-                    : 'border-slate-200 hover:border-slate-300'
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border hover:border-border'
                 }`}
               >
-                <div className="font-medium text-sm text-slate-900">{level.label}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{level.description}</div>
+                <div className="font-medium text-sm text-foreground">{level.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{level.description}</div>
               </button>
             ))}
           </div>
 
           {/* Custom slider */}
           <div className="px-2">
-            <div className="flex justify-between text-xs text-slate-500 mb-2">
+            <div className="flex justify-between text-xs text-muted-foreground mb-2">
               <span>Less Change</span>
-              <span className="font-medium text-slate-700">{partialT} Å</span>
+              <span className="font-medium text-foreground">{partialT} Å</span>
               <span>More Change</span>
             </div>
             <input
@@ -134,7 +134,7 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
               max={25}
               value={partialT}
               onChange={(e) => setPartialT(parseInt(e.target.value, 10))}
-              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+              className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
             />
           </div>
 
@@ -152,13 +152,13 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
                         : i < 15
                           ? 'bg-orange-400'
                           : 'bg-red-400'
-                    : 'bg-slate-200'
+                    : 'bg-muted'
                 }`}
               />
             ))}
           </div>
 
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-600">
+          <div className="p-3 rounded-xl bg-muted/50 border border-border text-sm text-muted-foreground">
             <strong>Tip:</strong> Start with lower noise (5-10 Å) for subtle refinements.
             Use higher noise (15-20 Å) only if you want significant structural changes.
           </div>
@@ -179,7 +179,7 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
             value={contig}
             onChange={(e) => setContig(e.target.value)}
             placeholder="e.g., A1-50,0,A60-100 (diffuse middle region)"
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono text-sm"
+            className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all font-mono text-sm"
           />
         </FormField>
       </FormSection>
@@ -194,7 +194,7 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
               onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               max={10}
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
             />
           </FormField>
           <FormField label="Random Seed" hint="For reproducible results">
@@ -203,7 +203,7 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Optional"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
             />
           </FormField>
         </FormRow>
@@ -222,14 +222,14 @@ export function RefinementForm({ onSubmit, isSubmitting, health }: TaskFormProps
       </FormSection>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-border">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
           className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
-              ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
-              : 'bg-slate-300 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'
+              : 'bg-muted cursor-not-allowed'
           }`}
         >
           {isSubmitting ? (

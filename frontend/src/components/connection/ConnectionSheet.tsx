@@ -70,7 +70,7 @@ export function ConnectionSheet({
           <SheetDescription>Configure how to connect to the RFdiffusion backend</SheetDescription>
         </SheetHeader>
 
-        <div className="mt-6 space-y-6">
+        <div className="mt-6 space-y-6 px-6">
           <div className="space-y-3">
             <Label>Choose your setup</Label>
             <div className="space-y-2">

@@ -161,13 +161,13 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-          <Network className="w-5 h-5 text-slate-600" />
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
+        <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
+          <Network className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Protein Binder Design</h2>
-          <p className="text-sm text-slate-500">Design a protein that binds to a target protein</p>
+          <h2 className="font-semibold text-foreground">Protein Binder Design</h2>
+          <p className="text-sm text-muted-foreground">Design a protein that binds to a target protein</p>
         </div>
       </div>
 
@@ -204,7 +204,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
               onChange={(e) => setTargetChain(e.target.value.toUpperCase())}
               placeholder="A"
               maxLength={1}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
           <FormField label="Residue Range" hint="Optional: limit to specific residues">
@@ -214,15 +214,15 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
                 value={targetStart}
                 onChange={(e) => setTargetStart(e.target.value)}
                 placeholder="Start"
-                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+                className="flex-1 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
               />
-              <span className="text-slate-400">-</span>
+              <span className="text-muted-foreground">-</span>
               <input
                 type="number"
                 value={targetEnd}
                 onChange={(e) => setTargetEnd(e.target.value)}
                 placeholder="End"
-                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+                className="flex-1 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
               />
             </div>
           </FormField>
@@ -252,7 +252,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
               onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               max={10}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </div>
@@ -269,7 +269,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
             {hotspots.map((h, i) => (
               <div
                 key={`${h.chain}-${h.residue}`}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-muted text-foreground text-sm font-medium"
               >
                 <span>{h.chain}:{h.residue}</span>
                 <button
@@ -291,7 +291,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
             onChange={(e) => setNewHotspotChain(e.target.value.toUpperCase())}
             placeholder="Chain"
             maxLength={1}
-            className="w-16 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-center text-sm"
+            className="w-16 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-center text-sm"
           />
           <input
             type="number"
@@ -299,15 +299,15 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
             onChange={(e) => setNewHotspotResidue(e.target.value)}
             placeholder="Residue #"
             onKeyDown={(e) => e.key === 'Enter' && addHotspot()}
-            className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+            className="flex-1 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
           />
           <button
             onClick={addHotspot}
             disabled={!newHotspotResidue}
             className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
               newHotspotResidue
-                ? 'bg-blue-600 text-white hover:bg-blue-700'
-                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                ? 'bg-primary text-white hover:bg-primary/90'
+                : 'bg-muted text-muted-foreground cursor-not-allowed'
             }`}
           >
             Add
@@ -315,8 +315,8 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
         </div>
 
         {hotspots.length === 0 && (
-          <p className="text-xs text-slate-500 mt-2 flex items-center gap-1">
-            <Lightbulb className="w-4 h-4 text-slate-400" />
+          <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+            <Lightbulb className="w-4 h-4 text-muted-foreground" />
             Adding 2-5 hotspot residues is strongly recommended for successful binder design
           </p>
         )}
@@ -343,37 +343,37 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
       >
         <div className="space-y-2">
           <label className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${
-            usePipeline ? 'bg-green-50 border-2 border-green-300' : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+            usePipeline ? 'bg-primary/10 border-2 border-primary' : 'bg-muted/50 border-2 border-transparent hover:bg-muted'
           }`}>
             <input
               type="radio"
               checked={usePipeline}
               onChange={() => setUsePipeline(true)}
-              className="w-4 h-4 text-green-600 focus:ring-green-500"
+              className="w-4 h-4 text-primary focus:ring-primary"
             />
             <div className="flex-1">
-              <div className="font-medium text-sm text-slate-800 flex items-center gap-2">
+              <div className="font-medium text-sm text-foreground flex items-center gap-2">
                 Full Pipeline
-                <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700">Recommended</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-primary/20 text-primary">Recommended</span>
               </div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-muted-foreground">
                 RFD3 + MPNN sequence design + ESM-3 validation + interface analysis
               </div>
             </div>
           </label>
 
           <label className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all ${
-            !usePipeline ? 'bg-blue-50 border-2 border-blue-300' : 'bg-slate-50 border-2 border-transparent hover:bg-slate-100'
+            !usePipeline ? 'bg-secondary border-2 border-secondary-foreground/30' : 'bg-muted/50 border-2 border-transparent hover:bg-muted'
           }`}>
             <input
               type="radio"
               checked={!usePipeline}
               onChange={() => setUsePipeline(false)}
-              className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 text-primary focus:ring-primary"
             />
             <div className="flex-1">
-              <div className="font-medium text-sm text-slate-800">RFD3 Only (Quick)</div>
-              <div className="text-xs text-slate-500">
+              <div className="font-medium text-sm text-foreground">RFD3 Only (Quick)</div>
+              <div className="text-xs text-muted-foreground">
                 Fast backbone generation without sequence/validation (for testing)
               </div>
             </div>
@@ -384,16 +384,16 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
       {/* Structure Options (only for legacy mode) */}
       {!usePipeline && (
         <FormSection title="Structure Options">
-          <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+          <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors">
             <input
               type="checkbox"
               checked={isNonLoopy}
               onChange={(e) => setIsNonLoopy(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
             />
             <div>
-              <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
-              <div className="text-xs text-slate-500">
+              <div className="font-medium text-sm text-foreground">Non-loopy Mode</div>
+              <div className="text-xs text-muted-foreground">
                 Produces cleaner secondary structures (recommended)
               </div>
             </div>
@@ -410,21 +410,21 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Optional"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </FormRow>
       </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-border">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
           className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
-              ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
-              : 'bg-slate-300 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'
+              : 'bg-muted cursor-not-allowed'
           }`}
         >
           {isSubmitting ? (
@@ -443,7 +443,7 @@ export function ProteinBinderForm({ onSubmit, isSubmitting, health, onBinderResu
           )}
         </button>
         {!health && (
-          <p className="text-center text-sm text-slate-500 mt-2">
+          <p className="text-center text-sm text-muted-foreground mt-2">
             Connect to backend to enable design
           </p>
         )}

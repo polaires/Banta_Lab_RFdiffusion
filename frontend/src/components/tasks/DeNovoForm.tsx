@@ -63,13 +63,13 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-        <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center">
-          <PlusCircle className="w-5 h-5 text-slate-600" />
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
+        <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center">
+          <PlusCircle className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">De Novo Protein Design</h2>
-          <p className="text-sm text-slate-500">Generate a new protein structure from scratch</p>
+          <h2 className="font-semibold text-foreground">De Novo Protein Design</h2>
+          <p className="text-sm text-muted-foreground">Generate a new protein structure from scratch</p>
         </div>
       </div>
 
@@ -96,7 +96,7 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               max={10}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm bg-card"
             />
           </FormField>
         </div>
@@ -121,16 +121,16 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
       >
         <div className="space-y-4">
           {/* Non-loopy toggle */}
-          <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+          <label className="flex items-center gap-3 p-3 rounded-lg bg-muted hover:bg-muted/80 cursor-pointer transition-colors">
             <input
               type="checkbox"
               checked={isNonLoopy}
               onChange={(e) => setIsNonLoopy(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
             />
             <div>
-              <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
-              <div className="text-xs text-slate-500">
+              <div className="font-medium text-sm text-foreground">Non-loopy Mode</div>
+              <div className="text-xs text-muted-foreground">
                 Produces cleaner secondary structures (recommended)
               </div>
             </div>
@@ -141,7 +141,7 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
             <select
               value={symmetry}
               onChange={(e) => setSymmetry(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all bg-white text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all bg-card text-sm"
             >
               <option value="">No symmetry (monomer)</option>
               {Object.entries(symmetryByCategory).map(([category, options]) => (
@@ -157,10 +157,10 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
           </FormField>
 
           {symmetry && (
-            <div className="p-3 rounded-lg bg-slate-50 border border-slate-200">
+            <div className="p-3 rounded-lg bg-muted border border-border">
               <div className="flex items-start gap-2">
-                <Info className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
-                <div className="text-sm text-slate-600">
+                <Info className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-muted-foreground">
                   <strong>{symmetry}</strong> symmetry selected. The specified length is per subunit.
                   Total protein size will be{' '}
                   <strong>
@@ -183,21 +183,21 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Optional"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm bg-card"
             />
           </FormField>
         </FormRow>
       </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-border">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
           className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
-              ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
-              : 'bg-slate-300 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'
+              : 'bg-muted text-muted-foreground cursor-not-allowed'
           }`}
         >
           {isSubmitting ? (
@@ -213,7 +213,7 @@ export function DeNovoForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
           )}
         </button>
         {!health && (
-          <p className="text-center text-sm text-slate-500 mt-2">
+          <p className="text-center text-sm text-muted-foreground mt-2">
             Connect to backend to enable design
           </p>
         )}

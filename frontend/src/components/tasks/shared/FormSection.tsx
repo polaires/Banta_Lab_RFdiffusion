@@ -18,16 +18,16 @@ export function FormSection({
   return (
     <div className={`space-y-3 ${className}`}>
       <div>
-        <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
           {title}
           {required && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 font-medium uppercase">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase">
               Required
             </span>
           )}
         </h3>
         {description && (
-          <p className="text-xs text-slate-500 mt-0.5">{description}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         )}
       </div>
       {children}
@@ -65,13 +65,13 @@ export function FormField({
 }: FormFieldProps) {
   return (
     <div className={`space-y-1.5 ${className}`}>
-      <label className="block text-sm font-medium text-slate-700">
+      <label className="block text-sm font-medium text-foreground">
         {label}
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
       {children}
       {hint && (
-        <p className="text-xs text-slate-400">{hint}</p>
+        <p className="text-xs text-muted-foreground">{hint}</p>
       )}
     </div>
   );

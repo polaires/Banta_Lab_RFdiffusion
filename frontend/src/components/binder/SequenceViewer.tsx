@@ -17,16 +17,16 @@ interface SequenceViewerProps {
 // Amino acid properties for coloring
 const AA_PROPERTIES: Record<string, { color: string; type: string; name: string }> = {
   // Hydrophobic
-  A: { color: 'bg-amber-100 text-amber-800', type: 'hydrophobic', name: 'Alanine' },
-  V: { color: 'bg-amber-100 text-amber-800', type: 'hydrophobic', name: 'Valine' },
-  L: { color: 'bg-amber-100 text-amber-800', type: 'hydrophobic', name: 'Leucine' },
-  I: { color: 'bg-amber-100 text-amber-800', type: 'hydrophobic', name: 'Isoleucine' },
-  M: { color: 'bg-amber-100 text-amber-800', type: 'hydrophobic', name: 'Methionine' },
-  F: { color: 'bg-amber-200 text-amber-900', type: 'aromatic', name: 'Phenylalanine' },
-  W: { color: 'bg-amber-200 text-amber-900', type: 'aromatic', name: 'Tryptophan' },
-  Y: { color: 'bg-amber-200 text-amber-900', type: 'aromatic', name: 'Tyrosine' },
-  P: { color: 'bg-amber-100 text-amber-800', type: 'hydrophobic', name: 'Proline' },
-  G: { color: 'bg-slate-100 text-slate-700', type: 'special', name: 'Glycine' },
+  A: { color: 'bg-muted text-foreground', type: 'hydrophobic', name: 'Alanine' },
+  V: { color: 'bg-muted text-foreground', type: 'hydrophobic', name: 'Valine' },
+  L: { color: 'bg-muted text-foreground', type: 'hydrophobic', name: 'Leucine' },
+  I: { color: 'bg-muted text-foreground', type: 'hydrophobic', name: 'Isoleucine' },
+  M: { color: 'bg-muted text-foreground', type: 'hydrophobic', name: 'Methionine' },
+  F: { color: 'bg-muted text-muted-foreground', type: 'aromatic', name: 'Phenylalanine' },
+  W: { color: 'bg-muted text-muted-foreground', type: 'aromatic', name: 'Tryptophan' },
+  Y: { color: 'bg-muted text-muted-foreground', type: 'aromatic', name: 'Tyrosine' },
+  P: { color: 'bg-muted text-foreground', type: 'hydrophobic', name: 'Proline' },
+  G: { color: 'bg-muted text-foreground', type: 'special', name: 'Glycine' },
   // Polar
   S: { color: 'bg-green-100 text-green-800', type: 'polar', name: 'Serine' },
   T: { color: 'bg-green-100 text-green-800', type: 'polar', name: 'Threonine' },
@@ -115,20 +115,20 @@ export function SequenceViewer({
   }, [sequence, interfaceResidues]);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 px-4 py-3 border-b border-emerald-100">
+      <div className="bg-muted px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Dna className="h-5 w-5 text-emerald-600" />
-            <h4 className="font-semibold text-slate-900 text-sm">{title}</h4>
-            <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
+            <Dna className="h-5 w-5 text-primary" />
+            <h4 className="font-semibold text-foreground text-sm">{title}</h4>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
               {sequence.length} aa
             </span>
           </div>
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors"
+            className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors"
           >
             {copied ? (
               <Check className="h-4 w-4" />
@@ -147,7 +147,7 @@ export function SequenceViewer({
             <div key={chunkIdx} className="flex items-center gap-2">
               {/* Line number */}
               {showNumbers && (
-                <span className="text-xs text-slate-400 w-8 text-right select-none">
+                <span className="text-xs text-muted-foreground w-8 text-right select-none">
                   {chunk.start + 1}
                 </span>
               )}
@@ -186,7 +186,7 @@ export function SequenceViewer({
 
               {/* Chunk separator */}
               {chunkIdx < chunks.length - 1 && (
-                <span className="text-slate-300 select-none">|</span>
+                <span className="text-muted-foreground select-none">|</span>
               )}
             </div>
           ))}
@@ -196,15 +196,15 @@ export function SequenceViewer({
       {/* Hovered residue info */}
       {hoveredResidue !== null && (
         <div className="px-4 pb-2">
-          <div className="bg-slate-100 rounded-lg px-3 py-2 text-xs">
-            <span className="font-medium text-slate-900">
+          <div className="bg-muted rounded-lg px-3 py-2 text-xs">
+            <span className="font-medium text-foreground">
               Position {hoveredResidue + 1}:
             </span>
-            <span className="ml-2 text-slate-600">
+            <span className="ml-2 text-muted-foreground">
               {AA_PROPERTIES[sequence[hoveredResidue]]?.name || 'Unknown'} ({sequence[hoveredResidue]})
             </span>
             {interfaceSet.has(hoveredResidue + 1) && (
-              <span className="ml-2 px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-xs">
+              <span className="ml-2 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
                 Interface
               </span>
             )}
@@ -213,51 +213,51 @@ export function SequenceViewer({
       )}
 
       {/* Legend */}
-      <div className="px-4 py-3 border-t border-slate-100 bg-slate-50">
+      <div className="px-4 py-3 border-t border-border bg-muted/50">
         <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="text-slate-500 font-medium">Residue types:</span>
+          <span className="text-muted-foreground font-medium">Residue types:</span>
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded bg-amber-100" />
-            <span className="text-slate-600">Hydrophobic</span>
+            <div className="w-3 h-3 rounded bg-muted" />
+            <span className="text-muted-foreground">Hydrophobic</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 rounded bg-green-100" />
-            <span className="text-slate-600">Polar</span>
+            <span className="text-muted-foreground">Polar</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 rounded bg-blue-100" />
-            <span className="text-slate-600">Positive</span>
+            <span className="text-muted-foreground">Positive</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 rounded bg-red-100" />
-            <span className="text-slate-600">Negative</span>
+            <span className="text-muted-foreground">Negative</span>
           </div>
           <div className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded ring-2 ring-violet-500" />
-            <span className="text-slate-600">Interface</span>
+            <div className="w-3 h-3 rounded ring-2 ring-primary" />
+            <span className="text-muted-foreground">Interface</span>
           </div>
         </div>
       </div>
 
       {/* Statistics */}
-      <div className="px-4 py-3 border-t border-slate-200 bg-white">
+      <div className="px-4 py-3 border-t border-border bg-card">
         <div className="grid grid-cols-4 gap-4 text-xs">
           <div>
-            <div className="text-slate-400 uppercase tracking-wide">Length</div>
-            <div className="font-semibold text-slate-900">{stats.length} aa</div>
+            <div className="text-muted-foreground uppercase tracking-wide">Length</div>
+            <div className="font-semibold text-foreground">{stats.length} aa</div>
           </div>
           <div>
-            <div className="text-slate-400 uppercase tracking-wide">Interface</div>
-            <div className="font-semibold text-violet-600">{stats.interfaceCount} residues</div>
+            <div className="text-muted-foreground uppercase tracking-wide">Interface</div>
+            <div className="font-semibold text-primary">{stats.interfaceCount} residues</div>
           </div>
           <div>
-            <div className="text-slate-400 uppercase tracking-wide">Hydrophobic</div>
-            <div className="font-semibold text-amber-600">
+            <div className="text-muted-foreground uppercase tracking-wide">Hydrophobic</div>
+            <div className="font-semibold text-foreground">
               {((stats.types.hydrophobic + stats.types.aromatic) / stats.length * 100).toFixed(0)}%
             </div>
           </div>
           <div>
-            <div className="text-slate-400 uppercase tracking-wide">Charged</div>
+            <div className="text-muted-foreground uppercase tracking-wide">Charged</div>
             <div className="font-semibold text-blue-600">
               {((stats.types.positive + stats.types.negative) / stats.length * 100).toFixed(0)}%
             </div>

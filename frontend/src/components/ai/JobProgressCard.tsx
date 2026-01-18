@@ -20,14 +20,14 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
         };
       case 'running':
         return {
-          color: 'text-violet-500',
-          bgColor: 'bg-violet-50 border-violet-200',
+          color: 'text-primary',
+          bgColor: 'bg-primary/5 border-primary/20',
           label: 'Running',
         };
       case 'completed':
         return {
-          color: 'text-emerald-500',
-          bgColor: 'bg-emerald-50 border-emerald-200',
+          color: 'text-green-500',
+          bgColor: 'bg-green-50 border-green-200',
           label: 'Completed',
         };
       case 'failed':
@@ -65,17 +65,17 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
         {/* Job info */}
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-slate-800">RFD3 Design</span>
+            <span className="font-medium text-foreground">RFD3 Design</span>
             <span className={`text-xs px-2 py-0.5 rounded-full ${
-              status === 'running' ? 'bg-violet-100 text-violet-700' :
-              status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+              status === 'running' ? 'bg-primary/10 text-primary' :
+              status === 'completed' ? 'bg-green-100 text-green-700' :
               status === 'failed' ? 'bg-red-100 text-red-700' :
               'bg-blue-100 text-blue-700'
             }`}>
               {config.label}
             </span>
           </div>
-          <div className="text-xs text-slate-500 font-mono mt-0.5">
+          <div className="text-xs text-muted-foreground font-mono mt-0.5">
             Job ID: {jobId.slice(0, 12)}...
           </div>
         </div>
@@ -83,7 +83,7 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
         {/* Progress percentage */}
         {status === 'running' && progress !== undefined && (
           <div className="text-right">
-            <div className="text-lg font-bold text-violet-600">{progress}%</div>
+            <div className="text-lg font-bold text-primary">{progress}%</div>
           </div>
         )}
       </div>
@@ -91,21 +91,21 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
       {/* Progress bar */}
       {status === 'running' && (
         <div className="mt-3">
-          <div className="h-2 bg-violet-100 rounded-full overflow-hidden">
+          <div className="h-2 bg-primary/20 rounded-full overflow-hidden">
             <div
-              className="h-full bg-gradient-to-r from-violet-500 to-purple-600 rounded-full transition-all duration-500"
+              className="h-full bg-primary rounded-full transition-all duration-500"
               style={{ width: `${progress || 0}%` }}
             />
           </div>
           {message && (
-            <p className="text-xs text-violet-600 mt-2">{message}</p>
+            <p className="text-xs text-primary mt-2">{message}</p>
           )}
         </div>
       )}
 
       {/* Completed message */}
       {status === 'completed' && (
-        <div className="mt-2 text-sm text-emerald-700 flex items-center gap-1">
+        <div className="mt-2 text-sm text-green-700 flex items-center gap-1">
           <Info className="h-4 w-4" />
           Design complete! View results in the structure viewer.
         </div>

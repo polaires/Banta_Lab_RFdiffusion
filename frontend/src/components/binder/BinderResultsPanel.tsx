@@ -101,12 +101,12 @@ export function BinderResultsPanel({
 
   if (status === 'processing') {
     return (
-      <div className="bg-slate-50 rounded-xl border border-slate-200 p-6">
+      <div className="bg-muted/50 rounded-xl border border-border p-6">
         <div className="flex items-center gap-3">
           <Loader2 className="h-6 w-6 text-blue-500 animate-spin" />
           <div>
-            <h4 className="font-semibold text-slate-900">Designing Binders...</h4>
-            <p className="text-sm text-slate-600">
+            <h4 className="font-semibold text-foreground">Designing Binders...</h4>
+            <p className="text-sm text-muted-foreground">
               Running multi-stage validation pipeline. This may take a few minutes.
             </p>
           </div>
@@ -117,12 +117,12 @@ export function BinderResultsPanel({
 
   if (designs.length === 0) {
     return (
-      <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
+      <div className="bg-muted rounded-xl border border-border p-6">
         <div className="flex items-center gap-3">
-          <AlertTriangle className="h-6 w-6 text-amber-500" />
+          <AlertTriangle className="h-6 w-6 text-muted-foreground" />
           <div>
-            <h4 className="font-semibold text-amber-900">No Designs Passed Filters</h4>
-            <p className="text-sm text-amber-700">
+            <h4 className="font-semibold text-foreground">No Designs Passed Filters</h4>
+            <p className="text-sm text-muted-foreground">
               Try adjusting parameters or using a different target region.
             </p>
           </div>
@@ -138,17 +138,17 @@ export function BinderResultsPanel({
   return (
     <div className="space-y-6">
       {/* Header with Summary */}
-      <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 p-4">
+      <div className="bg-green-50 rounded-xl border border-green-200 p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center">
               <CheckCircle2 className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-slate-900">
+              <h3 className="font-semibold text-foreground">
                 {designs.length} High-Quality Binder{designs.length !== 1 ? 's' : ''} Designed
               </h3>
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-muted-foreground">
                 {statistics.returned} of {statistics.generated} designs passed all filters
               </p>
             </div>
@@ -157,7 +157,7 @@ export function BinderResultsPanel({
             <div className="text-2xl font-bold text-green-600">
               {((statistics.returned / statistics.generated) * 100).toFixed(0)}%
             </div>
-            <div className="text-xs text-slate-500">Pass Rate</div>
+            <div className="text-xs text-muted-foreground">Pass Rate</div>
           </div>
         </div>
       </div>
@@ -166,12 +166,12 @@ export function BinderResultsPanel({
       <PipelineFunnel statistics={statistics} />
 
       {/* Design Gallery */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="bg-muted/50 px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
-            <LayoutGrid className="h-5 w-5 text-violet-600" />
-            <h4 className="font-semibold text-slate-900 text-sm">Design Gallery</h4>
-            <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
+            <LayoutGrid className="h-5 w-5 text-primary" />
+            <h4 className="font-semibold text-foreground text-sm">Design Gallery</h4>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
               {designs.length} designs
             </span>
           </div>
@@ -186,15 +186,15 @@ export function BinderResultsPanel({
                 onClick={() => handleSelectDesign(design, index)}
                 className={`text-left p-4 rounded-lg border-2 transition-all ${
                   selectedDesignIndex === index
-                    ? 'border-violet-500 bg-violet-50'
-                    : 'border-slate-200 bg-white hover:border-violet-300'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-card hover:border-primary/50'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${
                     selectedDesignIndex === index
-                      ? 'bg-violet-500 text-white'
-                      : 'bg-slate-200 text-slate-600'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
                   }`}>
                     #{design.rank}
                   </div>
@@ -204,13 +204,13 @@ export function BinderResultsPanel({
                         e.stopPropagation();
                         handleCopySequence(design.binder_sequence, index);
                       }}
-                      className="p-1.5 rounded hover:bg-slate-100 transition-colors"
+                      className="p-1.5 rounded hover:bg-muted transition-colors"
                       title="Copy sequence"
                     >
                       {copiedIndex === index ? (
-                        <Check className="h-4 w-4 text-slate-500" />
+                        <Check className="h-4 w-4 text-muted-foreground" />
                       ) : (
-                        <Copy className="h-4 w-4 text-slate-500" />
+                        <Copy className="h-4 w-4 text-muted-foreground" />
                       )}
                     </button>
                     {design.pdb_content && onDownloadPdb && (
@@ -219,10 +219,10 @@ export function BinderResultsPanel({
                           e.stopPropagation();
                           onDownloadPdb(design);
                         }}
-                        className="p-1.5 rounded hover:bg-slate-100 transition-colors"
+                        className="p-1.5 rounded hover:bg-muted transition-colors"
                         title="Download PDB"
                       >
-                        <Download className="h-4 w-4 text-slate-500" />
+                        <Download className="h-4 w-4 text-muted-foreground" />
                       </button>
                     )}
                   </div>
@@ -231,38 +231,38 @@ export function BinderResultsPanel({
                 {/* Quick Metrics */}
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div>
-                    <span className="text-slate-400">Contacts:</span>
-                    <span className="ml-1 font-medium text-slate-700">
+                    <span className="text-muted-foreground">Contacts:</span>
+                    <span className="ml-1 font-medium text-foreground">
                       {design.interface_contacts.toLocaleString()}
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-400">H-bonds:</span>
-                    <span className="ml-1 font-medium text-slate-700">{design.interface_hbonds}</span>
+                    <span className="text-muted-foreground">H-bonds:</span>
+                    <span className="ml-1 font-medium text-foreground">{design.interface_hbonds}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400">ESM:</span>
+                    <span className="text-muted-foreground">ESM:</span>
                     <span className={`ml-1 font-medium ${
                       design.esm_perplexity < 5 ? 'text-green-600' :
-                      design.esm_perplexity < 8 ? 'text-blue-600' : 'text-amber-600'
+                      design.esm_perplexity < 8 ? 'text-blue-600' : 'text-muted-foreground'
                     }`}>
                       {design.esm_perplexity.toFixed(2)}
                     </span>
                   </div>
                   {design.shape_complementarity != null ? (
                     <div>
-                      <span className="text-slate-400">SC:</span>
+                      <span className="text-muted-foreground">SC:</span>
                       <span className={`ml-1 font-medium ${
                         design.shape_complementarity >= 0.6 ? 'text-green-600' :
-                        design.shape_complementarity >= 0.5 ? 'text-blue-600' : 'text-amber-600'
+                        design.shape_complementarity >= 0.5 ? 'text-blue-600' : 'text-muted-foreground'
                       }`}>
                         {design.shape_complementarity.toFixed(2)}
                       </span>
                     </div>
                   ) : (
                     <div>
-                      <span className="text-slate-400">Length:</span>
-                      <span className="ml-1 font-medium text-slate-700">
+                      <span className="text-muted-foreground">Length:</span>
+                      <span className="ml-1 font-medium text-foreground">
                         {design.binder_sequence.length} aa
                       </span>
                     </div>
@@ -274,7 +274,7 @@ export function BinderResultsPanel({
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
                       design.esmfold_validation_passed
                         ? 'bg-green-100 text-green-700'
-                        : 'bg-amber-100 text-amber-700'
+                        : 'bg-muted text-muted-foreground'
                     }`}>
                       {design.esmfold_validation_passed ? (
                         <BadgeCheck className="h-3 w-3" />
@@ -284,7 +284,7 @@ export function BinderResultsPanel({
                       pLDDT: {(design.esmfold_plddt * 100).toFixed(0)}%
                     </span>
                     {design.esmfold_rmsd != null && (
-                      <span className="text-xs text-slate-500">
+                      <span className="text-xs text-muted-foreground">
                         RMSD: {design.esmfold_rmsd.toFixed(1)}Å
                       </span>
                     )}
@@ -292,7 +292,7 @@ export function BinderResultsPanel({
                 )}
 
                 {/* Sequence Preview */}
-                <div className="mt-2 p-2 bg-slate-100 rounded text-xs font-mono text-slate-600 truncate">
+                <div className="mt-2 p-2 bg-muted rounded text-xs font-mono text-muted-foreground truncate">
                   {design.binder_sequence.substring(0, 40)}...
                 </div>
               </button>
@@ -329,18 +329,18 @@ export function BinderResultsPanel({
           />
 
           {/* Full Sequence */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="bg-muted/50 px-4 py-3 border-b border-border flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Dna className="h-5 w-5 text-slate-600" />
-                <h4 className="font-semibold text-slate-900 text-sm">Binder Sequence</h4>
-                <span className="text-xs text-slate-500">
+                <Dna className="h-5 w-5 text-muted-foreground" />
+                <h4 className="font-semibold text-foreground text-sm">Binder Sequence</h4>
+                <span className="text-xs text-muted-foreground">
                   {selectedDesign.binder_sequence.length} residues
                 </span>
               </div>
               <button
                 onClick={() => handleCopySequence(selectedDesign.binder_sequence, selectedDesignIndex)}
-                className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
+                className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10 rounded-lg transition-colors"
               >
                 {copiedIndex === selectedDesignIndex ? (
                   <Check className="h-4 w-4" />
@@ -351,7 +351,7 @@ export function BinderResultsPanel({
               </button>
             </div>
             <div className="p-4">
-              <div className="font-mono text-sm text-slate-700 break-all leading-relaxed bg-slate-50 p-3 rounded-lg">
+              <div className="font-mono text-sm text-foreground break-all leading-relaxed bg-muted/50 p-3 rounded-lg">
                 {selectedDesign.binder_sequence}
               </div>
             </div>

@@ -40,16 +40,16 @@ export function Header() {
   };
 
   return (
-    <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
+    <header className="bg-white/80 backdrop-blur-md border-b border-border sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Logo & Brand */}
         <div className="flex items-center gap-3">
-          <div className="text-blue-600 bg-blue-50 rounded-lg p-1.5 flex items-center justify-center">
+          <div className="text-primary bg-primary/10 rounded-lg p-1.5 flex items-center justify-center">
             <FlaskConical className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="font-bold text-sm text-slate-900 leading-tight">Foundry Protein Design</h1>
-            <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">IPD Design Pipeline</p>
+            <h1 className="font-bold text-sm text-foreground leading-tight">Foundry Protein Design</h1>
+            <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">IPD Design Pipeline</p>
           </div>
         </div>
 
@@ -61,39 +61,37 @@ export function Header() {
 
             return (
               <div key={step.id} className="flex items-center">
-                {index > 0 && <div className="w-8 h-px bg-slate-200" />}
+                {index > 0 && <div className="w-8 h-px bg-muted" />}
 
                 <button
                   onClick={() => setActiveTab(step.id)}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-full transition-all ${
                     isActive
-                      ? step.gradient
-                        ? 'bg-gradient-to-r from-violet-50 to-purple-50 border border-violet-200 shadow-sm'
-                        : 'bg-white border border-blue-200 shadow-sm'
+                      ? 'bg-muted border border-border shadow-sm'
                       : 'opacity-50 grayscale hover:opacity-75'
                   }`}
                 >
                   {step.Icon ? (
                     <span className={`w-5 h-5 flex items-center justify-center rounded-full ${
                       isActive
-                        ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white'
-                        : 'bg-slate-200 text-slate-600'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground'
                     }`}>
                       <step.Icon className="w-3 h-3" />
                     </span>
                   ) : (
                     <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold ${
                       isActive
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-slate-200 text-slate-600'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground'
                     }`}>
                       {step.step}
                     </span>
                   )}
                   <span className={`text-xs font-semibold ${
                     isActive
-                      ? step.gradient ? 'text-violet-900' : 'text-blue-900'
-                      : 'text-slate-600'
+                      ? 'text-foreground'
+                      : 'text-muted-foreground'
                   }`}>
                     {step.label}
                   </span>
@@ -114,10 +112,8 @@ export function Header() {
                 onClick={() => setActiveTab(step.id)}
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition ${
                   isActive
-                    ? step.gradient
-                      ? 'bg-gradient-to-r from-violet-500 to-purple-600 text-white'
-                      : 'bg-blue-600 text-white'
-                    : 'bg-slate-200 text-slate-600'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground'
                 }`}
               >
                 {step.Icon ? (
@@ -137,25 +133,25 @@ export function Header() {
             onClick={() => setActiveTab('jobs')}
             className={`p-2 rounded-full transition-all relative ${
               activeTab === 'jobs'
-                ? 'text-slate-700 bg-slate-100'
-                : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                ? 'text-foreground bg-muted'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             }`}
             title="Job History"
           >
             <History className="w-5 h-5" />
             {pendingJobs > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-blue-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center border border-white">
+              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-primary text-primary-foreground text-[9px] font-bold rounded-full flex items-center justify-center border border-white">
                 {pendingJobs}
               </span>
             )}
           </button>
 
-          <div className="h-4 w-px bg-slate-200 mx-1" />
+          <div className="h-4 w-px bg-muted mx-1" />
 
           {/* Connection status */}
           <button
             onClick={() => setConnectionModalOpen(true)}
-            className="p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all relative"
+            className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-all relative"
             title={isConnected ? 'Connected to backend' : 'Connect to backend'}
           >
             <Server className="w-5 h-5" />
@@ -164,7 +160,7 @@ export function Header() {
             }`} />
           </button>
 
-          <div className="h-4 w-px bg-slate-200 mx-1" />
+          <div className="h-4 w-px bg-muted mx-1" />
 
           {/* User menu */}
           <UserMenu />

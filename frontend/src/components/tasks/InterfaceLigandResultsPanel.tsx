@@ -119,7 +119,7 @@ export function InterfaceLigandResultsPanel({
       case 'failed':
         return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-700">Failed</span>;
       default:
-        return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 text-slate-700">Pending</span>;
+        return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-muted text-foreground">Pending</span>;
     }
   };
 
@@ -191,8 +191,8 @@ export function InterfaceLigandResultsPanel({
               <approachInfo.Icon className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h3 className="font-semibold text-slate-900">{approachInfo.name} Results</h3>
-              <p className="text-sm text-slate-600">
+              <h3 className="font-semibold text-foreground">{approachInfo.name} Results</h3>
+              <p className="text-sm text-muted-foreground">
                 {result.designs.length} design{result.designs.length !== 1 ? 's' : ''} generated
               </p>
             </div>
@@ -200,11 +200,11 @@ export function InterfaceLigandResultsPanel({
           <div className="flex items-center gap-4">
             <div className="text-right">
               <div className="text-2xl font-bold text-green-600">{passedCount}</div>
-              <div className="text-xs text-slate-500">Passed</div>
+              <div className="text-xs text-muted-foreground">Passed</div>
             </div>
             <div className="text-right">
               <div className="text-2xl font-bold text-red-500">{failedCount}</div>
-              <div className="text-xs text-slate-500">Failed</div>
+              <div className="text-xs text-muted-foreground">Failed</div>
             </div>
           </div>
         </div>
@@ -212,13 +212,13 @@ export function InterfaceLigandResultsPanel({
 
       {/* Pipeline Controls */}
       {(onRunLigandMPNN || onRunValidation) && (
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <div className="bg-card rounded-xl border border-border p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <GitBranch className="w-5 h-5 text-slate-500" />
-              <h4 className="font-semibold text-slate-900 text-sm">Pipeline Actions</h4>
+              <GitBranch className="w-5 h-5 text-muted-foreground" />
+              <h4 className="font-semibold text-foreground text-sm">Pipeline Actions</h4>
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>{selectedDesigns.size} selected</span>
               <button
                 onClick={selectAllPassed}
@@ -228,7 +228,7 @@ export function InterfaceLigandResultsPanel({
               </button>
               <button
                 onClick={clearSelection}
-                className="text-slate-500 hover:underline"
+                className="text-muted-foreground hover:underline"
               >
                 Clear
               </button>
@@ -245,7 +245,7 @@ export function InterfaceLigandResultsPanel({
                 disabled={isProcessing}
                 className={`flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all ${
                   isProcessing
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
                     : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
                 }`}
               >
@@ -262,7 +262,7 @@ export function InterfaceLigandResultsPanel({
                 disabled={isProcessing}
                 className={`flex-1 py-2.5 px-4 rounded-lg font-medium text-sm flex items-center justify-center gap-2 transition-all ${
                   isProcessing
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    ? 'bg-muted text-muted-foreground cursor-not-allowed'
                     : 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
                 }`}
               >
@@ -278,7 +278,7 @@ export function InterfaceLigandResultsPanel({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {/* Status filter */}
-          <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+          <div className="flex rounded-lg border border-border overflow-hidden">
             {(['all', 'passed', 'failed'] as const).map((status) => (
               <button
                 key={status}
@@ -286,7 +286,7 @@ export function InterfaceLigandResultsPanel({
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                   filterStatus === status
                     ? 'bg-purple-100 text-purple-700'
-                    : 'bg-white text-slate-600 hover:bg-slate-50'
+                    : 'bg-card text-muted-foreground hover:bg-muted/50'
                 }`}
               >
                 {status === 'all' ? 'All' : status === 'passed' ? `Passed (${passedCount})` : `Failed (${failedCount})`}
@@ -297,11 +297,11 @@ export function InterfaceLigandResultsPanel({
 
         {/* Sort dropdown */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">Sort by:</span>
+          <span className="text-xs text-muted-foreground">Sort by:</span>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-            className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white"
+            className="text-xs border border-border rounded-lg px-2 py-1.5 bg-card"
           >
             <option value="rank">Rank</option>
             <option value="affinity">Affinity</option>
@@ -312,12 +312,12 @@ export function InterfaceLigandResultsPanel({
       </div>
 
       {/* Design Gallery */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="bg-muted/50 px-4 py-3 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Layers className="w-5 h-5 text-purple-600" />
-            <h4 className="font-semibold text-slate-900 text-sm">Design Gallery</h4>
-            <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
+            <h4 className="font-semibold text-foreground text-sm">Design Gallery</h4>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
               {filteredDesigns.length} of {result.designs.length}
             </span>
           </div>
@@ -335,7 +335,7 @@ export function InterfaceLigandResultsPanel({
                 className={`p-4 rounded-lg border-2 transition-all ${
                   isSelected
                     ? 'border-purple-500 bg-purple-50'
-                    : 'border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/30'
+                    : 'border-border bg-card hover:border-purple-300 hover:bg-purple-50/30'
                 }`}
               >
                 <div className="flex items-start gap-3">
@@ -344,14 +344,14 @@ export function InterfaceLigandResultsPanel({
                     type="checkbox"
                     checked={isChecked}
                     onChange={() => toggleSelectDesign(design.id)}
-                    className="mt-1 w-4 h-4 rounded border-slate-300 text-purple-600"
+                    className="mt-1 w-4 h-4 rounded border-border text-purple-600"
                   />
 
                   {/* Rank badge */}
                   <button
                     onClick={() => onSelectDesign(design)}
                     className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm flex-shrink-0 ${
-                      isSelected ? 'bg-purple-500 text-white' : 'bg-slate-200 text-slate-600 hover:bg-purple-200'
+                      isSelected ? 'bg-purple-500 text-white' : 'bg-muted text-muted-foreground hover:bg-purple-200'
                     }`}
                   >
                     #{design.rank}
@@ -367,7 +367,7 @@ export function InterfaceLigandResultsPanel({
                     {/* Metrics grid */}
                     <div className="grid grid-cols-4 gap-3 text-xs">
                       <div>
-                        <div className="text-slate-400 text-[10px] uppercase">Affinity</div>
+                        <div className="text-muted-foreground text-[10px] uppercase">Affinity</div>
                         <div className={`font-bold ${
                           (design.metrics.affinity ?? 0) < -5 ? 'text-green-600' :
                           (design.metrics.affinity ?? 0) < -2 ? 'text-amber-600' : 'text-red-600'
@@ -376,15 +376,15 @@ export function InterfaceLigandResultsPanel({
                         </div>
                       </div>
                       <div>
-                        <div className="text-slate-400 text-[10px] uppercase">Contacts</div>
-                        <div className="font-medium text-slate-700">
+                        <div className="text-muted-foreground text-[10px] uppercase">Contacts</div>
+                        <div className="font-medium text-foreground">
                           <span className="text-purple-600">{design.metrics.contacts_a ?? 0}</span>
-                          <span className="text-slate-400"> / </span>
+                          <span className="text-muted-foreground"> / </span>
                           <span className="text-cyan-600">{design.metrics.contacts_b ?? 0}</span>
                         </div>
                       </div>
                       <div>
-                        <div className="text-slate-400 text-[10px] uppercase">Identity</div>
+                        <div className="text-muted-foreground text-[10px] uppercase">Identity</div>
                         <div className={`font-medium ${
                           (design.metrics.sequence_identity ?? 100) < 50 ? 'text-green-600' :
                           (design.metrics.sequence_identity ?? 100) < 70 ? 'text-amber-600' : 'text-red-600'
@@ -393,7 +393,7 @@ export function InterfaceLigandResultsPanel({
                         </div>
                       </div>
                       <div>
-                        <div className="text-slate-400 text-[10px] uppercase">Anti-Homo</div>
+                        <div className="text-muted-foreground text-[10px] uppercase">Anti-Homo</div>
                         <div className={`font-medium ${
                           (design.metrics.anti_homo_score ?? 0) > 60 ? 'text-green-600' :
                           (design.metrics.anti_homo_score ?? 0) > 40 ? 'text-amber-600' : 'text-red-600'
@@ -406,7 +406,7 @@ export function InterfaceLigandResultsPanel({
                     {/* H-bond info */}
                     {(design.metrics.n7_hbonds !== undefined || design.metrics.n8_hbonds !== undefined) && (
                       <div className="mt-2 flex items-center gap-3 text-xs">
-                        <span className="text-slate-400">H-bonds:</span>
+                        <span className="text-muted-foreground">H-bonds:</span>
                         <span className={`font-medium ${(design.metrics.n7_hbonds ?? 0) >= 1 ? 'text-green-600' : 'text-red-600'}`}>
                           N7: {design.metrics.n7_hbonds ?? 0}
                         </span>
@@ -421,18 +421,18 @@ export function InterfaceLigandResultsPanel({
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => onSelectDesign(design)}
-                      className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                      className="p-2 rounded-lg hover:bg-muted transition-colors"
                       title="View in 3D"
                     >
-                      <View className="w-4 h-4 text-slate-500" />
+                      <View className="w-4 h-4 text-muted-foreground" />
                     </button>
                     {onDownloadPdb && (
                       <button
                         onClick={() => onDownloadPdb(design)}
-                        className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                        className="p-2 rounded-lg hover:bg-muted transition-colors"
                         title="Download PDB"
                       >
-                        <Download className="w-4 h-4 text-slate-500" />
+                        <Download className="w-4 h-4 text-muted-foreground" />
                       </button>
                     )}
                   </div>

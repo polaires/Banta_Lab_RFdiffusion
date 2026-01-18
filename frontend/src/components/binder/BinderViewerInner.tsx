@@ -322,34 +322,34 @@ export function BinderViewerInner({
   }, [pdbContent, loadBinderStructure, isReady, colorMode, viewMode, highlightedResidues]);
 
   return (
-    <div className={`bg-white rounded-xl border border-slate-200 overflow-hidden ${className}`}>
+    <div className={`bg-card rounded-xl border border-border overflow-hidden ${className}`}>
       {/* Header with controls */}
-      <div className="bg-gradient-to-r from-violet-50 to-purple-50 px-4 py-3 border-b border-violet-100">
+      <div className="bg-muted px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Box className="h-5 w-5 text-violet-600" />
-            <h4 className="font-semibold text-slate-900 text-sm">3D Structure</h4>
+            <Box className="h-5 w-5 text-primary" />
+            <h4 className="font-semibold text-foreground text-sm">3D Structure</h4>
           </div>
 
           {/* View mode controls */}
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500">View:</span>
-            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+            <span className="text-xs text-muted-foreground">View:</span>
+            <div className="flex rounded-lg border border-border overflow-hidden">
               <button
                 onClick={() => setViewMode('cartoon')}
-                className={`px-2 py-1 text-xs ${viewMode === 'cartoon' ? 'bg-violet-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                className={`px-2 py-1 text-xs ${viewMode === 'cartoon' ? 'bg-violet-500 text-white' : 'bg-card text-muted-foreground hover:bg-muted/50'}`}
               >
                 Cartoon
               </button>
               <button
                 onClick={() => setViewMode('surface')}
-                className={`px-2 py-1 text-xs border-l border-slate-200 ${viewMode === 'surface' ? 'bg-violet-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                className={`px-2 py-1 text-xs border-l border-border ${viewMode === 'surface' ? 'bg-violet-500 text-white' : 'bg-card text-muted-foreground hover:bg-muted/50'}`}
               >
                 Surface
               </button>
               <button
                 onClick={() => setViewMode('both')}
-                className={`px-2 py-1 text-xs border-l border-slate-200 ${viewMode === 'both' ? 'bg-violet-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                className={`px-2 py-1 text-xs border-l border-border ${viewMode === 'both' ? 'bg-violet-500 text-white' : 'bg-card text-muted-foreground hover:bg-muted/50'}`}
               >
                 Both
               </button>
@@ -363,9 +363,9 @@ export function BinderViewerInner({
         <div ref={containerRef} className="w-full h-full" style={{ minHeight: '350px' }} />
 
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/80">
-            <div className="flex items-center gap-2 text-slate-600">
-              <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+          <div className="absolute inset-0 flex items-center justify-center bg-card/80">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <div className="w-5 h-5 border-2 border-border border-t-transparent rounded-full animate-spin" />
               Loading structure...
             </div>
           </div>
@@ -381,32 +381,32 @@ export function BinderViewerInner({
         )}
 
         {!pdbContent && !error && isReady && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
-            <p className="text-slate-500">No structure to display</p>
+          <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
+            <p className="text-muted-foreground">No structure to display</p>
           </div>
         )}
       </div>
 
       {/* Legend */}
-      <div className="px-4 py-2 border-t border-slate-200 bg-slate-50">
+      <div className="px-4 py-2 border-t border-border bg-muted/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4 text-xs">
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: `#${COLORS.target.toString(16).padStart(6, '0')}` }} />
-              <span className="text-slate-600">Target ({targetChain})</span>
+              <span className="text-muted-foreground">Target ({targetChain})</span>
             </div>
             <div className="flex items-center gap-1">
               <div className="w-3 h-3 rounded" style={{ backgroundColor: `#${COLORS.binder.toString(16).padStart(6, '0')}` }} />
-              <span className="text-slate-600">Binder ({binderChain})</span>
+              <span className="text-muted-foreground">Binder ({binderChain})</span>
             </div>
             {colorMode === 'interface' && (
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: `#${COLORS.interface.toString(16).padStart(6, '0')}` }} />
-                <span className="text-slate-600">Interface</span>
+                <span className="text-muted-foreground">Interface</span>
               </div>
             )}
           </div>
-          <span className="text-xs text-slate-400">Drag to rotate • Scroll to zoom</span>
+          <span className="text-xs text-muted-foreground">Drag to rotate • Scroll to zoom</span>
         </div>
       </div>
     </div>

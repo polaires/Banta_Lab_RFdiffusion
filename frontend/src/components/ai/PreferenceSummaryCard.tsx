@@ -17,47 +17,47 @@ export function PreferenceSummaryCard({
   isRunning = false,
 }: PreferenceSummaryCardProps) {
   return (
-    <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
-      <h4 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-        <ClipboardList className="h-5 w-5 text-violet-600" />
+    <div className="bg-card rounded-xl p-5 border border-border shadow-sm">
+      <h4 className="font-semibold text-foreground mb-4 flex items-center gap-2">
+        <ClipboardList className="h-5 w-5 text-primary" />
         Your Design Preferences
       </h4>
 
       <div className="space-y-3 text-sm">
-        <div className="flex justify-between items-center py-2 border-b border-slate-100">
-          <span className="text-slate-600 flex items-center gap-2">
-            <Gem className="h-4 w-4 text-slate-400" />
+        <div className="flex justify-between items-center py-2 border-b border-border">
+          <span className="text-muted-foreground flex items-center gap-2">
+            <Gem className="h-4 w-4 text-muted-foreground" />
             Target Metal
           </span>
-          <span className="font-medium text-slate-900">{preferences.targetMetalLabel}</span>
+          <span className="font-medium text-foreground">{preferences.targetMetalLabel}</span>
         </div>
-        <div className="flex justify-between items-center py-2 border-b border-slate-100">
-          <span className="text-slate-600 flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-slate-400" />
+        <div className="flex justify-between items-center py-2 border-b border-border">
+          <span className="text-muted-foreground flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
             Design Approach
           </span>
-          <span className="font-medium text-slate-900">{preferences.aggressivenessLabel}</span>
+          <span className="font-medium text-foreground">{preferences.aggressivenessLabel}</span>
         </div>
-        <div className="flex justify-between items-center py-2 border-b border-slate-100">
-          <span className="text-slate-600 flex items-center gap-2">
-            <Network className="h-4 w-4 text-slate-400" />
+        <div className="flex justify-between items-center py-2 border-b border-border">
+          <span className="text-muted-foreground flex items-center gap-2">
+            <Network className="h-4 w-4 text-muted-foreground" />
             Coordination
           </span>
-          <span className="font-medium text-slate-900">{preferences.coordinationLabel}</span>
+          <span className="font-medium text-foreground">{preferences.coordinationLabel}</span>
         </div>
-        <div className="flex justify-between items-center py-2 border-b border-slate-100">
-          <span className="text-slate-600 flex items-center gap-2">
-            <Copy className="h-4 w-4 text-slate-400" />
+        <div className="flex justify-between items-center py-2 border-b border-border">
+          <span className="text-muted-foreground flex items-center gap-2">
+            <Copy className="h-4 w-4 text-muted-foreground" />
             Variants
           </span>
-          <span className="font-medium text-slate-900">{preferences.numDesigns} designs</span>
+          <span className="font-medium text-foreground">{preferences.numDesigns} designs</span>
         </div>
         <div className="flex justify-between items-center py-2">
-          <span className="text-slate-600 flex items-center gap-2">
-            <Star className="h-4 w-4 text-slate-400" />
+          <span className="text-muted-foreground flex items-center gap-2">
+            <Star className="h-4 w-4 text-muted-foreground" />
             Priority
           </span>
-          <span className="font-medium text-slate-900">{preferences.priorityLabel}</span>
+          <span className="font-medium text-foreground">{preferences.priorityLabel}</span>
         </div>
       </div>
 
@@ -65,10 +65,10 @@ export function PreferenceSummaryCard({
         <button
           onClick={onEdit}
           disabled={isRunning}
-          className={`flex-1 py-2.5 text-violet-600 border border-violet-200 rounded-lg font-medium transition-all ${
+          className={`flex-1 py-2.5 text-primary border border-border rounded-lg font-medium transition-all ${
             isRunning
               ? 'opacity-50 cursor-not-allowed'
-              : 'hover:bg-violet-50 hover:border-violet-300'
+              : 'hover:bg-muted hover:border-primary/50'
           }`}
         >
           <span className="flex items-center justify-center gap-2">
@@ -81,8 +81,8 @@ export function PreferenceSummaryCard({
           disabled={isRunning}
           className={`flex-1 py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
             isRunning
-              ? 'bg-violet-400 text-white cursor-not-allowed'
-              : 'bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700 shadow-sm'
+              ? 'bg-primary/70 text-primary-foreground cursor-not-allowed'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm'
           }`}
         >
           {isRunning ? (

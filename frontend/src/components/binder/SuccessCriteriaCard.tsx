@@ -128,11 +128,11 @@ function getMetricStatus(
 }
 
 const STATUS_STYLES: Record<MetricStatus, { bg: string; text: string; badge: string }> = {
-  excellent: { bg: 'bg-emerald-50', text: 'text-emerald-700', badge: 'bg-emerald-100 text-emerald-700' },
+  excellent: { bg: 'bg-green-50', text: 'text-green-700', badge: 'bg-green-100 text-green-700' },
   good: { bg: 'bg-blue-50', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700' },
-  moderate: { bg: 'bg-amber-50', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-700' },
+  moderate: { bg: 'bg-muted/50', text: 'text-muted-foreground', badge: 'bg-muted text-muted-foreground' },
   poor: { bg: 'bg-red-50', text: 'text-red-700', badge: 'bg-red-100 text-red-700' },
-  unknown: { bg: 'bg-slate-50', text: 'text-slate-500', badge: 'bg-slate-100 text-slate-500' },
+  unknown: { bg: 'bg-muted/50', text: 'text-muted-foreground', badge: 'bg-muted text-muted-foreground' },
 };
 
 export function SuccessCriteriaCard({
@@ -160,7 +160,7 @@ export function SuccessCriteriaCard({
         <div key={key} className={`p-3 rounded-lg ${styles.bg}`}>
           <div className="flex items-center gap-2 mb-1">
             <IconComponent className={`h-4 w-4 ${styles.text}`} />
-            <span className="text-xs text-slate-500">{label.name}</span>
+            <span className="text-xs text-muted-foreground">{label.name}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className={`font-semibold ${styles.text}`}>
@@ -188,7 +188,7 @@ export function SuccessCriteriaCard({
       <div key={key} className={`p-3 rounded-lg ${styles.bg}`}>
         <div className="flex items-center gap-2 mb-1">
           <IconComponent className={`h-4 w-4 ${styles.text}`} />
-          <span className="text-xs text-slate-500">{label.name}</span>
+          <span className="text-xs text-muted-foreground">{label.name}</span>
         </div>
         <div className="flex items-center justify-between">
           <span className={`font-semibold ${styles.text}`}>
@@ -252,23 +252,23 @@ export function SuccessCriteriaCard({
   const overallStyles = STATUS_STYLES[overall.status];
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+    <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
       {/* Header with Toggle */}
-      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
+      <div className="px-4 py-3 border-b border-border bg-muted/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <ClipboardCheck className="h-5 w-5 text-slate-600" />
-            <h4 className="font-semibold text-slate-900 text-sm">Success Criteria</h4>
+            <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
+            <h4 className="font-semibold text-foreground text-sm">Success Criteria</h4>
           </div>
 
           {showToggle && (
-            <div className="flex items-center gap-1 bg-white rounded-lg p-1 border border-slate-200">
+            <div className="flex items-center gap-1 bg-card rounded-lg p-1 border border-border">
               <button
                 onClick={() => handleModeChange('heterodimer')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
                   filterMode === 'heterodimer'
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 Heterodimer
@@ -278,7 +278,7 @@ export function SuccessCriteriaCard({
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
                   filterMode === 'rfdiffusion3'
                     ? 'bg-blue-100 text-blue-700'
-                    : 'text-slate-500 hover:text-slate-700'
+                    : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
                 RFD3 (Baker)
@@ -289,7 +289,7 @@ export function SuccessCriteriaCard({
       </div>
 
       {/* Overall Status */}
-      <div className={`px-4 py-3 ${overallStyles.bg} border-b border-slate-100`}>
+      <div className={`px-4 py-3 ${overallStyles.bg} border-b border-border`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {overall.status === 'excellent' || overall.status === 'good' ? (
@@ -323,8 +323,8 @@ export function SuccessCriteriaCard({
       </div>
 
       {/* Mode Description */}
-      <div className="px-4 py-2 bg-slate-50 border-t border-slate-100">
-        <p className="text-xs text-slate-500">
+      <div className="px-4 py-2 bg-muted/50 border-t border-border">
+        <p className="text-xs text-muted-foreground">
           {filterMode === 'heterodimer' ? (
             <>
               <span className="font-medium">Heterodimer mode:</span> Custom thresholds for GNINA docking,

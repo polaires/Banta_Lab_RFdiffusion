@@ -47,7 +47,7 @@ export function QualityPresetSelector({
       <select
         value={value}
         onChange={handleChange}
-        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+        className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-ring focus:border-transparent bg-card"
       >
         {presetKeys.map((key) => (
           <option key={key} value={key}>
@@ -58,14 +58,14 @@ export function QualityPresetSelector({
       </select>
 
       {showDescription && currentPreset && (
-        <p className="text-xs text-slate-500 flex items-center gap-1.5">
-          <Info className="h-4 w-4 text-slate-400" />
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Info className="h-4 w-4 text-muted-foreground" />
           {currentPreset.description}
         </p>
       )}
 
       {showDescription && value !== 'Custom' && currentPreset && (
-        <div className="flex gap-3 text-xs text-slate-400">
+        <div className="flex gap-3 text-xs text-muted-foreground">
           <span>Steps: {currentPreset.num_timesteps}</span>
           <span>Scale: {currentPreset.step_scale}</span>
           <span>Gamma: {currentPreset.gamma_0}</span>

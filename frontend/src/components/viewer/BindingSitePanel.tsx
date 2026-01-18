@@ -88,7 +88,7 @@ function MetalCard({
       className={`rounded-lg border shadow-sm transition-all ${
         isFocused
           ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200'
-          : 'border-slate-200 bg-white'
+          : 'border-border bg-card'
       }`}
     >
       {/* Header */}
@@ -97,13 +97,13 @@ function MetalCard({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setExpanded(!expanded)}
-              className="p-0.5 hover:bg-slate-200 rounded text-slate-500"
+              className="p-0.5 hover:bg-muted rounded text-muted-foreground"
             >
               {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
             <Atom className="w-4 h-4 text-purple-600" />
-            <span className="font-semibold text-slate-800">{metal.element}</span>
-            <span className="text-xs text-slate-500">
+            <span className="font-semibold text-foreground">{metal.element}</span>
+            <span className="text-xs text-muted-foreground">
               Chain {metal.chainId}, Res {metal.resSeq}
             </span>
           </div>
@@ -119,7 +119,7 @@ function MetalCard({
           <BindingSiteTypeBadge type={metal.bindingSiteType} />
           {metal.geometry && (
             <>
-              <span className="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600 border border-slate-200">
+              <span className="px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground border border-border">
                 {metal.geometry.geometryType}
               </span>
               <span className="px-2 py-0.5 rounded text-xs bg-purple-50 text-purple-700 border border-purple-200">
@@ -131,36 +131,36 @@ function MetalCard({
         </div>
 
         {/* Reason */}
-        <p className="text-xs text-slate-500">{metal.bindingSiteReason}</p>
+        <p className="text-xs text-muted-foreground">{metal.bindingSiteReason}</p>
       </div>
 
       {/* Expanded content - coordinating atoms table */}
       {expanded && (
-        <div className="border-t border-slate-100 p-3 space-y-3 bg-slate-50/50">
+        <div className="border-t border-border p-3 space-y-3 bg-muted/50/50">
           {/* Coordinating atoms - table-like layout */}
           <div>
-            <h4 className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">
+            <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
               Coordinating Atoms ({metal.coordinating.length})
             </h4>
-            <div className="bg-white rounded border border-slate-200 divide-y divide-slate-100">
+            <div className="bg-card rounded border border-border divide-y divide-border">
               {metal.coordinating.slice(0, 10).map((coord, i) => (
-                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-slate-50">
+                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-muted/50">
                   <div className="flex items-center gap-2">
-                    <span className={`font-medium ${coord.isWater ? 'text-cyan-600' : 'text-slate-700'}`}>
+                    <span className={`font-medium ${coord.isWater ? 'text-cyan-600' : 'text-foreground'}`}>
                       {coord.residue}
                     </span>
-                    <span className="text-slate-500">{coord.atom}</span>
+                    <span className="text-muted-foreground">{coord.atom}</span>
                     {coord.isWater && (
                       <span className="px-1.5 py-0.5 rounded text-[10px] bg-cyan-50 text-cyan-600 border border-cyan-200">
                         water
                       </span>
                     )}
                   </div>
-                  <span className="font-mono text-slate-600">{coord.distance.toFixed(2)} A</span>
+                  <span className="font-mono text-muted-foreground">{coord.distance.toFixed(2)} A</span>
                 </div>
               ))}
               {metal.coordinating.length > 10 && (
-                <div className="px-2.5 py-1.5 text-xs text-slate-400 text-center">
+                <div className="px-2.5 py-1.5 text-xs text-muted-foreground text-center">
                   ... and {metal.coordinating.length - 10} more
                 </div>
               )}
@@ -168,30 +168,30 @@ function MetalCard({
           </div>
 
           {/* Hydration analysis */}
-          <div className="bg-white rounded border border-slate-200 p-2.5">
-            <h4 className="text-xs font-semibold text-slate-600 mb-1.5">Hydration State</h4>
-            <p className="text-xs text-slate-500 mb-2">{metal.hydrationAnalysis.hydrationNote}</p>
+          <div className="bg-card rounded border border-border p-2.5">
+            <h4 className="text-xs font-semibold text-muted-foreground mb-1.5">Hydration State</h4>
+            <p className="text-xs text-muted-foreground mb-2">{metal.hydrationAnalysis.hydrationNote}</p>
             <div className="flex gap-3 text-xs">
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-                <span className="text-slate-600">{metal.hydrationAnalysis.waterCount} water</span>
+                <span className="text-muted-foreground">{metal.hydrationAnalysis.waterCount} water</span>
               </span>
               <span className="flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                <span className="text-slate-600">{metal.hydrationAnalysis.proteinLigandCount} protein</span>
+                <span className="text-muted-foreground">{metal.hydrationAnalysis.proteinLigandCount} protein</span>
               </span>
             </div>
           </div>
 
           {/* Geometry angles (if available) */}
           {metal.geometry && metal.geometry.angles.length > 0 && (
-            <div className="bg-white rounded border border-slate-200 p-2.5">
-              <h4 className="text-xs font-semibold text-slate-600 mb-1.5">
-                L-M-L Angles <span className="font-normal text-slate-400">(avg: {metal.geometry.avgAngle.toFixed(1)}deg)</span>
+            <div className="bg-card rounded border border-border p-2.5">
+              <h4 className="text-xs font-semibold text-muted-foreground mb-1.5">
+                L-M-L Angles <span className="font-normal text-muted-foreground">(avg: {metal.geometry.avgAngle.toFixed(1)}deg)</span>
               </h4>
               <div className="flex flex-wrap gap-1.5">
                 {metal.geometry.angles.slice(0, 6).map((a, i) => (
-                  <span key={i} className="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600 font-mono">
+                  <span key={i} className="px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground font-mono">
                     {a.angle.toFixed(1)}°
                   </span>
                 ))}
@@ -222,7 +222,7 @@ function LigandCard({
       className={`rounded-lg border shadow-sm transition-all ${
         isFocused
           ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200'
-          : 'border-slate-200 bg-white'
+          : 'border-border bg-card'
       }`}
     >
       {/* Header */}
@@ -231,13 +231,13 @@ function LigandCard({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setExpanded(!expanded)}
-              className="p-0.5 hover:bg-slate-200 rounded text-slate-500"
+              className="p-0.5 hover:bg-muted rounded text-muted-foreground"
             >
               {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
             <Pill className="w-4 h-4 text-emerald-600" />
-            <span className="font-semibold text-slate-800">{ligand.name}</span>
-            <span className="text-xs text-slate-500">
+            <span className="font-semibold text-foreground">{ligand.name}</span>
+            <span className="text-xs text-muted-foreground">
               Chain {ligand.chainId}, {ligand.atoms} atoms
             </span>
           </div>
@@ -251,44 +251,44 @@ function LigandCard({
         {/* Quick info */}
         <div className="flex flex-wrap gap-1.5 mb-2">
           <BindingSiteTypeBadge type={ligand.bindingSiteType} />
-          <span className="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600 border border-slate-200">
+          <span className="px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground border border-border">
             {ligand.contacts.length} contacts
           </span>
         </div>
 
         {/* Reason */}
-        <p className="text-xs text-slate-500">{ligand.bindingSiteReason}</p>
+        <p className="text-xs text-muted-foreground">{ligand.bindingSiteReason}</p>
       </div>
 
       {/* Expanded content */}
       {expanded && (
-        <div className="border-t border-slate-100 p-3 space-y-3 bg-slate-50/50">
+        <div className="border-t border-border p-3 space-y-3 bg-muted/50/50">
           {/* Protein contacts - table-like layout */}
           <div>
-            <h4 className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">
+            <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
               Protein Contacts ({ligand.contacts.length})
             </h4>
-            <div className="bg-white rounded border border-slate-200 divide-y divide-slate-100">
+            <div className="bg-card rounded border border-border divide-y divide-border">
               {ligand.contacts.slice(0, 15).map((contact, i) => (
-                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-slate-50">
+                <div key={i} className="flex items-center justify-between px-2.5 py-1.5 text-xs hover:bg-muted/50">
                   <div className="flex items-center gap-2">
                     <span
                       className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: getInteractionColor(contact.interactionType) }}
                     />
-                    <span className="font-medium text-slate-700">
+                    <span className="font-medium text-foreground">
                       {contact.residue}
                     </span>
-                    <span className="text-slate-500">{contact.atom}</span>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500">
+                    <span className="text-muted-foreground">{contact.atom}</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground">
                       {getInteractionLabel(contact.interactionType)}
                     </span>
                   </div>
-                  <span className="font-mono text-slate-600">{contact.distance.toFixed(2)} A</span>
+                  <span className="font-mono text-muted-foreground">{contact.distance.toFixed(2)} A</span>
                 </div>
               ))}
               {ligand.contacts.length > 15 && (
-                <div className="px-2.5 py-1.5 text-xs text-slate-400 text-center">
+                <div className="px-2.5 py-1.5 text-xs text-muted-foreground text-center">
                   ... and {ligand.contacts.length - 15} more
                 </div>
               )}
@@ -296,9 +296,9 @@ function LigandCard({
           </div>
 
           {/* Interaction type legend */}
-          <div className="bg-white rounded border border-slate-200 p-2.5">
-            <h4 className="text-xs font-semibold text-slate-600 mb-2">Interaction Types</h4>
-            <div className="flex flex-wrap gap-3 text-xs text-slate-600">
+          <div className="bg-card rounded border border-border p-2.5">
+            <h4 className="text-xs font-semibold text-muted-foreground mb-2">Interaction Types</h4>
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: getInteractionColor('hydrogen_bond') }} />
                 H-bond
@@ -340,8 +340,8 @@ export function BindingSitePanel({
 
   if (loading) {
     return (
-      <div className="w-80 bg-slate-50 border-l border-slate-200 p-4">
-        <div className="flex items-center gap-2 text-slate-500">
+      <div className="w-80 bg-muted/50 border-l border-border p-4">
+        <div className="flex items-center gap-2 text-muted-foreground">
           <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-medium">Analyzing structure...</span>
         </div>
@@ -351,12 +351,12 @@ export function BindingSitePanel({
 
   if (!hasMetals && !hasLigands) {
     return (
-      <div className="w-80 bg-slate-50 border-l border-slate-200 p-4">
-        <div className="flex items-center gap-2 text-slate-500">
+      <div className="w-80 bg-muted/50 border-l border-border p-4">
+        <div className="flex items-center gap-2 text-muted-foreground">
           <Info className="w-4 h-4" />
           <span className="text-sm font-medium">No binding sites detected</span>
         </div>
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           Load a structure with metal ions or ligands to see binding site analysis.
         </p>
       </div>
@@ -364,11 +364,11 @@ export function BindingSitePanel({
   }
 
   return (
-    <div className="w-80 bg-slate-50 border-l border-slate-200 overflow-y-auto h-[564px]">
+    <div className="w-80 bg-muted/50 border-l border-border overflow-y-auto h-[564px]">
       {/* Header */}
-      <div className="p-4 border-b border-slate-200 bg-white sticky top-0 z-10">
-        <h2 className="font-semibold text-slate-800">Binding Site Analysis</h2>
-        <p className="text-xs text-slate-500 mt-0.5">
+      <div className="p-4 border-b border-border bg-card sticky top-0 z-10">
+        <h2 className="font-semibold text-foreground">Binding Site Analysis</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
           {hasMetals && `${metalCoordination!.length} metal${metalCoordination!.length !== 1 ? 's' : ''}`}
           {hasMetals && hasLigands && ' · '}
           {hasLigands && `${ligandData!.ligandCount} ligand${ligandData!.ligandCount !== 1 ? 's' : ''}`}
@@ -383,12 +383,12 @@ export function BindingSitePanel({
               onClick={() => setMetalsExpanded(!metalsExpanded)}
               className="flex items-center gap-2 w-full text-left mb-3 group"
             >
-              <span className="text-slate-400 group-hover:text-slate-600 transition-colors">
+              <span className="text-muted-foreground group-hover:text-muted-foreground transition-colors">
                 {metalsExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               </span>
               <Atom className="w-4 h-4 text-purple-600" />
-              <span className="font-semibold text-slate-700">Metal Ions</span>
-              <span className="text-xs text-slate-400 bg-slate-200 px-1.5 py-0.5 rounded">
+              <span className="font-semibold text-foreground">Metal Ions</span>
+              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                 {metalCoordination!.length}
               </span>
             </button>
@@ -416,12 +416,12 @@ export function BindingSitePanel({
               onClick={() => setLigandsExpanded(!ligandsExpanded)}
               className="flex items-center gap-2 w-full text-left mb-3 group"
             >
-              <span className="text-slate-400 group-hover:text-slate-600 transition-colors">
+              <span className="text-muted-foreground group-hover:text-muted-foreground transition-colors">
                 {ligandsExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
               </span>
               <Pill className="w-4 h-4 text-emerald-600" />
-              <span className="font-semibold text-slate-700">Ligands</span>
-              <span className="text-xs text-slate-400 bg-slate-200 px-1.5 py-0.5 rounded">
+              <span className="font-semibold text-foreground">Ligands</span>
+              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
                 {ligandData!.ligandCount}
               </span>
             </button>

@@ -66,11 +66,11 @@ export function SmartForm({
 
     return (
       <div key={field.id} className="mb-4">
-        <label className="block text-sm font-medium text-slate-700 mb-1.5">
+        <label className="block text-sm font-medium text-foreground mb-1.5">
           {field.label}
           {field.required && <span className="text-red-500 ml-1">*</span>}
           {hasAiSuggestion && (
-            <span className="ml-2 text-xs text-violet-600 bg-violet-50 px-2 py-0.5 rounded-full">
+            <span className="ml-2 text-xs text-primary bg-primary/10 px-2 py-0.5 rounded-full">
               AI suggested
             </span>
           )}
@@ -82,7 +82,7 @@ export function SmartForm({
             type="text"
             value={String(value || '')}
             onChange={(e) => handleChange(field.id, e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 text-sm"
+            className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-1 focus:ring-primary text-sm"
             required={field.required}
           />
         )}
@@ -92,7 +92,7 @@ export function SmartForm({
             type="number"
             value={Number(value) || ''}
             onChange={(e) => handleChange(field.id, parseFloat(e.target.value))}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 text-sm"
+            className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-1 focus:ring-primary text-sm"
             required={field.required}
             min={field.range_config?.min}
             max={field.range_config?.max}
@@ -104,7 +104,7 @@ export function SmartForm({
           <select
             value={String(value || '')}
             onChange={(e) => handleChange(field.id, e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 text-sm"
+            className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-1 focus:ring-primary text-sm"
             required={field.required}
           >
             <option value="">Select...</option>
@@ -123,20 +123,20 @@ export function SmartForm({
               min={field.range_config.min}
               max={field.range_config.max}
               step={field.range_config.step}
-              className="flex-1 accent-violet-600"
+              className="flex-1 accent-primary"
             />
-            <span className="text-sm font-medium text-slate-700 w-16 text-right">
+            <span className="text-sm font-medium text-foreground w-16 text-right">
               {Number(value)?.toFixed(1) || field.range_config.min}
             </span>
           </div>
         )}
 
         {/* Help text */}
-        <p className="mt-1 text-xs text-slate-500">{field.help_text}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{field.help_text}</p>
 
         {/* AI reasoning for this field */}
         {field.ai_reasoning && (
-          <p className="mt-1 text-xs text-violet-600 bg-violet-50 px-2 py-1 rounded">
+          <p className="mt-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded">
             {field.ai_reasoning}
           </p>
         )}
@@ -145,19 +145,19 @@ export function SmartForm({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
       {/* Header with task type and confidence */}
-      <div className="bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-4 border-b border-violet-100">
+      <div className="bg-muted px-5 py-4 border-b border-border">
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-violet-600" />
-              <h3 className="font-semibold text-slate-900">
+              <Sparkles className="h-5 w-5 text-primary" />
+              <h3 className="font-semibold text-foreground">
                 {taskType ? taskType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Design Parameters'}
               </h3>
             </div>
             {taskType && (
-              <p className="text-sm text-slate-600 mt-1">
+              <p className="text-sm text-muted-foreground mt-1">
                 AI-suggested configuration for your design
               </p>
             )}
@@ -173,13 +173,13 @@ export function SmartForm({
             <button
               type="button"
               onClick={() => setExpandedReasoning(!expandedReasoning)}
-              className="text-sm text-violet-600 hover:text-violet-800 flex items-center gap-1"
+              className="text-sm text-primary hover:text-primary/80 flex items-center gap-1"
             >
               {expandedReasoning ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               {expandedReasoning ? 'Hide' : 'Show'} AI reasoning
             </button>
             {expandedReasoning && (
-              <p className="mt-2 text-sm text-slate-700 bg-white/70 p-3 rounded-lg">
+              <p className="mt-2 text-sm text-foreground bg-card/70 p-3 rounded-lg">
                 {reasoning}
               </p>
             )}
@@ -192,14 +192,14 @@ export function SmartForm({
         {formConfig.length > 0 ? (
           formConfig.map(renderField)
         ) : (
-          <p className="text-sm text-slate-500 text-center py-4">
+          <p className="text-sm text-muted-foreground text-center py-4">
             No parameters configured. Describe your goal to get AI suggestions.
           </p>
         )}
 
         {/* Chat input for refinement */}
-        <div className="mt-6 pt-4 border-t border-slate-200">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
+        <div className="mt-6 pt-4 border-t border-border">
+          <label className="block text-sm font-medium text-foreground mb-2">
             Refine with AI
           </label>
           <div className="flex gap-2">
@@ -208,7 +208,7 @@ export function SmartForm({
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               placeholder="e.g., make it more aggressive, increase designs to 10..."
-              className="flex-1 px-3 py-2 rounded-lg border border-slate-300 focus:border-violet-500 focus:ring-1 focus:ring-violet-500 text-sm"
+              className="flex-1 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-1 focus:ring-primary text-sm"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -220,7 +220,7 @@ export function SmartForm({
               type="button"
               onClick={handleChatSubmit}
               disabled={!chatInput.trim()}
-              className="px-4 py-2 rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="h-4 w-4" />
             </button>
@@ -232,7 +232,7 @@ export function SmartForm({
           <button
             type="submit"
             disabled={isLoading || formConfig.length === 0}
-            className="px-6 py-2.5 rounded-xl font-medium bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="px-6 py-2.5 rounded-xl font-medium bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isLoading ? (
               <>

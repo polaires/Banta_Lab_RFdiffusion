@@ -79,7 +79,7 @@ export function LengthRangeInput({
   return (
     <div className={`space-y-1.5 ${className}`}>
       {label && (
-        <label className="block text-sm font-medium text-slate-700">
+        <label className="block text-sm font-medium text-foreground">
           {label}
         </label>
       )}
@@ -91,12 +91,12 @@ export function LengthRangeInput({
           onFocus={() => setIsFocused(true)}
           onBlur={handleBlur}
           placeholder={placeholder}
-          className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-            error ? 'border-red-300 bg-red-50' : 'border-slate-200'
+          className={`w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-ring focus:border-transparent bg-card ${
+            error ? 'border-red-300 bg-red-50' : 'border-border'
           }`}
         />
         {value && !error && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
             residues
           </span>
         )}
@@ -108,7 +108,7 @@ export function LengthRangeInput({
         </p>
       )}
       {!error && hint && (
-        <p className="text-xs text-slate-400">{hint}</p>
+        <p className="text-xs text-muted-foreground">{hint}</p>
       )}
     </div>
   );

@@ -1,7 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useRef, useEffect, createContext, useContext } from 'react';
 import { cn } from '@/lib/utils';
+import { GripVertical, PanelRightClose, PanelRight } from 'lucide-react';
+
+// Context to notify children of viewer resize
+export const ViewerResizeContext = createContext<{ width: number; collapsed: boolean }>({ width: 400, collapsed: false });
+export const useViewerResize = () => useContext(ViewerResizeContext);
 
 interface MainLayoutProps {
   sidebar: React.ReactNode;
@@ -12,6 +17,46 @@ interface MainLayoutProps {
 
 export function MainLayout({ sidebar, main, viewer, header }: MainLayoutProps) {
   const [viewerCollapsed, setViewerCollapsed] = useState(false);
+  const [viewerWidth, setViewerWidth] = useState(400);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<HTMLDivElement>(null);
+
+  const minWidth = 300;
+  const maxWidth = 700;
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+
+      // Calculate new width based on mouse position from right edge
+      const newWidth = window.innerWidth - e.clientX;
+      setViewerWidth(Math.min(maxWidth, Math.max(minWidth, newWidth)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -38,10 +83,40 @@ export function MainLayout({ sidebar, main, viewer, header }: MainLayoutProps) {
         {viewer && (
           <aside
             className={cn(
-              'border-l border-border shrink-0 transition-all duration-200 bg-card',
-              viewerCollapsed ? 'w-12' : 'w-[400px]'
+              'border-l border-border shrink-0 bg-card relative',
+              viewerCollapsed ? 'w-12' : '',
+              isResizing ? 'transition-none' : 'transition-[width] duration-150'
             )}
+            style={{ width: viewerCollapsed ? 48 : viewerWidth }}
           >
+            {/* Resize Handle - Claude artifact style */}
+            {!viewerCollapsed && (
+              <div
+                ref={resizeRef}
+                onMouseDown={handleMouseDown}
+                className={cn(
+                  'absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-20 group',
+                  'hover:bg-primary/10',
+                  isResizing && 'bg-primary/20'
+                )}
+              >
+                {/* Visible drag indicator line */}
+                <div className={cn(
+                  'absolute left-0 top-0 bottom-0 w-[3px]',
+                  'bg-transparent group-hover:bg-primary/40 transition-colors',
+                  isResizing && 'bg-primary/60'
+                )} />
+                {/* Grip icon on hover */}
+                <div className={cn(
+                  'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
+                  'opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none',
+                  isResizing && 'opacity-100'
+                )}>
+                  <GripVertical className="h-8 w-8 text-muted-foreground drop-shadow-sm" />
+                </div>
+              </div>
+            )}
+
             <div className="h-full flex flex-col">
               <div className="h-10 border-b border-border flex items-center justify-between px-3">
                 <span className={cn('text-sm font-medium', viewerCollapsed && 'hidden')}>
@@ -49,13 +124,20 @@ export function MainLayout({ sidebar, main, viewer, header }: MainLayoutProps) {
                 </span>
                 <button
                   onClick={() => setViewerCollapsed(!viewerCollapsed)}
-                  className="p-1 hover:bg-accent rounded"
+                  className="p-1.5 hover:bg-accent rounded-md transition-colors"
+                  title={viewerCollapsed ? 'Expand panel' : 'Collapse panel'}
                 >
-                  {viewerCollapsed ? '◀' : '▶'}
+                  {viewerCollapsed ? (
+                    <PanelRight className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <PanelRightClose className="h-4 w-4 text-muted-foreground" />
+                  )}
                 </button>
               </div>
               <div className={cn('flex-1 overflow-hidden', viewerCollapsed && 'hidden')}>
-                {viewer}
+                <ViewerResizeContext.Provider value={{ width: viewerWidth, collapsed: viewerCollapsed }}>
+                  {viewer}
+                </ViewerResizeContext.Provider>
               </div>
             </div>
           </aside>

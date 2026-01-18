@@ -170,17 +170,17 @@ export function InterviewMode({ onComplete, onCancel }: InterviewModeProps) {
   };
 
   return (
-    <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-2xl p-6 border border-violet-200 shadow-sm">
+    <div className="bg-muted rounded-2xl p-6 border border-border shadow-sm">
       {/* Progress bar */}
-      <div className="h-1.5 bg-violet-100 rounded-full mb-6 overflow-hidden">
+      <div className="h-1.5 bg-muted-foreground/20 rounded-full mb-6 overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-violet-500 to-purple-600 rounded-full transition-all duration-500"
+          className="h-full bg-primary rounded-full transition-all duration-500"
           style={{ width: `${progress}%` }}
         />
       </div>
 
       {/* Step indicator */}
-      <div className="flex items-center gap-2 text-violet-600 text-sm mb-4">
+      <div className="flex items-center gap-2 text-primary text-sm mb-4">
         {(() => {
           const IconComponent = STEP_ICONS[step.icon];
           return IconComponent ? <IconComponent className="h-5 w-5" /> : null;
@@ -189,8 +189,8 @@ export function InterviewMode({ onComplete, onCancel }: InterviewModeProps) {
       </div>
 
       {/* Question */}
-      <h3 className="text-xl font-semibold text-slate-900 mb-2">{step.question}</h3>
-      <p className="text-slate-600 text-sm mb-6">{step.description}</p>
+      <h3 className="text-xl font-semibold text-foreground mb-2">{step.question}</h3>
+      <p className="text-muted-foreground text-sm mb-6">{step.description}</p>
 
       {/* Options */}
       <div className="space-y-3 mb-6">
@@ -202,21 +202,21 @@ export function InterviewMode({ onComplete, onCancel }: InterviewModeProps) {
               onClick={() => handleSelect(option.id)}
               className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
                 isSelected
-                  ? 'border-violet-500 bg-violet-50 shadow-sm'
-                  : 'border-slate-200 hover:border-violet-300 hover:bg-violet-50/50'
+                  ? 'border-primary bg-primary/5 shadow-sm'
+                  : 'border-border hover:border-primary/50 hover:bg-muted/50'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <div className={`font-medium ${isSelected ? 'text-violet-900' : 'text-slate-900'}`}>
+                  <div className={`font-medium ${isSelected ? 'text-foreground' : 'text-foreground'}`}>
                     {option.label}
                   </div>
-                  <div className={`text-sm ${isSelected ? 'text-violet-700' : 'text-slate-500'}`}>
+                  <div className={`text-sm ${isSelected ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
                     {option.description}
                   </div>
                 </div>
                 {isSelected && (
-                  <CheckCircle className="h-6 w-6 text-violet-600" />
+                  <CheckCircle className="h-6 w-6 text-primary" />
                 )}
               </div>
             </button>
@@ -230,7 +230,7 @@ export function InterviewMode({ onComplete, onCancel }: InterviewModeProps) {
           {currentStep > 0 ? (
             <button
               onClick={handleBack}
-              className="text-violet-600 text-sm font-medium hover:text-violet-800 flex items-center gap-1"
+              className="text-primary text-sm font-medium hover:text-primary/80 flex items-center gap-1"
             >
               <ArrowLeft className="h-4 w-4" />
               Back
@@ -238,7 +238,7 @@ export function InterviewMode({ onComplete, onCancel }: InterviewModeProps) {
           ) : onCancel ? (
             <button
               onClick={onCancel}
-              className="text-slate-500 text-sm font-medium hover:text-slate-700"
+              className="text-muted-foreground text-sm font-medium hover:text-foreground"
             >
               Cancel
             </button>
@@ -249,8 +249,8 @@ export function InterviewMode({ onComplete, onCancel }: InterviewModeProps) {
           disabled={!selectedOption}
           className={`px-6 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 ${
             selectedOption
-              ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700 shadow-sm'
-              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm'
+              : 'bg-muted text-muted-foreground cursor-not-allowed'
           }`}
         >
           {isLastStep ? 'Review Preferences' : 'Next'}

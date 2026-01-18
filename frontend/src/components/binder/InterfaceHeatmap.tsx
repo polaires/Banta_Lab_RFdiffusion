@@ -163,15 +163,15 @@ export function InterfaceHeatmap({
   }, [contacts, targetResidueRange, binderResidueRange, width, height, targetChainLabel, binderChainLabel, onCellClick, onCellHover]);
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 px-4 py-3 border-b border-indigo-100">
+      <div className="bg-muted px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <LayoutGrid className="h-5 w-5 text-indigo-600" />
-            <h4 className="font-semibold text-slate-900 text-sm">Interface Heatmap</h4>
+            <LayoutGrid className="h-5 w-5 text-primary" />
+            <h4 className="font-semibold text-foreground text-sm">Interface Heatmap</h4>
           </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-muted-foreground">
             {contacts.length} contacts
           </div>
         </div>
@@ -190,7 +190,7 @@ export function InterfaceHeatmap({
         {hoveredCell && (
           <div
             ref={tooltipRef}
-            className="absolute bg-slate-900 text-white px-3 py-2 rounded-lg text-xs shadow-lg pointer-events-none z-10"
+            className="absolute bg-foreground text-white px-3 py-2 rounded-lg text-xs shadow-lg pointer-events-none z-10"
             style={{
               left: '50%',
               top: '50%',
@@ -200,7 +200,7 @@ export function InterfaceHeatmap({
             <div className="font-medium">
               {targetChainLabel}:{hoveredCell.target} ↔ {binderChainLabel}:{hoveredCell.binder}
             </div>
-            <div className="text-slate-300 mt-1">
+            <div className="text-muted-foreground mt-1">
               Distance: {hoveredCell.distance.toFixed(2)} Å
             </div>
           </div>
@@ -210,24 +210,24 @@ export function InterfaceHeatmap({
       {/* Legend */}
       <div className="px-4 pb-4">
         <div className="flex items-center justify-center gap-4 text-xs">
-          <span className="text-slate-500">Distance:</span>
+          <span className="text-muted-foreground">Distance:</span>
           <div className="flex items-center gap-1">
             <div className="w-4 h-3 rounded" style={{ backgroundColor: d3.interpolateBlues(0.9) }} />
-            <span className="text-slate-600">Close (2Å)</span>
+            <span className="text-muted-foreground">Close (2Å)</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-4 h-3 rounded" style={{ backgroundColor: d3.interpolateBlues(0.5) }} />
-            <span className="text-slate-600">Medium</span>
+            <span className="text-muted-foreground">Medium</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-4 h-3 rounded" style={{ backgroundColor: d3.interpolateBlues(0.2) }} />
-            <span className="text-slate-600">Far (8Å)</span>
+            <span className="text-muted-foreground">Far (8Å)</span>
           </div>
         </div>
       </div>
 
       {/* Instructions */}
-      <div className="bg-slate-50 px-4 py-2 border-t border-slate-200 text-xs text-slate-500 flex items-center gap-1">
+      <div className="bg-muted/50 px-4 py-2 border-t border-border text-xs text-muted-foreground flex items-center gap-1">
         <Info className="h-3 w-3" />
         Hover over cells to see contact details. Click to highlight in 3D viewer.
       </div>

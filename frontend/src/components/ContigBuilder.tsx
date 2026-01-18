@@ -139,28 +139,28 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
   };
 
   return (
-    <div className="bg-white rounded-xl p-5 space-y-4 border border-slate-200 shadow-sm">
+    <div className="bg-card rounded-xl p-5 space-y-4 border border-border shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Wrench className="w-5 h-5 text-blue-600" />
-          <h3 className="font-semibold text-slate-800">Contig Builder</h3>
+          <h3 className="font-semibold text-foreground">Contig Builder</h3>
         </div>
         <button
           onClick={() => setShowHelp(!showHelp)}
-          className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors"
+          className="p-1.5 hover:bg-muted rounded-lg transition-colors"
           title="Help"
         >
-          <HelpCircle className="w-5 h-5 text-slate-400" />
+          <HelpCircle className="w-5 h-5 text-muted-foreground" />
         </button>
       </div>
 
       {showHelp && (
-        <div className="bg-slate-50 p-4 rounded-lg text-sm text-slate-600 space-y-2 border border-slate-100">
-          <p><strong className="text-slate-700">De Novo Region:</strong> Generates new amino acids. Specify length or range.</p>
-          <p><strong className="text-slate-700">Fixed Region:</strong> Keeps residues from input PDB. Specify chain and residue numbers.</p>
-          <p><strong className="text-slate-700">Flexible Linker:</strong> Gap between segments. Use 0 for direct connection.</p>
-          <p className="pt-2 border-t border-slate-200 mt-2">
-            <strong className="text-slate-700">Binder Design:</strong> Upload target PDB, add Fixed region (target), Linker (/0), De Novo region (binder).
+        <div className="bg-muted p-4 rounded-lg text-sm text-muted-foreground space-y-2 border border-border">
+          <p><strong className="text-foreground">De Novo Region:</strong> Generates new amino acids. Specify length or range.</p>
+          <p><strong className="text-foreground">Fixed Region:</strong> Keeps residues from input PDB. Specify chain and residue numbers.</p>
+          <p><strong className="text-foreground">Flexible Linker:</strong> Gap between segments. Use 0 for direct connection.</p>
+          <p className="pt-2 border-t border-border mt-2">
+            <strong className="text-foreground">Binder Design:</strong> Upload target PDB, add Fixed region (target), Linker (/0), De Novo region (binder).
           </p>
         </div>
       )}
@@ -181,10 +181,10 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
               <button
                 key={preset.name}
                 onClick={() => applyPreset(preset)}
-                className="p-3 text-left bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-200 hover:border-blue-300 transition-all"
+                className="p-3 text-left bg-muted hover:bg-muted rounded-lg border border-border hover:border-blue-300 transition-all"
               >
-                <div className="font-medium text-sm text-slate-700">{preset.name}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{preset.description}</div>
+                <div className="font-medium text-sm text-foreground">{preset.name}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{preset.description}</div>
               </button>
             ))}
           </div>
@@ -200,7 +200,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
               key={segment.id}
               className={`flex items-center gap-3 p-3 rounded-lg border ${preset.lightBg} ${preset.border}`}
             >
-              <GripVertical className="w-4 h-4 text-slate-400 cursor-grab" />
+              <GripVertical className="w-4 h-4 text-muted-foreground cursor-grab" />
 
               <span className={`px-2 py-0.5 rounded text-xs font-semibold text-white ${preset.color}`}>
                 {index + 1}
@@ -225,7 +225,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
                   }
                   updateSegment(segment.id, updates);
                 }}
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                className="bg-card border border-border rounded-lg px-2.5 py-1.5 text-sm text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
               >
                 <option value="denovo">De Novo</option>
                 <option value="fixed">Fixed</option>
@@ -239,47 +239,47 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
                     type="number"
                     value={segment.minLength || 0}
                     onChange={(e) => updateSegment(segment.id, { minLength: parseInt(e.target.value) || 0 })}
-                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-16 bg-card border border-border rounded-lg px-2 py-1.5 text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                     min={1}
                     placeholder="Min"
                   />
-                  <span className="text-slate-400">-</span>
+                  <span className="text-muted-foreground">-</span>
                   <input
                     type="number"
                     value={segment.maxLength || 0}
                     onChange={(e) => updateSegment(segment.id, { maxLength: parseInt(e.target.value) || 0 })}
-                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-16 bg-card border border-border rounded-lg px-2 py-1.5 text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                     min={1}
                     placeholder="Max"
                   />
-                  <span className="text-slate-500 text-xs">residues</span>
+                  <span className="text-muted-foreground text-xs">residues</span>
                 </div>
               )}
 
               {segment.type === 'fixed' && (
                 <div className="flex items-center gap-1.5 text-sm">
-                  <span className="text-slate-500">Chain</span>
+                  <span className="text-muted-foreground">Chain</span>
                   <input
                     type="text"
                     value={segment.chain || 'A'}
                     onChange={(e) => updateSegment(segment.id, { chain: e.target.value.toUpperCase().slice(0, 1) })}
-                    className="w-10 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-10 bg-card border border-border rounded-lg px-2 py-1.5 text-center text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                     maxLength={1}
                   />
-                  <span className="text-slate-400">:</span>
+                  <span className="text-muted-foreground">:</span>
                   <input
                     type="number"
                     value={segment.startResidue || 1}
                     onChange={(e) => updateSegment(segment.id, { startResidue: parseInt(e.target.value) || 1 })}
-                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-16 bg-card border border-border rounded-lg px-2 py-1.5 text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                     min={1}
                   />
-                  <span className="text-slate-400">-</span>
+                  <span className="text-muted-foreground">-</span>
                   <input
                     type="number"
                     value={segment.endResidue || 1}
                     onChange={(e) => updateSegment(segment.id, { endResidue: parseInt(e.target.value) || 1 })}
-                    className="w-16 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-16 bg-card border border-border rounded-lg px-2 py-1.5 text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                     min={1}
                   />
                 </div>
@@ -287,20 +287,20 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
 
               {segment.type === 'linker' && (
                 <div className="flex items-center gap-1.5 text-sm">
-                  <span className="text-slate-500">Gap</span>
+                  <span className="text-muted-foreground">Gap</span>
                   <input
                     type="number"
                     value={segment.gapMin ?? 0}
                     onChange={(e) => updateSegment(segment.id, { gapMin: parseInt(e.target.value) || 0 })}
-                    className="w-14 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-14 bg-card border border-border rounded-lg px-2 py-1.5 text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                     min={0}
                   />
-                  <span className="text-slate-400">-</span>
+                  <span className="text-muted-foreground">-</span>
                   <input
                     type="number"
                     value={segment.gapMax ?? 0}
                     onChange={(e) => updateSegment(segment.id, { gapMax: parseInt(e.target.value) || 0 })}
-                    className="w-14 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-slate-700 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                    className="w-14 bg-card border border-border rounded-lg px-2 py-1.5 text-foreground focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
                     min={0}
                   />
                 </div>
@@ -311,7 +311,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
               <button
                 onClick={() => removeSegment(segment.id)}
                 disabled={segments.length <= 1}
-                className="p-1.5 hover:bg-white/80 rounded-lg disabled:opacity-30 transition-colors"
+                className="p-1.5 hover:bg-card/80 rounded-lg disabled:opacity-30 transition-colors"
                 title="Remove segment"
               >
                 <Trash2 className="w-5 h-5 text-red-500" />
@@ -344,9 +344,9 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
       </div>
 
       {/* Preview */}
-      <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+      <div className="bg-muted rounded-lg p-4 border border-border">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Generated Contig</span>
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Generated Contig</span>
           <button
             onClick={applyContig}
             className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-semibold text-white shadow-sm transition-colors"
@@ -354,7 +354,7 @@ export function ContigBuilder({ onContigChange, initialContig }: ContigBuilderPr
             Apply to Design
           </button>
         </div>
-        <code className="text-sm text-blue-700 font-mono bg-white px-3 py-2 rounded-lg border border-slate-200 block">
+        <code className="text-sm text-blue-700 font-mono bg-card px-3 py-2 rounded-lg border border-border block">
           {contigString || '(empty)'}
         </code>
       </div>

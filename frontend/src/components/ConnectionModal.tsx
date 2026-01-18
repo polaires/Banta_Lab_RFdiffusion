@@ -99,16 +99,16 @@ export function ConnectionModal() {
       />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200">
+      <div className="relative bg-card rounded-2xl shadow-2xl w-full max-w-md border border-border">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2 className="text-base font-bold text-foreground flex items-center gap-2">
             {isConnected ? <Wifi className="w-5 h-5 text-emerald-600" /> : <WifiOff className="w-5 h-5 text-red-500" />}
             Backend Connection
           </h2>
           <button
             onClick={() => setConnectionModalOpen(false)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-muted-foreground hover:bg-muted transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -118,7 +118,7 @@ export function ConnectionModal() {
         <div className="px-6 py-5 space-y-5">
           {/* Mode Selection */}
           <div className="space-y-3">
-            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Connection Mode</label>
+            <label className="text-xs font-bold text-foreground uppercase tracking-wider">Connection Mode</label>
             <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={() => {
@@ -128,42 +128,42 @@ export function ConnectionModal() {
                 className={`p-3 rounded-xl border-2 transition-all text-left ${
                   connectionMode === 'traditional' && inputUrl === 'http://localhost:8000'
                     ? 'border-amber-500 bg-amber-50 shadow-sm'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                    : 'border-border hover:border-border bg-card'
                 }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
                   <MonitorSmartphone className="w-4 h-4 text-amber-600" />
-                  <span className="font-semibold text-slate-900 text-xs">Local Dev</span>
+                  <span className="font-semibold text-foreground text-xs">Local Dev</span>
                 </div>
-                <p className="text-[10px] text-slate-500">Docker on localhost</p>
+                <p className="text-[10px] text-muted-foreground">Docker on localhost</p>
               </button>
               <button
                 onClick={() => handleModeChange('traditional')}
                 className={`p-3 rounded-xl border-2 transition-all text-left ${
                   connectionMode === 'traditional' && inputUrl !== 'http://localhost:8000'
                     ? 'border-blue-500 bg-blue-50 shadow-sm'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                    : 'border-border hover:border-border bg-card'
                 }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <Server className="w-4 h-4 text-slate-600" />
-                  <span className="font-semibold text-slate-900 text-xs">Traditional</span>
+                  <Server className="w-4 h-4 text-muted-foreground" />
+                  <span className="font-semibold text-foreground text-xs">Traditional</span>
                 </div>
-                <p className="text-[10px] text-slate-500">Always-on GPU Pod</p>
+                <p className="text-[10px] text-muted-foreground">Always-on GPU Pod</p>
               </button>
               <button
                 onClick={() => handleModeChange('serverless')}
                 className={`p-3 rounded-xl border-2 transition-all text-left ${
                   connectionMode === 'serverless'
                     ? 'border-blue-500 bg-blue-50 shadow-sm'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                    : 'border-border hover:border-border bg-card'
                 }`}
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <Cloud className="w-4 h-4 text-slate-600" />
-                  <span className="font-semibold text-slate-900 text-xs">Serverless</span>
+                  <Cloud className="w-4 h-4 text-muted-foreground" />
+                  <span className="font-semibold text-foreground text-xs">Serverless</span>
                 </div>
-                <p className="text-[10px] text-slate-500">Pay-per-use</p>
+                <p className="text-[10px] text-muted-foreground">Pay-per-use</p>
               </button>
             </div>
           </div>
@@ -171,20 +171,20 @@ export function ConnectionModal() {
           {/* URL Input (Traditional Mode Only) */}
           {connectionMode === 'traditional' && (
             <div className="space-y-3">
-              <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">RunPod API URL</label>
+              <label className="text-xs font-bold text-foreground uppercase tracking-wider">RunPod API URL</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={inputUrl}
                   onChange={(e) => setInputUrl(e.target.value)}
                   placeholder="https://your-runpod-endpoint:8000"
-                  className="flex-1 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none text-sm text-slate-900 transition-all"
+                  className="flex-1 px-4 py-3 bg-muted/50 rounded-xl border border-border focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none text-sm text-foreground transition-all"
                   onKeyDown={(e) => e.key === 'Enter' && checkConnection()}
                 />
                 <button
                   onClick={checkConnection}
                   disabled={checking}
-                  className="px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm hover:shadow-md"
+                  className="px-5 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-muted text-white rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm hover:shadow-md"
                 >
                   {checking ? (
                     <>
@@ -214,7 +214,7 @@ export function ConnectionModal() {
               <button
                 onClick={checkConnection}
                 disabled={checking}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-muted text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm hover:shadow-md"
               >
                 {checking ? (
                   <>
@@ -230,10 +230,10 @@ export function ConnectionModal() {
 
           {/* Status Display */}
           {health && (
-            <div className="bg-slate-50 rounded-xl p-4 space-y-3 border border-slate-200">
+            <div className="bg-muted/50 rounded-xl p-4 space-y-3 border border-border">
               {/* Connection status */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Status</span>
+                <span className="text-sm text-muted-foreground">Status</span>
                 <span className={`text-sm font-semibold flex items-center gap-1.5 ${isConnected ? 'text-emerald-600' : 'text-red-600'}`}>
                   <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
                   {isConnected ? 'Connected' : 'Disconnected'}
@@ -243,7 +243,7 @@ export function ConnectionModal() {
               {/* Mode */}
               {health.mode && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">Mode</span>
+                  <span className="text-sm text-muted-foreground">Mode</span>
                   <span className={`text-sm font-semibold flex items-center gap-1.5 ${isMockMode ? 'text-amber-600' : 'text-emerald-600'}`}>
                     {isMockMode ? <AlertTriangle className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
                     {isMockMode ? 'Mock (Demo)' : 'Real (Foundry)'}
@@ -253,7 +253,7 @@ export function ConnectionModal() {
 
               {/* GPU */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">GPU</span>
+                <span className="text-sm text-muted-foreground">GPU</span>
                 {health.gpu_available ? (
                   <span className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
                     <Cpu className="w-4 h-4" />
@@ -267,8 +267,8 @@ export function ConnectionModal() {
 
               {/* Models */}
               <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-600">Models</span>
-                <span className="text-sm font-semibold text-slate-900">{getModelsDisplay()}</span>
+                <span className="text-sm text-muted-foreground">Models</span>
+                <span className="text-sm font-semibold text-foreground">{getModelsDisplay()}</span>
               </div>
             </div>
           )}
@@ -284,10 +284,10 @@ export function ConnectionModal() {
           )}
 
           {/* Setup Help Accordion */}
-          <div className="border-t border-slate-200 pt-4">
+          <div className="border-t border-border pt-4">
             <button
               onClick={() => setShowHelp(!showHelp)}
-              className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 w-full transition-colors"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground w-full transition-colors"
             >
               <HelpCircle className="w-4 h-4" />
               <span className="font-medium">Setup Instructions</span>
@@ -296,9 +296,9 @@ export function ConnectionModal() {
 
             {showHelp && (
               <div className="mt-4 space-y-3 text-sm">
-                <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
-                  <h3 className="font-semibold text-slate-900">Quick Setup (RunPod)</h3>
-                  <ol className="list-decimal list-inside space-y-1.5 text-slate-600 text-xs">
+                <div className="bg-muted/50 rounded-xl p-4 space-y-2 border border-border">
+                  <h3 className="font-semibold text-foreground">Quick Setup (RunPod)</h3>
+                  <ol className="list-decimal list-inside space-y-1.5 text-muted-foreground text-xs">
                     <li>
                       Deploy a GPU pod (A40 recommended) on{' '}
                       <a
@@ -312,7 +312,7 @@ export function ConnectionModal() {
                       </a>
                     </li>
                     <li>
-                      Add <code className="bg-slate-200 px-1.5 py-0.5 rounded text-slate-800">8000</code> to HTTP Ports
+                      Add <code className="bg-muted px-1.5 py-0.5 rounded text-foreground">8000</code> to HTTP Ports
                     </li>
                     <li>
                       Open Jupyter Lab and run the setup cell from{' '}
@@ -330,16 +330,16 @@ export function ConnectionModal() {
                   </ol>
                 </div>
 
-                <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
-                  <h3 className="font-semibold text-slate-900">URL Format</h3>
-                  <code className="block bg-slate-200 px-3 py-2 rounded-lg text-xs text-slate-800 font-mono">
+                <div className="bg-muted/50 rounded-xl p-4 space-y-2 border border-border">
+                  <h3 className="font-semibold text-foreground">URL Format</h3>
+                  <code className="block bg-muted px-3 py-2 rounded-lg text-xs text-foreground font-mono">
                     https://abc123xyz-8000.proxy.runpod.net
                   </code>
                 </div>
 
-                <div className="bg-slate-50 rounded-xl p-4 space-y-2 border border-slate-200">
-                  <h3 className="font-semibold text-slate-900">Troubleshooting</h3>
-                  <ul className="space-y-1.5 text-slate-600 text-xs">
+                <div className="bg-muted/50 rounded-xl p-4 space-y-2 border border-border">
+                  <h3 className="font-semibold text-foreground">Troubleshooting</h3>
+                  <ul className="space-y-1.5 text-muted-foreground text-xs">
                     <li>
                       <span className="text-amber-600 font-medium">Connection refused:</span> Re-run setup cell
                     </li>
@@ -352,7 +352,7 @@ export function ConnectionModal() {
                   </ul>
                 </div>
 
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Your URL is automatically saved and persists across sessions.
                 </p>
               </div>
@@ -361,8 +361,8 @@ export function ConnectionModal() {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 rounded-b-2xl">
-          <p className="text-xs text-slate-500 text-center">
+        <div className="px-6 py-3 bg-muted/50 border-t border-border rounded-b-2xl">
+          <p className="text-xs text-muted-foreground text-center">
             Connection status auto-refreshes every 30 seconds
           </p>
         </div>

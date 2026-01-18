@@ -47,7 +47,7 @@ export function DesignGallery({
   });
 
   const getAffinityColor = (affinity: number | undefined) => {
-    if (affinity === undefined) return 'text-slate-500';
+    if (affinity === undefined) return 'text-muted-foreground';
     if (affinity < -4) return 'text-green-600';
     if (affinity < -2) return 'text-amber-600';
     return 'text-red-600';
@@ -63,24 +63,24 @@ export function DesignGallery({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
       {/* Header */}
-      <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+      <div className="bg-muted/50 px-4 py-3 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <LayoutGrid className="h-5 w-5 text-purple-600" />
-          <h4 className="font-semibold text-slate-900 text-sm">Design Gallery</h4>
-          <span className="text-xs text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
+          <h4 className="font-semibold text-foreground text-sm">Design Gallery</h4>
+          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
             {designs.length} designs
           </span>
         </div>
 
         {/* Sort Controls */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">Sort by:</span>
+          <span className="text-xs text-muted-foreground">Sort by:</span>
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as 'rank' | 'affinity' | 'contacts')}
-            className="text-xs border border-slate-200 rounded px-2 py-1 bg-white"
+            className="text-xs border border-border rounded px-2 py-1 bg-card"
           >
             <option value="rank">Rank</option>
             <option value="affinity">Affinity</option>
@@ -102,14 +102,14 @@ export function DesignGallery({
               className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
                 isSelected
                   ? 'border-purple-500 bg-purple-50'
-                  : 'border-slate-200 bg-white hover:border-purple-300 hover:bg-purple-50/50'
+                  : 'border-border bg-card hover:border-purple-300 hover:bg-purple-50/50'
               }`}
             >
               <div className="flex items-start justify-between">
                 {/* Left: Rank and Status */}
                 <div className="flex items-center gap-3">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${
-                    isSelected ? 'bg-purple-500 text-white' : 'bg-slate-200 text-slate-600'
+                    isSelected ? 'bg-purple-500 text-white' : 'bg-muted text-muted-foreground'
                   }`}>
                     #{design.rank}
                   </div>
@@ -125,7 +125,7 @@ export function DesignGallery({
                   {/* Affinity */}
                   {design.metrics.affinity !== undefined && (
                     <div className="text-right">
-                      <div className="text-slate-400 text-[10px] uppercase">Affinity</div>
+                      <div className="text-muted-foreground text-[10px] uppercase">Affinity</div>
                       <div className={`font-bold ${getAffinityColor(design.metrics.affinity)}`}>
                         {design.metrics.affinity.toFixed(2)} kcal/mol
                       </div>
@@ -134,12 +134,12 @@ export function DesignGallery({
 
                   {/* Contacts */}
                   <div className="text-right">
-                    <div className="text-slate-400 text-[10px] uppercase">Contacts</div>
-                    <div className="font-medium text-slate-700">
+                    <div className="text-muted-foreground text-[10px] uppercase">Contacts</div>
+                    <div className="font-medium text-foreground">
                       {designType === 'ligand_interface' ? (
                         <>
                           <span className="text-purple-600">{design.metrics.contacts_a ?? 0}</span>
-                          <span className="text-slate-400"> / </span>
+                          <span className="text-muted-foreground"> / </span>
                           <span className="text-cyan-600">{design.metrics.contacts_b ?? 0}</span>
                         </>
                       ) : (
@@ -151,8 +151,8 @@ export function DesignGallery({
                   {/* Interface Area (if available) */}
                   {design.metrics.interface_area && (
                     <div className="text-right">
-                      <div className="text-slate-400 text-[10px] uppercase">Interface</div>
-                      <div className="font-medium text-slate-700">
+                      <div className="text-muted-foreground text-[10px] uppercase">Interface</div>
+                      <div className="font-medium text-foreground">
                         {design.metrics.interface_area.toFixed(0)} Å²
                       </div>
                     </div>
@@ -169,18 +169,18 @@ export function DesignGallery({
                       <div className="text-[10px] text-purple-700 font-medium uppercase mb-1">Chain A</div>
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Contacts:</span>
+                          <span className="text-muted-foreground">Contacts:</span>
                           <span className="font-medium">{design.chain_a_metrics.contacts}</span>
                         </div>
                         {design.chain_a_metrics.affinity !== undefined && (
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Affinity:</span>
+                            <span className="text-muted-foreground">Affinity:</span>
                             <span className="font-medium">{design.chain_a_metrics.affinity.toFixed(2)}</span>
                           </div>
                         )}
                         {design.chain_a_metrics.exposed_atoms.length > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Exposed:</span>
+                            <span className="text-muted-foreground">Exposed:</span>
                             <span className="font-medium text-[10px]">
                               {design.chain_a_metrics.exposed_atoms.slice(0, 3).join(', ')}
                               {design.chain_a_metrics.exposed_atoms.length > 3 && '...'}
@@ -197,18 +197,18 @@ export function DesignGallery({
                       <div className="text-[10px] text-cyan-700 font-medium uppercase mb-1">Chain B</div>
                       <div className="space-y-1 text-xs">
                         <div className="flex justify-between">
-                          <span className="text-slate-500">Contacts:</span>
+                          <span className="text-muted-foreground">Contacts:</span>
                           <span className="font-medium">{design.chain_b_metrics.contacts}</span>
                         </div>
                         {design.chain_b_metrics.affinity !== undefined && (
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Affinity:</span>
+                            <span className="text-muted-foreground">Affinity:</span>
                             <span className="font-medium">{design.chain_b_metrics.affinity.toFixed(2)}</span>
                           </div>
                         )}
                         {design.chain_b_metrics.exposed_atoms.length > 0 && (
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Exposed:</span>
+                            <span className="text-muted-foreground">Exposed:</span>
                             <span className="font-medium text-[10px]">
                               {design.chain_b_metrics.exposed_atoms.slice(0, 3).join(', ')}
                               {design.chain_b_metrics.exposed_atoms.length > 3 && '...'}
@@ -249,7 +249,7 @@ export function DesignGallery({
       </div>
 
       {/* Footer with summary stats */}
-      <div className="bg-slate-50 px-4 py-2 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+      <div className="bg-muted/50 px-4 py-2 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
         <span>
           {designs.filter(d => !d.metrics.has_clashes && d.metrics.separable !== false).length} of {designs.length} pass criteria
         </span>

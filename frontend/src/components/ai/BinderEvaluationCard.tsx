@@ -76,21 +76,21 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+    <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
       {/* Header */}
-      <div className={`px-4 py-3 border-b ${evaluation.overall_pass ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+      <div className={`px-4 py-3 border-b ${evaluation.overall_pass ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {evaluation.overall_pass
               ? <CheckCircle className="h-5 w-5 text-emerald-600" />
               : <XCircle className="h-5 w-5 text-red-600" />
             }
-            <h4 className="font-semibold text-slate-900 text-sm">
+            <h4 className="font-semibold text-foreground text-sm">
               {evaluation.overall_pass ? 'Binder Design Successful' : 'Design Needs Improvement'}
             </h4>
           </div>
           {evaluation.overall_pass && stats && (
-            <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
               {stats.returned}/{stats.generated} passed
             </span>
           )}
@@ -99,24 +99,24 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
       {/* Pipeline Funnel Summary */}
       {stats && (
-        <div className="px-4 py-4 border-b border-slate-100">
-          <h5 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">Pipeline Results</h5>
+        <div className="px-4 py-4 border-b border-border">
+          <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">Pipeline Results</h5>
           <div className="grid grid-cols-4 gap-2 text-center">
-            <div className="p-2 bg-slate-50 rounded-lg">
-              <div className="text-lg font-bold text-slate-900">{stats.generated}</div>
-              <div className="text-xs text-slate-500">Generated</div>
+            <div className="p-2 bg-muted/50 rounded-lg">
+              <div className="text-lg font-bold text-foreground">{stats.generated}</div>
+              <div className="text-xs text-muted-foreground">Generated</div>
             </div>
             <div className="p-2 bg-blue-50 rounded-lg">
               <div className="text-lg font-bold text-blue-600">{stats.mpnn_designed}</div>
-              <div className="text-xs text-slate-500">MPNN</div>
+              <div className="text-xs text-muted-foreground">MPNN</div>
             </div>
-            <div className="p-2 bg-violet-50 rounded-lg">
-              <div className="text-lg font-bold text-violet-600">{stats.esm_passed}</div>
-              <div className="text-xs text-slate-500">ESM Pass</div>
+            <div className="p-2 bg-primary/5 rounded-lg">
+              <div className="text-lg font-bold text-primary">{stats.esm_passed}</div>
+              <div className="text-xs text-muted-foreground">ESM Pass</div>
             </div>
-            <div className="p-2 bg-emerald-50 rounded-lg">
-              <div className="text-lg font-bold text-emerald-600">{stats.returned}</div>
-              <div className="text-xs text-slate-500">Returned</div>
+            <div className="p-2 bg-green-50 rounded-lg">
+              <div className="text-lg font-bold text-green-600">{stats.returned}</div>
+              <div className="text-xs text-muted-foreground">Returned</div>
             </div>
           </div>
         </div>
@@ -125,19 +125,19 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
       {/* Best Design Metrics */}
       {best && (
         <div className="px-4 py-4">
-          <h5 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-3">
+          <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
             Best Design (#{best.rank})
           </h5>
 
           <div className="space-y-3">
             {/* ESM Metrics */}
-            <div className="flex items-center justify-between py-2 border-b border-slate-100">
+            <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-2">
-                <Brain className="h-5 w-5 text-violet-500" />
-                <span className="text-sm text-slate-600">ESM Confidence</span>
+                <Brain className="h-5 w-5 text-primary" />
+                <span className="text-sm text-muted-foreground">ESM Confidence</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-medium text-slate-900">
+                <span className="font-medium text-foreground">
                   {best.esm_confidence != null ? `${(best.esm_confidence * 100).toFixed(0)}%` : 'N/A'}
                 </span>
                 {getQualityBadge(best.esm_confidence, { good: 0.8, medium: 0.6 })}
@@ -145,13 +145,13 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             </div>
 
             {best.esm_perplexity != null && (
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <div className="flex items-center justify-between py-2 border-b border-border">
                 <div className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-violet-500" />
-                  <span className="text-sm text-slate-600">ESM Perplexity</span>
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                  <span className="text-sm text-muted-foreground">ESM Perplexity</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-900">{best.esm_perplexity.toFixed(2)}</span>
+                  <span className="font-medium text-foreground">{best.esm_perplexity.toFixed(2)}</span>
                   {getQualityBadge(best.esm_perplexity, { good: 5.0, medium: 8.0 }, false)}
                 </div>
               </div>
@@ -159,49 +159,49 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
             {/* Interface Metrics */}
             {best.interface_contacts != null && (
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <div className="flex items-center justify-between py-2 border-b border-border">
                 <div className="flex items-center gap-2">
-                  <Link className="h-5 w-5 text-teal-500" />
-                  <span className="text-sm text-slate-600">Interface Contacts</span>
+                  <Link className="h-5 w-5 text-primary" />
+                  <span className="text-sm text-muted-foreground">Interface Contacts</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-900">{best.interface_contacts}</span>
+                  <span className="font-medium text-foreground">{best.interface_contacts}</span>
                   {getQualityBadge(best.interface_contacts, { good: 5000, medium: 2000 })}
                 </div>
               </div>
             )}
 
             {best.interface_hbonds != null && (
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <div className="flex items-center justify-between py-2 border-b border-border">
                 <div className="flex items-center gap-2">
                   <Droplets className="h-5 w-5 text-blue-500" />
-                  <span className="text-sm text-slate-600">H-Bonds</span>
+                  <span className="text-sm text-muted-foreground">H-Bonds</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-900">{best.interface_hbonds}</span>
+                  <span className="font-medium text-foreground">{best.interface_hbonds}</span>
                   {getQualityBadge(best.interface_hbonds, { good: 10, medium: 5 })}
                 </div>
               </div>
             )}
 
             {best.buried_sasa != null && (
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <div className="flex items-center justify-between py-2 border-b border-border">
                 <div className="flex items-center gap-2">
                   <Layers className="h-5 w-5 text-amber-500" />
-                  <span className="text-sm text-slate-600">Buried SASA</span>
+                  <span className="text-sm text-muted-foreground">Buried SASA</span>
                 </div>
-                <span className="font-medium text-slate-900">{best.buried_sasa.toFixed(0)} Å²</span>
+                <span className="font-medium text-foreground">{best.buried_sasa.toFixed(0)} Å²</span>
               </div>
             )}
 
             {best.packstat != null && (
-              <div className="flex items-center justify-between py-2 border-b border-slate-100">
+              <div className="flex items-center justify-between py-2 border-b border-border">
                 <div className="flex items-center gap-2">
-                  <CheckSquare className="h-5 w-5 text-emerald-500" />
-                  <span className="text-sm text-slate-600">Packstat</span>
+                  <CheckSquare className="h-5 w-5 text-green-500" />
+                  <span className="text-sm text-muted-foreground">Packstat</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-900">{best.packstat.toFixed(3)}</span>
+                  <span className="font-medium text-foreground">{best.packstat.toFixed(3)}</span>
                   {getQualityBadge(best.packstat, { good: 0.6, medium: 0.5 })}
                 </div>
               </div>
@@ -210,11 +210,11 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
             {best.rg_ratio != null && (
               <div className="flex items-center justify-between py-2">
                 <div className="flex items-center gap-2">
-                  <Circle className="h-5 w-5 text-indigo-500" />
-                  <span className="text-sm text-slate-600">Compactness (Rg)</span>
+                  <Circle className="h-5 w-5 text-primary" />
+                  <span className="text-sm text-muted-foreground">Compactness (Rg)</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-slate-900">{best.rg_ratio.toFixed(2)}</span>
+                  <span className="font-medium text-foreground">{best.rg_ratio.toFixed(2)}</span>
                   {getQualityBadge(best.rg_ratio, { good: 1.2, medium: 1.5 }, false)}
                 </div>
               </div>
@@ -223,45 +223,45 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
           {/* Interaction Profile (from PLIP analysis) */}
           {evaluation.interactions && expanded && (
-            <div className="mt-4 p-3 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border border-blue-100">
+            <div className="mt-4 p-3 bg-muted rounded-lg border border-border">
               <div className="flex items-center gap-2 mb-3">
-                <FlaskConical className="h-4 w-4 text-blue-600" />
-                <span className="text-xs font-medium text-blue-700 uppercase">Interaction Profile</span>
+                <FlaskConical className="h-4 w-4 text-primary" />
+                <span className="text-xs font-medium text-primary uppercase">Interaction Profile</span>
               </div>
               <div className="grid grid-cols-5 gap-2 text-center">
-                <div className="p-2 bg-white/60 rounded-lg">
-                  <div className="text-lg font-bold text-blue-600">{evaluation.interactions.hbonds}</div>
-                  <div className="text-xs text-slate-500">H-bonds</div>
+                <div className="p-2 bg-card/60 rounded-lg">
+                  <div className="text-lg font-bold text-primary">{evaluation.interactions.hbonds}</div>
+                  <div className="text-xs text-muted-foreground">H-bonds</div>
                 </div>
-                <div className="p-2 bg-white/60 rounded-lg">
-                  <div className="text-lg font-bold text-yellow-600">{evaluation.interactions.hydrophobic}</div>
-                  <div className="text-xs text-slate-500">Hydrophobic</div>
+                <div className="p-2 bg-card/60 rounded-lg">
+                  <div className="text-lg font-bold text-foreground">{evaluation.interactions.hydrophobic}</div>
+                  <div className="text-xs text-muted-foreground">Hydrophobic</div>
                 </div>
-                <div className="p-2 bg-white/60 rounded-lg">
-                  <div className="text-lg font-bold text-purple-600">{evaluation.interactions.pi_stacking}</div>
-                  <div className="text-xs text-slate-500">π-Stack</div>
+                <div className="p-2 bg-card/60 rounded-lg">
+                  <div className="text-lg font-bold text-foreground">{evaluation.interactions.pi_stacking}</div>
+                  <div className="text-xs text-muted-foreground">π-Stack</div>
                 </div>
-                <div className="p-2 bg-white/60 rounded-lg">
-                  <div className="text-lg font-bold text-red-600">{evaluation.interactions.salt_bridges}</div>
-                  <div className="text-xs text-slate-500">Salt Bridge</div>
+                <div className="p-2 bg-card/60 rounded-lg">
+                  <div className="text-lg font-bold text-foreground">{evaluation.interactions.salt_bridges}</div>
+                  <div className="text-xs text-muted-foreground">Salt Bridge</div>
                 </div>
-                <div className="p-2 bg-white/60 rounded-lg">
-                  <div className="text-lg font-bold text-slate-800">{evaluation.interactions.total}</div>
-                  <div className="text-xs text-slate-500">Total</div>
+                <div className="p-2 bg-card/60 rounded-lg">
+                  <div className="text-lg font-bold text-foreground">{evaluation.interactions.total}</div>
+                  <div className="text-xs text-muted-foreground">Total</div>
                 </div>
               </div>
               {/* Key Binding Residues */}
               {evaluation.key_binding_residues && evaluation.key_binding_residues.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-blue-100">
-                  <div className="text-xs text-slate-500 mb-1">Key Binding Residues</div>
+                <div className="mt-3 pt-3 border-t border-border">
+                  <div className="text-xs text-muted-foreground mb-1">Key Binding Residues</div>
                   <div className="flex flex-wrap gap-1">
                     {evaluation.key_binding_residues.slice(0, 8).map((residue) => (
-                      <span key={residue} className="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded">
+                      <span key={residue} className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">
                         {residue}
                       </span>
                     ))}
                     {evaluation.key_binding_residues.length > 8 && (
-                      <span className="text-xs px-2 py-0.5 text-slate-400">
+                      <span className="text-xs px-2 py-0.5 text-muted-foreground">
                         +{evaluation.key_binding_residues.length - 8} more
                       </span>
                     )}
@@ -291,16 +291,16 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
           {/* Hotspot Info */}
           {evaluation.hotspots_used && evaluation.hotspots_used.length > 0 && expanded && (
-            <div className="mt-4 p-3 bg-indigo-50 rounded-lg">
+            <div className="mt-4 p-3 bg-muted rounded-lg">
               <div className="flex items-center gap-2 mb-2">
-                <Crosshair className="h-4 w-4 text-indigo-500" />
-                <span className="text-xs font-medium text-indigo-700 uppercase">
+                <Crosshair className="h-4 w-4 text-primary" />
+                <span className="text-xs font-medium text-primary uppercase">
                   {evaluation.hotspots_auto_detected ? 'Auto-Detected Hotspots' : 'Manual Hotspots'}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1">
                 {evaluation.hotspots_used.map((hotspot) => (
-                  <span key={hotspot} className="text-xs px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded">
+                  <span key={hotspot} className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded">
                     {hotspot}
                   </span>
                 ))}
@@ -310,18 +310,18 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
           {/* Sequence */}
           {expanded && best.binder_sequence && (
-            <div className="mt-4 p-3 bg-slate-50 rounded-lg">
+            <div className="mt-4 p-3 bg-muted/50 rounded-lg">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-medium text-slate-500 uppercase">Binder Sequence</span>
+                <span className="text-xs font-medium text-muted-foreground uppercase">Binder Sequence</span>
                 <button
                   onClick={() => navigator.clipboard.writeText(best.binder_sequence)}
-                  className="text-xs text-teal-600 hover:text-teal-700 flex items-center gap-1"
+                  className="text-xs text-primary hover:text-primary/80 flex items-center gap-1"
                 >
                   <Copy className="h-4 w-4" />
                   Copy
                 </button>
               </div>
-              <code className="text-xs text-slate-700 font-mono break-all">
+              <code className="text-xs text-foreground font-mono break-all">
                 {best.binder_sequence}
               </code>
             </div>
@@ -344,10 +344,10 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
       {/* View Details Button */}
       {!expanded && onViewDetails && (
-        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">
+        <div className="px-4 py-3 bg-muted/50 border-t border-border">
           <button
             onClick={onViewDetails}
-            className="w-full text-sm text-teal-600 hover:text-teal-700 font-medium flex items-center justify-center gap-1"
+            className="w-full text-sm text-primary hover:text-primary/80 font-medium flex items-center justify-center gap-1"
           >
             View Full Results
             <ArrowRight className="h-4 w-4" />

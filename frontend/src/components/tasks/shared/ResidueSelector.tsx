@@ -104,9 +104,9 @@ export function ResidueSelector({
   return (
     <div className={`space-y-2 ${className}`}>
       <div>
-        <label className="block text-sm font-medium text-slate-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
         {description && (
-          <p className="text-xs text-slate-500 mt-0.5">{description}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
         )}
       </div>
 
@@ -121,15 +121,15 @@ export function ResidueSelector({
           }}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-            error ? 'border-red-300' : 'border-slate-200'
+          className={`flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-ring focus:border-transparent bg-card ${
+            error ? 'border-red-300' : 'border-border'
           }`}
         />
         <button
           type="button"
           onClick={addResidue}
           disabled={!inputValue.trim()}
-          className="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+          className="px-3 py-2 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
         >
           Add
         </button>
@@ -144,19 +144,19 @@ export function ResidueSelector({
         <div className="space-y-2">
           {Object.entries(groupedByChain).map(([chain, residues]) => (
             <div key={chain} className="flex flex-wrap gap-1.5 items-center">
-              <span className="text-xs font-medium text-slate-500 mr-1">
+              <span className="text-xs font-medium text-muted-foreground mr-1">
                 Chain {chain}:
               </span>
               {residues.map((res) => (
                 <span
                   key={res}
-                  className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 text-xs font-medium rounded-full border border-blue-100"
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full border border-primary/20"
                 >
                   {res}
                   <button
                     type="button"
                     onClick={() => removeResidue(res)}
-                    className="hover:text-blue-900 transition-colors"
+                    className="hover:text-primary/80 transition-colors"
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -168,7 +168,7 @@ export function ResidueSelector({
       )}
 
       {value.length === 0 && (
-        <p className="text-xs text-slate-400 italic">No residues selected</p>
+        <p className="text-xs text-muted-foreground italic">No residues selected</p>
       )}
     </div>
   );

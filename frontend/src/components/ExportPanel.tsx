@@ -70,9 +70,9 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
   };
 
   return (
-    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-      <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-        <Download className="w-4 h-4 text-slate-500" />
+    <div className="p-4 bg-muted/50 rounded-xl border border-border space-y-3">
+      <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+        <Download className="w-4 h-4 text-muted-foreground" />
         Export Structure
       </h4>
 
@@ -80,9 +80,9 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
         {/* PDB Export */}
         <button
           onClick={handleExportPdb}
-          className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-sm text-slate-700 flex items-center gap-1.5 transition-colors"
+          className="px-3 py-1.5 bg-card border border-border hover:bg-muted rounded-lg text-sm text-foreground flex items-center gap-1.5 transition-colors"
         >
-          <FileText className="w-3.5 h-3.5 text-slate-500" />
+          <FileText className="w-3.5 h-3.5 text-muted-foreground" />
           PDB
         </button>
 
@@ -90,12 +90,12 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
         <button
           onClick={handleExportCif}
           disabled={exporting}
-          className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-100 disabled:bg-slate-100 disabled:text-slate-400 rounded-lg text-sm text-slate-700 flex items-center gap-1.5 transition-colors"
+          className="px-3 py-1.5 bg-card border border-border hover:bg-muted disabled:bg-muted disabled:text-muted-foreground rounded-lg text-sm text-foreground flex items-center gap-1.5 transition-colors"
         >
           {exporting ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
-            <Database className="w-3.5 h-3.5 text-slate-500" />
+            <Database className="w-3.5 h-3.5 text-muted-foreground" />
           )}
           CIF
         </button>

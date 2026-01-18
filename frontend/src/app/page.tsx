@@ -7,7 +7,6 @@ import api from '@/lib/api';
 // New layout components
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { HeaderBar } from '@/components/layout/HeaderBar';
 import { ViewerPanel } from '@/components/layout/ViewerPanel';
 import { ConnectionSheet } from '@/components/connection/ConnectionSheet';
 
@@ -110,16 +109,36 @@ export default function Home() {
     }
   };
 
+  // Handle manual mode toggle - switch view accordingly
+  const handleManualModeChange = (enabled: boolean) => {
+    setManualMode(enabled);
+    // When toggling manual mode, switch to appropriate default view
+    if (enabled && activeTab === 'ai') {
+      // Switching to manual mode from AI view -> go to task selection
+      setActiveTab('task');
+    } else if (!enabled && activeTab !== 'jobs') {
+      // Switching to AI mode (except from jobs) -> go to AI panel
+      setActiveTab('ai');
+    }
+  };
+
   // Render main content based on mode and active tab
   const renderMainContent = () => {
-    if (!manualMode && activeTab === 'ai') {
+    // AI mode (manualMode OFF) - show AI assistant for most tabs
+    if (!manualMode) {
+      // Jobs panel is always accessible
+      if (activeTab === 'jobs') {
+        return <DesignHistoryPanel />;
+      }
+      // Everything else shows AI assistant
       return <AIDesignAssistantPanel />;
     }
 
-    // Manual mode or non-AI tabs
+    // Manual mode (manualMode ON) - show form panels
     switch (activeTab) {
       case 'ai':
-        return <AIDesignAssistantPanel />;
+        // In manual mode, 'ai' tab shows task selection
+        return <TaskPanel />;
       case 'task':
         return <TaskPanel />;
       case 'rfd3':
@@ -131,29 +150,23 @@ export default function Home() {
       case 'jobs':
         return <DesignHistoryPanel />;
       default:
-        return <AIDesignAssistantPanel />;
+        return <TaskPanel />;
     }
   };
 
   return (
     <>
       <MainLayout
-        header={
-          <HeaderBar
-            connectionStatus={connectionStatus}
-            onConnectionClick={() => setConnectionModalOpen(true)}
-            onUserClick={() => {/* TODO: user menu */}}
-          />
-        }
         sidebar={
           <Sidebar
             currentStage={activeTab === 'ai' || activeTab === 'jobs' ? 'task' : activeTab}
             workflowSteps={workflowSteps}
             history={history}
             manualMode={manualMode}
-            onManualModeChange={setManualMode}
+            onManualModeChange={handleManualModeChange}
             onStageClick={(stage) => setActiveTab(stage)}
             onNewDesign={() => {
+              setManualMode(false); // Switch to AI mode
               setActiveTab('ai');
               // Could also clear state here
             }}
@@ -162,11 +175,15 @@ export default function Home() {
               setActiveTab('jobs');
             }}
             onSettingsClick={() => setConnectionModalOpen(true)}
+            // Connection props (moved from header)
+            connectionStatus={connectionStatus}
+            onConnectionClick={() => setConnectionModalOpen(true)}
+            onUserClick={() => {/* TODO: user menu */}}
           />
         }
         main={
-          <div className="h-full p-6">
-            <div className="bg-card rounded-xl border border-border p-6 h-full overflow-auto">
+          <div className="h-full p-6 overflow-auto">
+            <div className="bg-card rounded-xl border border-border p-6">
               {renderMainContent()}
             </div>
           </div>

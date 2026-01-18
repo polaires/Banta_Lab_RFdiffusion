@@ -81,10 +81,10 @@ export function JobsPanel() {
   if (loadingHistory) {
     return (
       <div className="text-center py-16">
-        <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-          <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
+        <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
+          <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
         </div>
-        <p className="text-slate-500 font-medium">Loading job history...</p>
+        <p className="text-muted-foreground font-medium">Loading job history...</p>
       </div>
     );
   }
@@ -92,11 +92,11 @@ export function JobsPanel() {
   if (jobs.length === 0) {
     return (
       <div className="text-center py-16">
-        <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-          <Inbox className="w-8 h-8 text-slate-400" />
+        <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
+          <Inbox className="w-8 h-8 text-muted-foreground" />
         </div>
-        <p className="text-slate-500 font-medium">No jobs yet</p>
-        <p className="text-slate-400 text-sm mt-1">Submit a design or prediction to get started</p>
+        <p className="text-muted-foreground font-medium">No jobs yet</p>
+        <p className="text-muted-foreground text-sm mt-1">Submit a design or prediction to get started</p>
       </div>
     );
   }
@@ -105,10 +105,10 @@ export function JobsPanel() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <History className="w-5 h-5 text-slate-600" />
-          <h2 className="text-lg font-bold text-slate-900">Job History</h2>
+          <History className="w-5 h-5 text-muted-foreground" />
+          <h2 className="text-lg font-bold text-foreground">Job History</h2>
         </div>
-        <span className="text-xs font-medium text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
+        <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded-lg">
           {jobs.length} job{jobs.length !== 1 ? 's' : ''}
         </span>
       </div>
@@ -124,7 +124,7 @@ export function JobsPanel() {
             <div
               key={job.id}
               className={`rounded-xl transition-colors overflow-hidden ${
-                hasFailed ? 'bg-red-50 border border-red-200' : 'bg-slate-50 hover:bg-slate-100'
+                hasFailed ? 'bg-red-50 border border-red-200' : 'bg-muted/50 hover:bg-muted'
               }`}
             >
               <div className="flex items-center gap-4 p-4">
@@ -140,10 +140,10 @@ export function JobsPanel() {
 
                 {/* ID and Time */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-mono text-slate-700 truncate" title={job.id}>
+                  <p className="text-sm font-mono text-foreground truncate" title={job.id}>
                     {job.id.slice(0, 8)}...
                   </p>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted-foreground">
                     {new Date(job.createdAt).toLocaleString()}
                   </p>
                 </div>
@@ -158,7 +158,7 @@ export function JobsPanel() {
                   {job.status === 'completed' && job.result && (
                     <button
                       onClick={() => handleView(job)}
-                      className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-blue-600"
+                      className="p-2 hover:bg-card rounded-lg transition-colors text-muted-foreground hover:text-blue-600"
                       title="View result"
                     >
                       <Eye className="w-5 h-5" />
@@ -166,7 +166,7 @@ export function JobsPanel() {
                   )}
                   <button
                     onClick={() => handleDelete(job.id)}
-                    className="p-2 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-red-500"
+                    className="p-2 hover:bg-card rounded-lg transition-colors text-muted-foreground hover:text-red-500"
                     title="Delete job"
                   >
                     <Trash2 className="w-5 h-5" />

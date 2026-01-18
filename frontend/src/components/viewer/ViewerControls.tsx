@@ -73,9 +73,9 @@ export function ViewerControls({
   const [showColorDropdown, setShowColorDropdown] = useState(false);
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-slate-100/80 border-b border-slate-200">
+    <div className="flex items-center gap-2 px-4 py-2 bg-muted/80 border-b border-border">
       {/* Analysis mode buttons */}
-      <div className="flex items-center gap-1 border-r border-slate-300 pr-3 mr-1">
+      <div className="flex items-center gap-1 border-r border-border pr-3 mr-1">
         <button
           onClick={() => {
             if (viewerMode === 'metal') {
@@ -94,7 +94,7 @@ export function ViewerControls({
           className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
             viewerMode === 'metal'
               ? 'bg-purple-100 text-purple-700 border border-purple-300'
-              : 'hover:bg-slate-200 text-slate-600'
+              : 'hover:bg-muted text-muted-foreground'
           }`}
           disabled={!hasStructure}
           title={hasMetals ? "Focus on metal binding site" : "Show metal coordination"}
@@ -124,7 +124,7 @@ export function ViewerControls({
           className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
             viewerMode === 'ligand'
               ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
-              : 'hover:bg-slate-200 text-slate-600'
+              : 'hover:bg-muted text-muted-foreground'
           }`}
           disabled={!hasStructure}
           title={hasLigands ? "Focus on ligand binding site" : "Show ligand contacts"}
@@ -142,7 +142,7 @@ export function ViewerControls({
             className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
               viewerMode === 'confidence'
                 ? 'bg-blue-100 text-blue-700 border border-blue-300'
-                : 'hover:bg-slate-200 text-slate-600'
+                : 'hover:bg-muted text-muted-foreground'
             }`}
             title="Color by pLDDT confidence"
           >
@@ -157,7 +157,7 @@ export function ViewerControls({
             className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
               viewerMode === 'comparison'
                 ? 'bg-amber-100 text-amber-700 border border-amber-300'
-                : 'hover:bg-slate-200 text-slate-600'
+                : 'hover:bg-muted text-muted-foreground'
             }`}
             title="Compare structures"
           >
@@ -173,7 +173,7 @@ export function ViewerControls({
         disabled={!hasStructure || analysisLoading}
         className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
           analysisLoading
-            ? 'bg-slate-200 text-slate-400 cursor-wait'
+            ? 'bg-muted text-muted-foreground cursor-wait'
             : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200'
         }`}
         title="Run binding site analysis"
@@ -196,7 +196,7 @@ export function ViewerControls({
             setShowRepDropdown(!showRepDropdown);
             setShowColorDropdown(false);
           }}
-          className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-slate-200 text-slate-600 transition-colors"
+          className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-muted text-muted-foreground transition-colors"
           disabled={!hasStructure}
         >
           <Layers className="w-4 h-4" />
@@ -205,7 +205,7 @@ export function ViewerControls({
         </button>
 
         {showRepDropdown && (
-          <div className="absolute right-0 mt-1 w-40 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+          <div className="absolute right-0 mt-1 w-40 bg-card border border-border rounded-lg shadow-lg z-10">
             {REPRESENTATIONS.map((rep) => (
               <button
                 key={rep.value}
@@ -213,8 +213,8 @@ export function ViewerControls({
                   onRepresentationChange(rep.value);
                   setShowRepDropdown(false);
                 }}
-                className={`w-full px-3 py-2 text-left text-sm hover:bg-slate-50 first:rounded-t-lg last:rounded-b-lg ${
-                  representationStyle === rep.value ? 'text-blue-600 bg-blue-50 font-medium' : 'text-slate-700'
+                className={`w-full px-3 py-2 text-left text-sm hover:bg-muted/50 first:rounded-t-lg last:rounded-b-lg ${
+                  representationStyle === rep.value ? 'text-blue-600 bg-blue-50 font-medium' : 'text-foreground'
                 }`}
               >
                 {rep.label}
@@ -231,7 +231,7 @@ export function ViewerControls({
             setShowColorDropdown(!showColorDropdown);
             setShowRepDropdown(false);
           }}
-          className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-slate-200 text-slate-600 transition-colors"
+          className="px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 hover:bg-muted text-muted-foreground transition-colors"
           disabled={!hasStructure}
         >
           <Palette className="w-4 h-4" />
@@ -240,7 +240,7 @@ export function ViewerControls({
         </button>
 
         {showColorDropdown && (
-          <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-10">
+          <div className="absolute right-0 mt-1 w-48 bg-card border border-border rounded-lg shadow-lg z-10">
             {COLOR_SCHEMES.map((scheme) => {
               const disabled = scheme.requiresConfidence && !hasConfidences;
               return (
@@ -255,14 +255,14 @@ export function ViewerControls({
                   disabled={disabled}
                   className={`w-full px-3 py-2 text-left text-sm first:rounded-t-lg last:rounded-b-lg ${
                     disabled
-                      ? 'text-slate-300 cursor-not-allowed'
+                      ? 'text-muted-foreground/50 cursor-not-allowed'
                       : colorScheme === scheme.value
                         ? 'text-blue-600 bg-blue-50 font-medium'
-                        : 'text-slate-700 hover:bg-slate-50'
+                        : 'text-foreground hover:bg-muted/50'
                   }`}
                 >
                   {scheme.label}
-                  {disabled && <span className="text-xs text-slate-400 ml-1">(no data)</span>}
+                  {disabled && <span className="text-xs text-muted-foreground ml-1">(no data)</span>}
                 </button>
               );
             })}
@@ -273,7 +273,7 @@ export function ViewerControls({
       {/* Reset view button */}
       <button
         onClick={onResetView}
-        className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 transition-colors"
+        className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors"
         disabled={!hasStructure}
         title="Reset view"
       >

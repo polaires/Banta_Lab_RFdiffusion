@@ -401,8 +401,8 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3 pb-4 border-b border-border">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center">
-            <Diamond className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+            <Diamond className="w-5 h-5 text-primary-foreground" />
           </div>
           <div>
             <h2 className="font-semibold text-foreground">Interface Metal Dimer Design</h2>
@@ -411,12 +411,12 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
         </div>
 
         {/* Info Banner */}
-        <Card className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200 dark:border-amber-800">
+        <Card className="bg-muted border-border">
           <CardContent className="flex items-start gap-3 pt-4">
-            <FlaskConical className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-amber-900 dark:text-amber-100">
+            <FlaskConical className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-foreground">
               <p className="font-medium mb-1">Metal-Mediated Dimerization</p>
-              <p className="text-amber-700 dark:text-amber-200">
+              <p className="text-muted-foreground">
                 Unlike organic ligands, metals have fixed coordination geometries. Each chain contributes
                 donor atoms (His, Cys, Asp, Glu) that together complete the metal&apos;s coordination sphere.
               </p>
@@ -448,9 +448,6 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                         variant={watchMetal === id ? 'default' : 'outline'}
                         size="sm"
                         onClick={() => handleMetalChange(id as MetalId)}
-                        className={cn(
-                          watchMetal === id && 'bg-amber-600 hover:bg-amber-700'
-                        )}
                       >
                         <span className="font-bold">{id}</span>
                         {'special' in profile && profile.special === 'luminescent' && (
@@ -465,7 +462,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
             {/* Selected metal info */}
             <div className="p-3 rounded-lg bg-muted/50 border">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-lg font-bold text-amber-600">{watchMetal}</span>
+                <span className="text-lg font-bold text-primary">{watchMetal}</span>
                 <span className="text-sm text-muted-foreground">{metalProfile.name}</span>
               </div>
               <p className="text-xs text-muted-foreground mb-2">{metalProfile.description}</p>
@@ -516,19 +513,19 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                     className={cn(
                       "p-4 rounded-lg border text-left transition-all relative",
                       watchApproach === app.id
-                        ? "border-amber-400 bg-amber-50 dark:bg-amber-950/20 ring-1 ring-amber-200"
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                         : "border-border hover:border-muted-foreground/30 hover:bg-muted/50"
                     )}
                   >
                     {app.recommended && (
-                      <Badge className="absolute -top-2 -right-2 bg-emerald-500 text-white text-xs">
+                      <Badge className="absolute -top-2 -right-2">
                         Recommended
                       </Badge>
                     )}
                     <div className="flex items-center gap-2 mb-2">
                       <Icon className={cn(
                         "w-4 h-4",
-                        watchApproach === app.id ? "text-amber-600" : "text-muted-foreground"
+                        watchApproach === app.id ? "text-primary" : "text-muted-foreground"
                       )} />
                       <span className="font-medium text-foreground text-sm">{app.name}</span>
                     </div>
@@ -560,7 +557,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                   >
                     <Minus className="h-3 w-3" />
                   </Button>
-                  <span className="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 flex items-center justify-center text-2xl font-bold">
+                  <span className="w-12 h-12 rounded-xl bg-muted border-2 border-primary text-primary flex items-center justify-center text-2xl font-bold">
                     {watchChainADonors}
                   </span>
                   <Button
@@ -577,7 +574,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
 
               <div className="flex flex-col items-center">
                 <span className="text-2xl text-muted-foreground/50">+</span>
-                <Diamond className="w-5 h-5 text-amber-500" />
+                <Diamond className="w-5 h-5 text-primary" />
               </div>
 
               <div className="text-center">
@@ -592,7 +589,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                   >
                     <Minus className="h-3 w-3" />
                   </Button>
-                  <span className="w-12 h-12 rounded-xl bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 flex items-center justify-center text-2xl font-bold">
+                  <span className="w-12 h-12 rounded-xl bg-muted border-2 border-muted-foreground text-muted-foreground flex items-center justify-center text-2xl font-bold">
                     {watchChainBDonors}
                   </span>
                   <Button
@@ -647,7 +644,6 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                         variant={field.value === 'auto' ? 'default' : 'secondary'}
                         size="sm"
                         onClick={() => field.onChange('auto')}
-                        className={cn(field.value === 'auto' && 'bg-amber-600 hover:bg-amber-700')}
                       >
                         Auto ({metalProfile.geometry.replace('_', ' ')})
                       </Button>
@@ -658,7 +654,6 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                           variant={field.value === geom ? 'default' : 'secondary'}
                           size="sm"
                           onClick={() => field.onChange(geom)}
-                          className={cn(field.value === geom && 'bg-amber-600 hover:bg-amber-700')}
                         >
                           {geom.replace('_', ' ')}
                         </Button>
@@ -814,7 +809,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                 <div className="space-y-2">
                   <Label className="text-xs flex items-center gap-2">
                     Select Template
-                    <Badge variant="secondary" className="text-xs bg-emerald-100 text-emerald-700">New!</Badge>
+                    <Badge variant="secondary" className="text-xs">New!</Badge>
                   </Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {TEMPLATE_LIBRARY_OPTIONS.map((template) => {
@@ -828,25 +823,25 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                           className={cn(
                             "p-3 rounded-lg border text-left transition-all",
                             watchTemplateName === template.id
-                              ? "border-purple-400 bg-purple-50 dark:bg-purple-950/20 ring-1 ring-purple-200"
+                              ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                               : "border-border hover:border-muted-foreground/30 hover:bg-muted/50"
                           )}
                         >
                           <div className="flex items-center gap-2 mb-1">
                             <Icon className={cn(
                               "w-4 h-4",
-                              watchTemplateName === template.id ? "text-purple-600" : "text-muted-foreground"
+                              watchTemplateName === template.id ? "text-primary" : "text-muted-foreground"
                             )} />
                             <span className="font-medium text-sm">{template.name}</span>
                             {isRecommended && (
-                              <Badge variant="secondary" className="text-xs bg-emerald-100 text-emerald-700">
+                              <Badge variant="secondary" className="text-xs">
                                 Best for {watchMetal}
                               </Badge>
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground">{template.description}</p>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-purple-600">CN={template.coordinationNumber}</span>
+                            <span className="text-xs text-primary">CN={template.coordinationNumber}</span>
                             <span className="text-xs text-muted-foreground">{template.geometry}</span>
                           </div>
                         </button>
@@ -858,10 +853,10 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
 
               {/* Parametric Mode */}
               {watchUseParametricMode && (
-                <div className="space-y-4 p-4 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border border-blue-200 dark:border-blue-800">
+                <div className="space-y-4 p-4 rounded-lg bg-muted border border-border">
                   <div className="flex items-center gap-2 mb-3">
-                    <Settings2 className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-800 dark:text-blue-200">Custom Coordination Parameters</span>
+                    <Settings2 className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium text-foreground">Custom Coordination Parameters</span>
                   </div>
 
                   <FormField
@@ -1014,12 +1009,12 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
 
               {/* TEBL Options */}
               {isLuminescent && (
-                <div className="p-4 rounded-lg bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 border border-purple-200 dark:border-purple-800">
+                <div className="p-4 rounded-lg bg-muted border border-border">
                   <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="w-4 h-4 text-purple-600" />
-                    <span className="text-sm font-medium text-purple-800 dark:text-purple-200">TEBL Luminescence Assay</span>
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <span className="text-sm font-medium text-foreground">TEBL Luminescence Assay</span>
                   </div>
-                  <p className="text-xs text-purple-700 dark:text-purple-300 mb-3">
+                  <p className="text-xs text-muted-foreground mb-3">
                     Tryptophan-Enhanced Terbium Luminescence for binding validation.
                     Based on Caldwell et al. 2020 (subfemtomolar affinity achieved).
                   </p>
@@ -1032,8 +1027,8 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
                           <Checkbox checked={field.value} onCheckedChange={field.onChange} />
                         </FormControl>
                         <div className="space-y-1 leading-none">
-                          <FormLabel className="text-sm text-purple-800 dark:text-purple-200">Add Trp antenna residue</FormLabel>
-                          <FormDescription className="text-xs text-purple-600 dark:text-purple-400">
+                          <FormLabel className="text-sm text-foreground">Add Trp antenna residue</FormLabel>
+                          <FormDescription className="text-xs text-muted-foreground">
                             Position Trp within 4-6 A for energy transfer
                           </FormDescription>
                         </div>
@@ -1140,12 +1135,7 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
           <Button
             type="submit"
             disabled={!form.formState.isValid || isSubmitting || !health}
-            className={cn(
-              "w-full",
-              form.formState.isValid && !isSubmitting && health
-                ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
-                : ""
-            )}
+            className="w-full"
             size="lg"
           >
             {isSubmitting ? (

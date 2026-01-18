@@ -37,7 +37,7 @@ const AA_PROPERTIES: Record<string, { color: string; type: string }> = {
   N: { color: 'bg-blue-200', type: 'polar' },
   Q: { color: 'bg-blue-200', type: 'polar' },
   C: { color: 'bg-blue-200', type: 'polar' },
-  G: { color: 'bg-slate-200', type: 'special' },
+  G: { color: 'bg-muted', type: 'special' },
   // Positive
   K: { color: 'bg-red-200', type: 'positive' },
   R: { color: 'bg-red-200', type: 'positive' },
@@ -442,48 +442,48 @@ export function HotspotSelector({
   // Get property color
   const getPropertyColor = (property: string) => {
     switch (property) {
-      case 'hydrophobic': return 'bg-amber-100 text-amber-700';
+      case 'hydrophobic': return 'bg-muted text-foreground';
       case 'polar': return 'bg-blue-100 text-blue-700';
       case 'charged': return 'bg-red-100 text-red-700';
-      default: return 'bg-slate-100 text-slate-700';
+      default: return 'bg-muted text-foreground';
     }
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-lg">
+    <div className="bg-card rounded-xl border border-border overflow-hidden shadow-lg">
       {/* Header */}
-      <div className="bg-gradient-to-r from-teal-50 to-emerald-50 px-4 py-3 border-b border-teal-100">
+      <div className="bg-muted px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Crosshair className="h-5 w-5 text-teal-600" />
-            <h3 className="font-semibold text-slate-900">Select Binding Hotspots</h3>
+            <Crosshair className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-foreground">Select Binding Hotspots</h3>
           </div>
-          <span className="text-xs text-slate-500">
+          <span className="text-xs text-muted-foreground">
             {selectedHotspots.length}/{maxHotspots} selected
           </span>
         </div>
-        <p className="text-sm text-slate-600 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Choose residues on the target where the binder should attach
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-0">
         {/* Left: 3D Viewer */}
-        <div className="border-r border-slate-200">
+        <div className="border-r border-border">
           {/* View controls */}
-          <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+          <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-muted/50">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">View:</span>
-              <div className="flex rounded-md border border-slate-200 overflow-hidden">
+              <span className="text-xs text-muted-foreground">View:</span>
+              <div className="flex rounded-md border border-border overflow-hidden">
                 <button
                   onClick={() => { setViewMode('cartoon'); loadStructure(); }}
-                  className={`px-2 py-1 text-xs ${viewMode === 'cartoon' ? 'bg-teal-500 text-white' : 'bg-white text-slate-600'}`}
+                  className={`px-2 py-1 text-xs ${viewMode === 'cartoon' ? 'bg-teal-500 text-white' : 'bg-card text-muted-foreground'}`}
                 >
                   Cartoon
                 </button>
                 <button
                   onClick={() => { setViewMode('surface'); loadStructure(); }}
-                  className={`px-2 py-1 text-xs border-l border-slate-200 ${viewMode === 'surface' ? 'bg-teal-500 text-white' : 'bg-white text-slate-600'}`}
+                  className={`px-2 py-1 text-xs border-l border-border ${viewMode === 'surface' ? 'bg-teal-500 text-white' : 'bg-card text-muted-foreground'}`}
                 >
                   Surface
                 </button>
@@ -496,9 +496,9 @@ export function HotspotSelector({
             <div ref={containerRef} className="w-full h-full" />
 
             {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-white/80">
-                <div className="flex items-center gap-2 text-slate-600">
-                  <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+              <div className="absolute inset-0 flex items-center justify-center bg-card/80">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="w-5 h-5 border-2 border-border border-t-transparent rounded-full animate-spin" />
                   Loading...
                 </div>
               </div>
@@ -506,15 +506,15 @@ export function HotspotSelector({
           </div>
 
           {/* Legend */}
-          <div className="px-3 py-2 border-t border-slate-100 bg-slate-50">
+          <div className="px-3 py-2 border-t border-border bg-muted/50">
             <div className="flex items-center gap-4 text-xs">
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#14B8A6' }} />
-                <span className="text-slate-600">Auto-detected</span>
+                <span className="text-muted-foreground">Auto-detected</span>
               </div>
               <div className="flex items-center gap-1">
                 <div className="w-3 h-3 rounded" style={{ backgroundColor: '#8B5CF6' }} />
-                <span className="text-slate-600">Selected</span>
+                <span className="text-muted-foreground">Selected</span>
               </div>
             </div>
           </div>
@@ -523,12 +523,12 @@ export function HotspotSelector({
         {/* Right: Selection panel */}
         <div className="flex flex-col">
           {/* Auto-detect controls */}
-          <div className="px-4 py-3 border-b border-slate-100">
+          <div className="px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2 mb-2">
               <select
                 value={detectionMethod}
                 onChange={(e) => setDetectionMethod(e.target.value as any)}
-                className="text-sm border border-slate-200 rounded-md px-2 py-1.5 flex-1"
+                className="text-sm border border-border rounded-md px-2 py-1.5 flex-1"
               >
                 <option value="exposed_clustered">Clustered Surface (Recommended)</option>
                 <option value="exposed">All Exposed Residues</option>
@@ -561,18 +561,18 @@ export function HotspotSelector({
           </div>
 
           {/* Sequence Minimap for Manual Selection */}
-          <div className="px-3 py-2 border-b border-slate-100">
+          <div className="px-3 py-2 border-b border-border">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-slate-600">Sequence (click to select)</span>
-              <span className="text-xs text-slate-400">{parsedSequence.residues.length} residues</span>
+              <span className="text-xs font-medium text-muted-foreground">Sequence (click to select)</span>
+              <span className="text-xs text-muted-foreground">{parsedSequence.residues.length} residues</span>
             </div>
-            <div className="flex flex-wrap gap-0.5 max-h-24 overflow-y-auto p-1 bg-slate-50 rounded">
+            <div className="flex flex-wrap gap-0.5 max-h-24 overflow-y-auto p-1 bg-muted/50 rounded">
               {parsedSequence.residues.map((res) => {
                 const residueId = `${targetChain}${res.num}`;
                 const isSelected = selectedHotspots.includes(residueId);
                 const isAutoDetected = autoDetectedHotspots.some(h => h.residue === residueId);
                 const isHovered = hoveredResidue === residueId;
-                const aaProps = AA_PROPERTIES[res.aa] || { color: 'bg-slate-200', type: 'unknown' };
+                const aaProps = AA_PROPERTIES[res.aa] || { color: 'bg-muted', type: 'unknown' };
 
                 return (
                   <button
@@ -588,7 +588,7 @@ export function HotspotSelector({
                         ? 'bg-teal-400 text-white ring-1 ring-teal-300'
                         : isHovered
                         ? 'bg-amber-400 text-white'
-                        : aaProps.color + ' text-slate-600 hover:ring-1 hover:ring-slate-400'
+                        : aaProps.color + ' text-muted-foreground hover:ring-1 hover:ring-border'
                     }`}
                   >
                     {res.aa}
@@ -597,7 +597,7 @@ export function HotspotSelector({
               })}
             </div>
             {/* Sequence legend */}
-            <div className="flex items-center gap-2 mt-2 text-[10px] text-slate-500">
+            <div className="flex items-center gap-2 mt-2 text-[10px] text-muted-foreground">
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-amber-200 rounded-sm" /> Hydrophobic</span>
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-blue-200 rounded-sm" /> Polar</span>
               <span className="flex items-center gap-0.5"><span className="w-2 h-2 bg-red-200 rounded-sm" /> +</span>
@@ -608,14 +608,14 @@ export function HotspotSelector({
           {/* Detected Hotspots list */}
           <div className="flex-1 overflow-y-auto" style={{ maxHeight: '180px' }}>
             {autoDetectedHotspots.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-slate-400 p-4">
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
                 <Sparkles className="h-8 w-8 mb-2" />
                 <p className="text-xs text-center">
                   Click "Detect" for AI suggestions<br />or select from sequence above
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-border">
                 {autoDetectedHotspots.map((hotspot) => {
                   const isSelected = selectedHotspots.includes(hotspot.residue);
                   const isHovered = hoveredResidue === hotspot.residue;
@@ -634,12 +634,12 @@ export function HotspotSelector({
                           ? 'bg-violet-50'
                           : isHovered
                           ? 'bg-amber-50'
-                          : 'hover:bg-slate-50'
+                          : 'hover:bg-muted/50'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
-                          isSelected ? 'border-violet-500 bg-violet-500' : 'border-slate-300'
+                          isSelected ? 'border-primary bg-primary' : 'border-border'
                         }`}>
                           {isSelected && (
                             <Check className="h-2.5 w-2.5 text-white" />
@@ -647,10 +647,10 @@ export function HotspotSelector({
                         </div>
                         <div>
                           <div className="flex items-center gap-1.5">
-                            <span className="font-mono font-medium text-sm text-slate-900">{hotspot.residue}</span>
-                            <span className="text-xs text-slate-400">{hotspot.restype}</span>
+                            <span className="font-mono font-medium text-sm text-foreground">{hotspot.residue}</span>
+                            <span className="text-xs text-muted-foreground">{hotspot.restype}</span>
                           </div>
-                          <div className="text-[10px] text-slate-400">
+                          <div className="text-[10px] text-muted-foreground">
                             SASA: {sasaPercent.toFixed(0)}%
                           </div>
                         </div>
@@ -666,13 +666,13 @@ export function HotspotSelector({
           </div>
 
           {/* Selected summary */}
-          <div className="px-3 py-2 border-t border-slate-100 bg-slate-50">
+          <div className="px-3 py-2 border-t border-border bg-muted/50">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-slate-600">Selected ({selectedHotspots.length}/{maxHotspots})</span>
+              <span className="text-xs font-medium text-muted-foreground">Selected ({selectedHotspots.length}/{maxHotspots})</span>
               {selectedHotspots.length > 0 && (
                 <button
                   onClick={() => setSelectedHotspots([])}
-                  className="text-[10px] text-slate-400 hover:text-slate-600"
+                  className="text-[10px] text-muted-foreground hover:text-muted-foreground"
                 >
                   Clear all
                 </button>
@@ -680,17 +680,17 @@ export function HotspotSelector({
             </div>
             <div className="flex flex-wrap gap-1 min-h-[24px]">
               {selectedHotspots.length === 0 ? (
-                <span className="text-xs text-slate-400 italic">No hotspots selected</span>
+                <span className="text-xs text-muted-foreground italic">No hotspots selected</span>
               ) : (
                 selectedHotspots.map(id => (
                   <span
                     key={id}
-                    className="text-[10px] px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded flex items-center gap-0.5"
+                    className="text-[10px] px-1.5 py-0.5 bg-primary/10 text-primary rounded flex items-center gap-0.5"
                   >
                     {id}
                     <button
                       onClick={() => toggleHotspot(id)}
-                      className="hover:text-violet-900"
+                      className="hover:text-primary"
                     >
                       <X className="h-2.5 w-2.5" />
                     </button>
@@ -703,10 +703,10 @@ export function HotspotSelector({
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+      <div className="px-4 py-3 border-t border-border bg-muted/50 flex items-center justify-between">
         <button
           onClick={onCancel}
-          className="px-4 py-2 text-slate-600 text-sm font-medium hover:text-slate-800"
+          className="px-4 py-2 text-muted-foreground text-sm font-medium hover:text-foreground"
         >
           Cancel
         </button>

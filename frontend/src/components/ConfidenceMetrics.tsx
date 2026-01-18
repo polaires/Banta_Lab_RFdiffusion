@@ -96,8 +96,8 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
   }
 
   return (
-    <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
-      <h3 className="font-semibold text-slate-800 flex items-center gap-2">
+    <div className="space-y-4 p-4 bg-muted rounded-xl border border-border">
+      <h3 className="font-semibold text-foreground flex items-center gap-2">
         <Activity className="w-4 h-4 text-emerald-600" />
         Confidence Metrics
       </h3>
@@ -106,61 +106,61 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {/* Overall pLDDT */}
-          <div className="p-3 bg-white rounded-lg border border-slate-200">
+          <div className="p-3 bg-card rounded-lg border border-border">
             <div className="flex items-center gap-2 mb-1">
               <div
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: getPLDDTColor(summary.overall_plddt) }}
               />
-              <span className="text-xs text-slate-500">pLDDT</span>
+              <span className="text-xs text-muted-foreground">pLDDT</span>
             </div>
-            <div className="text-xl font-bold text-slate-800">
+            <div className="text-xl font-bold text-foreground">
               {(summary.overall_plddt * 100).toFixed(1)}
             </div>
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-muted-foreground">
               {getPLDDTLabel(summary.overall_plddt)}
             </div>
           </div>
 
           {/* pTM Score */}
-          <div className="p-3 bg-white rounded-lg border border-slate-200">
+          <div className="p-3 bg-card rounded-lg border border-border">
             <div className="flex items-center gap-2 mb-1">
-              <Target className="w-3 h-3 text-slate-400" />
-              <span className="text-xs text-slate-500">pTM</span>
+              <Target className="w-3 h-3 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">pTM</span>
             </div>
-            <div className="text-xl font-bold text-slate-800">
+            <div className="text-xl font-bold text-foreground">
               {(summary.ptm * 100).toFixed(1)}
             </div>
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-muted-foreground">
               Template Modeling
             </div>
           </div>
 
           {/* PAE */}
-          <div className="p-3 bg-white rounded-lg border border-slate-200">
+          <div className="p-3 bg-card rounded-lg border border-border">
             <div className="flex items-center gap-2 mb-1">
-              <Layers className="w-3 h-3 text-slate-400" />
-              <span className="text-xs text-slate-500">PAE</span>
+              <Layers className="w-3 h-3 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">PAE</span>
             </div>
-            <div className="text-xl font-bold text-slate-800">
+            <div className="text-xl font-bold text-foreground">
               {summary.overall_pae.toFixed(1)}A
             </div>
-            <div className="text-xs text-slate-500">
+            <div className="text-xs text-muted-foreground">
               Predicted Aligned Error
             </div>
           </div>
 
           {/* Ranking Score */}
           {summary.ranking_score !== undefined && (
-            <div className="p-3 bg-white rounded-lg border border-slate-200">
+            <div className="p-3 bg-card rounded-lg border border-border">
               <div className="flex items-center gap-2 mb-1">
-                <CheckCircle className="w-3 h-3 text-slate-400" />
-                <span className="text-xs text-slate-500">Ranking</span>
+                <CheckCircle className="w-3 h-3 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Ranking</span>
               </div>
-              <div className="text-xl font-bold text-slate-800">
+              <div className="text-xl font-bold text-foreground">
                 {(summary.ranking_score * 100).toFixed(1)}
               </div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-muted-foreground">
                 Overall Quality
               </div>
             </div>
@@ -168,15 +168,15 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
 
           {/* ipTM (if available) */}
           {summary.iptm !== null && summary.iptm !== undefined && (
-            <div className="p-3 bg-white rounded-lg border border-slate-200">
+            <div className="p-3 bg-card rounded-lg border border-border">
               <div className="flex items-center gap-2 mb-1">
-                <Target className="w-3 h-3 text-slate-400" />
-                <span className="text-xs text-slate-500">ipTM</span>
+                <Target className="w-3 h-3 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">ipTM</span>
               </div>
-              <div className="text-xl font-bold text-slate-800">
+              <div className="text-xl font-bold text-foreground">
                 {(summary.iptm * 100).toFixed(1)}
               </div>
-              <div className="text-xs text-slate-500">
+              <div className="text-xs text-muted-foreground">
                 Interface pTM
               </div>
             </div>
@@ -184,14 +184,14 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
 
           {/* Clash indicator */}
           {summary.has_clash !== undefined && (
-            <div className="p-3 bg-white rounded-lg border border-slate-200">
+            <div className="p-3 bg-card rounded-lg border border-border">
               <div className="flex items-center gap-2 mb-1">
                 {summary.has_clash ? (
                   <XCircle className="w-3 h-3 text-red-500" />
                 ) : (
                   <CheckCircle className="w-3 h-3 text-green-500" />
                 )}
-                <span className="text-xs text-slate-500">Clashes</span>
+                <span className="text-xs text-muted-foreground">Clashes</span>
               </div>
               <div className={`text-xl font-bold ${summary.has_clash ? 'text-red-600' : 'text-green-600'}`}>
                 {summary.has_clash ? 'Yes' : 'None'}
@@ -203,11 +203,11 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
 
       {/* RMSD Result */}
       {rmsdResult && (
-        <div className="p-3 bg-white rounded-lg border border-slate-200">
+        <div className="p-3 bg-card rounded-lg border border-border">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               {getRMSDIcon(rmsdResult.interpretation)}
-              <span className="font-medium text-slate-800">RMSD Validation</span>
+              <span className="font-medium text-foreground">RMSD Validation</span>
             </div>
             <span className={`text-lg font-bold ${getRMSDColor(rmsdResult.interpretation)}`}>
               {rmsdResult.rmsd.toFixed(3)} A
@@ -216,10 +216,10 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
           <div className={`text-sm ${getRMSDColor(rmsdResult.interpretation)}`}>
             {rmsdResult.interpretation} Designability
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             {rmsdResult.description}
           </p>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             {rmsdResult.num_atoms_compared} backbone atoms compared
           </p>
         </div>
@@ -229,8 +229,8 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
       {perResiduePLDDT && perResiduePLDDT.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs text-slate-500">Per-residue pLDDT</span>
-            <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span className="text-xs text-muted-foreground">Per-residue pLDDT</span>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <div className="w-2 h-2 rounded" style={{ backgroundColor: '#ff7d45' }} />
                 &lt;50
@@ -249,7 +249,7 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
               </span>
             </div>
           </div>
-          <div className="flex h-6 rounded-lg overflow-hidden border border-slate-200">
+          <div className="flex h-6 rounded-lg overflow-hidden border border-border">
             {perResiduePLDDT.slice(0, 200).map((value, i) => (
               <div
                 key={i}
@@ -259,7 +259,7 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
               />
             ))}
           </div>
-          <div className="flex justify-between text-xs text-slate-500 mt-1">
+          <div className="flex justify-between text-xs text-muted-foreground mt-1">
             <span>1</span>
             <span>{Math.min(perResiduePLDDT.length, 200)}</span>
           </div>
@@ -267,12 +267,12 @@ export function ConfidenceMetricsDisplay({ confidences, rmsdResult, compact = fa
       )}
 
       {/* Help text */}
-      <div className="flex items-start gap-2 text-xs text-slate-500 p-3 bg-slate-100 rounded-lg">
-        <Info className="w-3 h-3 mt-0.5 flex-shrink-0 text-slate-400" />
+      <div className="flex items-start gap-2 text-xs text-muted-foreground p-3 bg-muted rounded-lg">
+        <Info className="w-3 h-3 mt-0.5 flex-shrink-0 text-muted-foreground" />
         <div>
-          <strong className="text-slate-600">pLDDT</strong>: Per-residue confidence (0-100, higher = better).
-          <strong className="ml-2 text-slate-600">pTM</strong>: Template modeling score.
-          <strong className="ml-2 text-slate-600">PAE</strong>: Predicted alignment error (lower = better).
+          <strong className="text-muted-foreground">pLDDT</strong>: Per-residue confidence (0-100, higher = better).
+          <strong className="ml-2 text-muted-foreground">pTM</strong>: Template modeling score.
+          <strong className="ml-2 text-muted-foreground">PAE</strong>: Predicted alignment error (lower = better).
         </div>
       </div>
     </div>

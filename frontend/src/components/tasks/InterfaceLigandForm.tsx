@@ -180,8 +180,8 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
       <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
         {/* Header */}
         <div className="flex items-center gap-3 pb-4 border-b border-border">
-          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-            <Link2 className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
+            <Link2 className="w-5 h-5 text-primary-foreground" />
           </div>
           <div>
             <h2 className="font-semibold text-foreground">Interface Ligand Dimer Design</h2>
@@ -190,12 +190,12 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
         </div>
 
         {/* Info Banner */}
-        <Card className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20 border-purple-200 dark:border-purple-800">
+        <Card className="bg-muted border-border">
           <CardContent className="flex items-start gap-3 pt-4">
-            <Info className="w-5 h-5 text-purple-600 mt-0.5 flex-shrink-0" />
-            <div className="text-sm text-purple-900 dark:text-purple-100">
+            <Info className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-foreground">
               <p className="font-medium mb-1">Separable Dimer Design</p>
-              <p className="text-purple-700 dark:text-purple-200">
+              <p className="text-muted-foreground">
                 Unlike buried ligand designs, this creates dimers where chains A and B can physically separate.
                 The ligand sits at the interface between the two chains.
               </p>
@@ -223,7 +223,7 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                   className={cn(
                     "p-3 rounded-lg border text-left transition-all",
                     watchSelectedPreset === lig.id && !watchCustomSmiles
-                      ? "border-purple-400 bg-purple-50 dark:bg-purple-950/20 ring-1 ring-purple-200"
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                       : "border-border hover:border-muted-foreground/30 hover:bg-muted/50"
                   )}
                 >
@@ -237,7 +237,7 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                 className={cn(
                   "p-3 rounded-lg border text-left transition-all",
                   watchCustomSmiles
-                    ? "border-purple-400 bg-purple-50 dark:bg-purple-950/20 ring-1 ring-purple-200"
+                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                     : "border-border hover:border-muted-foreground/30 hover:bg-muted/50"
                 )}
               >
@@ -292,19 +292,19 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                     className={cn(
                       "p-4 rounded-lg border text-left transition-all relative",
                       watchApproach === app.id
-                        ? "border-purple-400 bg-purple-50 dark:bg-purple-950/20 ring-1 ring-purple-200"
+                        ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                         : "border-border hover:border-muted-foreground/30 hover:bg-muted/50"
                     )}
                   >
                     {app.recommended && (
-                      <Badge className="absolute -top-2 -right-2 bg-emerald-500 text-white text-xs">
+                      <Badge className="absolute -top-2 -right-2">
                         Recommended
                       </Badge>
                     )}
                     <div className="flex items-center gap-2 mb-2">
                       <Icon className={cn(
                         "w-4 h-4",
-                        watchApproach === app.id ? "text-purple-600" : "text-muted-foreground"
+                        watchApproach === app.id ? "text-primary" : "text-muted-foreground"
                       )} />
                       <span className="font-medium text-foreground text-sm">{app.name}</span>
                     </div>
@@ -327,7 +327,7 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                         <Button
                           type="button"
                           variant={field.value === 'left' ? 'default' : 'outline'}
-                          className={cn("flex-1", field.value === 'left' && 'bg-purple-600 hover:bg-purple-700')}
+                          className="flex-1"
                           onClick={() => field.onChange('left')}
                         >
                           Left side (expose right)
@@ -335,7 +335,7 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                         <Button
                           type="button"
                           variant={field.value === 'right' ? 'default' : 'outline'}
-                          className={cn("flex-1", field.value === 'right' && 'bg-purple-600 hover:bg-purple-700')}
+                          className="flex-1"
                           onClick={() => field.onChange('right')}
                         >
                           Right side (expose left)
@@ -508,12 +508,7 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
           <Button
             type="submit"
             disabled={!form.formState.isValid || isSubmitting || !health}
-            className={cn(
-              "w-full",
-              form.formState.isValid && !isSubmitting && health
-                ? "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
-                : ""
-            )}
+            className="w-full"
             size="lg"
           >
             {isSubmitting ? (
@@ -546,12 +541,12 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
 
               <div className="space-y-3">
                 {/* Excellent */}
-                <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800">
+                <div className="p-2 rounded-lg bg-muted border border-border">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <span className="text-xs font-medium text-emerald-800 dark:text-emerald-200">Excellent</span>
+                    <span className="w-2 h-2 rounded-full bg-primary" />
+                    <span className="text-xs font-medium text-foreground">Excellent</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-emerald-700 dark:text-emerald-300 ml-4">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground ml-4">
                     <div>GNINA: {EXPECTED_RESULTS.excellent.affinity}</div>
                     <div>Contacts: {EXPECTED_RESULTS.excellent.contacts}</div>
                     <div>Identity: {EXPECTED_RESULTS.excellent.identity}</div>
@@ -560,12 +555,12 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                 </div>
 
                 {/* Good */}
-                <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                <div className="p-2 rounded-lg bg-muted/70 border border-border">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="w-2 h-2 rounded-full bg-blue-500" />
-                    <span className="text-xs font-medium text-blue-800 dark:text-blue-200">Good</span>
+                    <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                    <span className="text-xs font-medium text-foreground">Good</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-blue-700 dark:text-blue-300 ml-4">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground ml-4">
                     <div>GNINA: {EXPECTED_RESULTS.good.affinity}</div>
                     <div>Contacts: {EXPECTED_RESULTS.good.contacts}</div>
                     <div>Identity: {EXPECTED_RESULTS.good.identity}</div>
@@ -574,12 +569,12 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                 </div>
 
                 {/* Minimum */}
-                <div className="p-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800">
+                <div className="p-2 rounded-lg bg-muted/50 border border-border">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    <span className="text-xs font-medium text-amber-800 dark:text-amber-200">Minimum Viable</span>
+                    <span className="w-2 h-2 rounded-full bg-muted-foreground/60" />
+                    <span className="text-xs font-medium text-foreground">Minimum Viable</span>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-amber-700 dark:text-amber-300 ml-4">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground ml-4">
                     <div>GNINA: {EXPECTED_RESULTS.minimum.affinity}</div>
                     <div>Contacts: {EXPECTED_RESULTS.minimum.contacts}</div>
                     <div>Identity: {EXPECTED_RESULTS.minimum.identity}</div>

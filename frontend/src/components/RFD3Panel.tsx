@@ -492,15 +492,15 @@ export function RFD3Panel() {
   if (!selectedDesignTask) {
     return (
       <div className="p-8 space-y-8">
-        <div className="border-b border-slate-100 pb-6">
-          <h2 className="text-xl font-bold text-slate-900">No Task Selected</h2>
-          <p className="text-slate-500 text-sm mt-2">
+        <div className="border-b border-border pb-6">
+          <h2 className="text-xl font-bold text-foreground">No Task Selected</h2>
+          <p className="text-muted-foreground text-sm mt-2">
             Please select a design task first.
           </p>
         </div>
         <button
           onClick={() => setActiveTab('task')}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
           Choose Design Task
@@ -512,14 +512,14 @@ export function RFD3Panel() {
   return (
     <div className="p-8 space-y-8">
       {/* Header */}
-      <div className="border-b border-slate-100 pb-6">
+      <div className="border-b border-border pb-6">
         <div className="flex items-center gap-3 mb-2">
-          <span className="bg-blue-50 text-blue-700 border border-blue-100 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
+          <span className="bg-primary/10 text-primary border border-primary/20 text-[11px] font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wide">
             Step 1
           </span>
-          <h2 className="text-xl font-bold text-slate-900">RFdiffusion3 - {taskName}</h2>
+          <h2 className="text-xl font-bold text-foreground">RFdiffusion3 - {taskName}</h2>
         </div>
-        <p className="text-slate-500 text-sm leading-relaxed max-w-3xl pl-1">
+        <p className="text-muted-foreground text-sm leading-relaxed max-w-3xl pl-1">
           Configure your design parameters. After design, proceed to MPNN for sequence design.
         </p>
       </div>
@@ -528,7 +528,7 @@ export function RFD3Panel() {
         {/* Back Button */}
         <button
           onClick={handleBackToTaskSelection}
-          className="flex items-center gap-2 text-slate-600 hover:text-blue-600 transition-colors group"
+          className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors group"
         >
           <ArrowLeft className="h-5 w-5 group-hover:-translate-x-1 transition-transform" />
           <span className="text-sm font-medium">Change Design Task</span>
@@ -568,14 +568,14 @@ export function RFD3Panel() {
           <div className="space-y-4">
             {/* New Design Button */}
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Design Results</h3>
+              <h3 className="text-lg font-semibold text-foreground">Design Results</h3>
               <button
                 onClick={() => {
                   setInterfaceLigandResult(null);
                   setSelectedDesignId(undefined);
                   setPipelineStage('idle');
                 }}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary bg-primary/10 rounded-lg hover:bg-primary/20 transition-colors"
               >
                 <Plus className="h-4 w-4" />
                 New Design
@@ -598,7 +598,7 @@ export function RFD3Panel() {
         {lastDesignPdb && selectedDesignTask !== 'interface_ligand' && (
           <button
             onClick={downloadPdb}
-            className="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
+            className="w-full flex justify-center items-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/80 transition-all"
           >
             <Download className="h-5 w-5" />
             Download Design (PDB)

@@ -49,17 +49,17 @@ const CATEGORY_STYLES: Record<string, {
   },
   hydrophobic: {
     Icon: Cylinder,
-    bg: 'bg-amber-50',
-    border: 'border-amber-100',
-    text: 'text-amber-700',
-    badge: 'bg-amber-100 text-amber-700',
+    bg: 'bg-muted/50',
+    border: 'border-border',
+    text: 'text-foreground',
+    badge: 'bg-muted text-foreground',
   },
   aromatic: {
     Icon: Hexagon,
-    bg: 'bg-purple-50',
-    border: 'border-purple-100',
-    text: 'text-purple-700',
-    badge: 'bg-purple-100 text-purple-700',
+    bg: 'bg-muted/50',
+    border: 'border-border',
+    text: 'text-foreground',
+    badge: 'bg-muted text-foreground',
   },
   salt_bridge: {
     Icon: Zap,
@@ -70,10 +70,10 @@ const CATEGORY_STYLES: Record<string, {
   },
   general: {
     Icon: Lightbulb,
-    bg: 'bg-slate-50',
-    border: 'border-slate-200',
-    text: 'text-slate-700',
-    badge: 'bg-slate-100 text-slate-700',
+    bg: 'bg-muted/50',
+    border: 'border-border',
+    text: 'text-foreground',
+    badge: 'bg-muted text-foreground',
   },
 };
 
@@ -95,30 +95,30 @@ export function RecommendationsCard({ recommendations, interactions }: Recommend
   categorizedRecs.sort((a, b) => categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category));
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+    <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-emerald-50 to-teal-50">
+      <div className="px-4 py-3 border-b border-border bg-muted">
         <div className="flex items-center gap-2">
-          <Lightbulb className="h-5 w-5 text-emerald-600" />
-          <h4 className="font-semibold text-slate-900 text-sm">Design Recommendations</h4>
-          <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+          <Lightbulb className="h-5 w-5 text-primary" />
+          <h4 className="font-semibold text-foreground text-sm">Design Recommendations</h4>
+          <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
             {recommendations.length} suggestions
           </span>
         </div>
-        <p className="text-xs text-slate-500 mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           AI-generated suggestions based on PLIP interaction analysis
         </p>
       </div>
 
       {/* Interaction Context (if available) */}
       {interactions && (
-        <div className="px-4 py-2 bg-slate-50 border-b border-slate-100">
-          <div className="flex items-center gap-4 text-xs text-slate-600">
+        <div className="px-4 py-2 bg-muted/50 border-b border-border">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
             <span>Current interactions:</span>
-            <span className="font-medium text-blue-600">{interactions.hydrogen_bonds} H-bonds</span>
-            <span className="font-medium text-amber-600">{interactions.hydrophobic_contacts} hydrophobic</span>
-            <span className="font-medium text-purple-600">{interactions.pi_stacking} pi-stack</span>
-            <span className="font-medium text-red-600">{interactions.salt_bridges} salt bridges</span>
+            <span className="font-medium text-foreground">{interactions.hydrogen_bonds} H-bonds</span>
+            <span className="font-medium text-foreground">{interactions.hydrophobic_contacts} hydrophobic</span>
+            <span className="font-medium text-foreground">{interactions.pi_stacking} pi-stack</span>
+            <span className="font-medium text-foreground">{interactions.salt_bridges} salt bridges</span>
           </div>
         </div>
       )}
@@ -147,8 +147,8 @@ export function RecommendationsCard({ recommendations, interactions }: Recommend
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-2 bg-slate-50 border-t border-slate-100">
-        <p className="text-xs text-slate-500 text-center">
+      <div className="px-4 py-2 bg-muted/50 border-t border-border">
+        <p className="text-xs text-muted-foreground text-center">
           Suggestions are based on interaction analysis. Consider protein stability when making modifications.
         </p>
       </div>

@@ -523,6 +523,27 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       focusOnLigand,
     }), [resetView, focusOnMetal, focusOnLigand]);
 
+    // Handle container resize - notify Molstar to update canvas
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container || !globalPlugin) return;
+
+      const resizeObserver = new ResizeObserver(() => {
+        // Debounce resize handling
+        requestAnimationFrame(() => {
+          if (globalPlugin?.canvas3d) {
+            globalPlugin.canvas3d.handleResize();
+          }
+        });
+      });
+
+      resizeObserver.observe(container);
+
+      return () => {
+        resizeObserver.disconnect();
+      };
+    }, [isReady]);
+
     // Initialize Molstar on mount
     useEffect(() => {
       const container = containerRef.current;
@@ -540,6 +561,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             }
           }
           globalContainer = container;
+          // Trigger resize after re-attach
+          requestAnimationFrame(() => {
+            globalPlugin?.canvas3d?.handleResize();
+          });
         }
         setIsReady(true);
         onReady?.();

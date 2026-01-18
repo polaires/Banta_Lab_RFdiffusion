@@ -18,9 +18,9 @@ const ProteinViewer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="h-[520px] flex items-center justify-center bg-slate-900 rounded-xl">
-        <div className="flex items-center gap-3 text-slate-400">
-          <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+      <div className="h-[520px] flex items-center justify-center bg-muted rounded-xl">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <div className="w-5 h-5 border-2 border-border border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-medium">Loading 3D viewer...</span>
         </div>
       </div>
@@ -193,21 +193,21 @@ export function CollapsibleViewer() {
   }, []);
 
   return (
-    <section className="bg-white rounded-2xl shadow-card overflow-hidden mt-8">
+    <section className="bg-card rounded-2xl shadow-card overflow-hidden mt-8">
       {/* Header */}
       <button
         onClick={() => setViewerCollapsed(!viewerCollapsed)}
-        className="w-full px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 hover:bg-slate-50 transition-colors"
+        className="w-full px-6 py-4 border-b border-border flex justify-between items-center bg-muted/50 hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-3">
           <Eye className="w-5 h-5 text-blue-600" />
-          <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest">Structure Viewer</h3>
+          <h3 className="text-xs font-bold text-foreground uppercase tracking-widest">Structure Viewer</h3>
           {selectedPdb ? (
             <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
               Structure loaded
             </span>
           ) : (
-            <span className="text-[10px] font-medium text-slate-500 bg-white px-2 py-0.5 rounded-full border border-slate-200 shadow-sm">
+            <span className="text-[10px] font-medium text-muted-foreground bg-card px-2 py-0.5 rounded-full border border-border shadow-sm">
               No structure
             </span>
           )}
@@ -228,9 +228,9 @@ export function CollapsibleViewer() {
           )}
         </div>
         {viewerCollapsed ? (
-          <ChevronDown className="w-5 h-5 text-slate-400 hover:text-slate-600 transition-colors" />
+          <ChevronDown className="w-5 h-5 text-muted-foreground hover:text-muted-foreground transition-colors" />
         ) : (
-          <ChevronUp className="w-5 h-5 text-slate-400 hover:text-slate-600 transition-colors" />
+          <ChevronUp className="w-5 h-5 text-muted-foreground hover:text-muted-foreground transition-colors" />
         )}
       </button>
 
@@ -270,7 +270,7 @@ export function CollapsibleViewer() {
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-violet-500" />
-                        <span className="text-sm font-medium text-slate-700">RFD3 Design</span>
+                        <span className="text-sm font-medium text-foreground">RFD3 Design</span>
                       </div>
                       <ProteinViewer
                         pdbContent={latestRfd3Design.pdbContent}
@@ -286,7 +286,7 @@ export function CollapsibleViewer() {
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                        <span className="text-sm font-medium text-slate-700">RF3 Prediction</span>
+                        <span className="text-sm font-medium text-foreground">RF3 Prediction</span>
                       </div>
                       <ProteinViewer
                         pdbContent={latestRf3Prediction.pdbContent}
@@ -308,10 +308,10 @@ export function CollapsibleViewer() {
                   />
                 )
               ) : (
-                <div className="h-[520px] flex flex-col items-center justify-center bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
-                  <Box className="w-10 h-10 text-slate-300 mb-3" />
-                  <p className="text-sm font-medium text-slate-500">No structure to display</p>
-                  <p className="text-xs text-slate-400 mt-1">Run a design job to visualize structures</p>
+                <div className="h-[520px] flex flex-col items-center justify-center bg-muted rounded-xl border-2 border-dashed border-border">
+                  <Box className="w-10 h-10 text-muted-foreground mb-3" />
+                  <p className="text-sm font-medium text-muted-foreground">No structure to display</p>
+                  <p className="text-xs text-muted-foreground mt-1">Run a design job to visualize structures</p>
                 </div>
               )}
             </div>
@@ -319,10 +319,10 @@ export function CollapsibleViewer() {
 
           {/* Side panels container */}
           {(showBindingSitePanel || hasComparison) && (
-            <div className="w-80 border-l border-slate-100 bg-slate-50/50 overflow-y-auto max-h-[640px]">
+            <div className="w-80 border-l border-border bg-muted/50 overflow-y-auto max-h-[640px]">
               {/* Comparison view panel */}
               {hasComparison && (
-                <div className="p-4 border-b border-slate-100">
+                <div className="p-4 border-b border-border">
                   <ComparisonView
                     onLoadReference={handleLoadReference}
                     onClearReference={handleClearReference}
@@ -346,7 +346,7 @@ export function CollapsibleViewer() {
 
               {/* Ligand binding analysis panel with pharmacophore controls */}
               {hasLigands && (
-                <div className="p-4 border-t border-slate-100">
+                <div className="p-4 border-t border-border">
                   <LigandBindingPanel
                     show3D={showPharmacophores3D}
                     onToggle3D={setShowPharmacophores3D}

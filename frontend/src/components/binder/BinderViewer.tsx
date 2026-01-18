@@ -26,10 +26,10 @@ const BinderViewerInner = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="relative bg-slate-100 rounded-lg overflow-hidden" style={{ minHeight: '300px' }}>
+      <div className="relative bg-muted rounded-lg overflow-hidden" style={{ minHeight: '300px' }}>
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="flex items-center gap-2 text-slate-600">
-            <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+          <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="w-5 h-5 border-2 border-border border-t-transparent rounded-full animate-spin" />
             Loading viewer...
           </div>
         </div>

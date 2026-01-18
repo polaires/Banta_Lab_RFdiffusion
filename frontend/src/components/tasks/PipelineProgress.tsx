@@ -24,28 +24,24 @@ const STAGES = [
     name: 'Backbone',
     Icon: Building2,
     description: 'RFD3 generating structure',
-    color: 'purple'
   },
   {
     id: 'ligandmpnn',
     name: 'LigandMPNN',
     Icon: Type,
     description: 'Sequence design',
-    color: 'blue'
   },
   {
     id: 'validation',
     name: 'Validation',
     Icon: ShieldCheck,
     description: 'ESM + structure checks',
-    color: 'teal'
   },
   {
     id: 'analysis',
     name: 'Analysis',
     Icon: FlaskConical,
     description: 'PLIP interaction profiling',
-    color: 'emerald'
   },
 ];
 
@@ -74,21 +70,21 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
     return 'pending';
   };
 
-  const getStageStyles = (status: string, color: string) => {
+  const getStageStyles = (status: string) => {
     switch (status) {
       case 'complete':
         return {
-          icon: 'bg-emerald-100 text-emerald-600',
-          line: 'bg-emerald-400',
-          text: 'text-slate-900',
-          desc: 'text-emerald-600'
+          icon: 'bg-primary/10 text-primary',
+          line: 'bg-primary',
+          text: 'text-foreground',
+          desc: 'text-primary'
         };
       case 'active':
         return {
-          icon: `bg-${color}-100 text-${color}-600 ring-2 ring-${color}-400 ring-offset-2`,
-          line: 'bg-slate-200',
-          text: 'text-slate-900 font-medium',
-          desc: `text-${color}-600`
+          icon: 'bg-primary/10 text-primary ring-2 ring-primary/40 ring-offset-2',
+          line: 'bg-muted',
+          text: 'text-foreground font-medium',
+          desc: 'text-primary'
         };
       case 'error':
         return {
@@ -99,10 +95,10 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
         };
       default:
         return {
-          icon: 'bg-slate-100 text-slate-400',
-          line: 'bg-slate-200',
-          text: 'text-slate-400',
-          desc: 'text-slate-400'
+          icon: 'bg-muted text-muted-foreground',
+          line: 'bg-muted',
+          text: 'text-muted-foreground',
+          desc: 'text-muted-foreground'
         };
     }
   };
@@ -111,10 +107,10 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
     <div className="w-full py-6">
       {/* Header */}
       <div className="flex items-center gap-2 mb-6">
-        <GitBranch className="w-5 h-5 text-purple-600" />
-        <span className="font-medium text-slate-700">Design Pipeline</span>
+        <GitBranch className="w-5 h-5 text-primary" />
+        <span className="font-medium text-foreground">Design Pipeline</span>
         {isComplete && (
-          <span className="ml-auto text-sm text-emerald-600 flex items-center gap-1">
+          <span className="ml-auto text-sm text-primary flex items-center gap-1">
             <CheckCircle className="w-4 h-4" />
             Complete
           </span>
@@ -130,11 +126,11 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
       {/* Pipeline Steps */}
       <div className="relative">
         {/* Connection Lines */}
-        <div className="absolute top-6 left-6 right-6 h-0.5 bg-slate-200 -z-10" />
+        <div className="absolute top-6 left-6 right-6 h-0.5 bg-muted -z-10" />
 
         {/* Progress Line */}
         <div
-          className="absolute top-6 left-6 h-0.5 bg-gradient-to-r from-purple-500 via-blue-500 to-emerald-500 transition-all duration-500 -z-10"
+          className="absolute top-6 left-6 h-0.5 bg-primary transition-all duration-500 -z-10"
           style={{
             width: isComplete
               ? 'calc(100% - 48px)'
@@ -146,7 +142,7 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
         <div className="flex justify-between">
           {STAGES.map((stage, index) => {
             const status = getStageStatus(stage.id, index);
-            const styles = getStageStyles(status, stage.color);
+            const styles = getStageStyles(status);
             const isAnimating = animatedStage === stage.id;
             const details = stageDetails?.[stage.id as keyof StageDetails];
             const StageIcon = stage.Icon;
@@ -206,10 +202,10 @@ export function PipelineProgress({ currentStage, stageDetails, error }: Pipeline
 
       {/* Current Stage Details */}
       {currentStage !== 'idle' && currentStage !== 'complete' && currentStage !== 'error' && (
-        <div className="mt-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
+        <div className="mt-4 p-3 bg-muted/50 rounded-lg border border-border">
           <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />
-            <span className="text-sm text-slate-600">
+            <Loader2 className="w-4 h-4 text-muted-foreground animate-spin" />
+            <span className="text-sm text-muted-foreground">
               {stageDetails?.[currentStage as keyof StageDetails]?.message ||
                `Running ${STAGES.find(s => s.id === currentStage)?.name}...`}
             </span>

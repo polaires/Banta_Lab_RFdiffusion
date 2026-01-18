@@ -234,31 +234,31 @@ export function RF3Panel() {
       <div>
         <div className="flex items-center gap-3 mb-3">
           <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">3</span>
-          <h2 className="text-lg font-bold text-slate-900">RosettaFold3 — Structure Validation</h2>
+          <h2 className="text-lg font-bold text-foreground">RosettaFold3 — Structure Validation</h2>
         </div>
-        <p className="text-slate-600 text-sm leading-relaxed">
+        <p className="text-muted-foreground text-sm leading-relaxed">
           Validate designability by predicting the structure from MPNN sequences. Compare to RFD3 design via RMSD.
         </p>
       </div>
 
       {/* Use from RFD3 button */}
       {latestRfd3Design && (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+        <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center">
-                <FlaskConical className="w-5 h-5 text-blue-600" />
+              <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
+                <FlaskConical className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-blue-700">RFD3 Design Available</p>
-                <p className="text-xs text-slate-500">
+                <p className="text-sm font-semibold text-primary">RFD3 Design Available</p>
+                <p className="text-xs text-muted-foreground">
                   Use sequence from your latest RFD3 design for validation
                 </p>
               </div>
             </div>
             <button
               onClick={useRfd3Sequence}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-all shadow-sm hover:shadow-md"
+              className="px-4 py-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg text-sm font-medium flex items-center gap-2 transition-all shadow-sm hover:shadow-md"
             >
               <ArrowRight className="w-4 h-4" />
               Use Sequence
@@ -269,13 +269,13 @@ export function RF3Panel() {
 
       {/* Quick Examples */}
       <div className="space-y-3">
-        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Example Sequences</label>
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Example Sequences</label>
         <div className="flex flex-wrap gap-2">
           {Object.entries(EXAMPLE_SEQUENCES).map(([name, seq]) => (
             <button
               key={name}
               onClick={() => setSequence(seq)}
-              className="px-4 py-2 text-xs font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors"
+              className="px-4 py-2 text-xs font-medium bg-muted hover:bg-muted/80 text-foreground rounded-lg transition-colors"
             >
               {name}
             </button>
@@ -285,7 +285,7 @@ export function RF3Panel() {
 
       {/* Sequence Input */}
       <div className="space-y-3">
-        <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
           Protein Sequence
         </label>
         <textarea
@@ -293,13 +293,13 @@ export function RF3Panel() {
           onChange={(e) => setSequence(e.target.value)}
           placeholder="MSKGEELFTGVVPILVELDGDVNGHKFSVSG..."
           rows={6}
-          className="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none font-mono text-sm text-slate-900 transition-all"
+          className="w-full px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none font-mono text-sm text-foreground transition-all"
         />
         <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-muted-foreground">
             Accepts FASTA or plain sequence
           </p>
-          <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-lg">
+          <span className="text-xs font-medium text-foreground bg-muted px-2 py-1 rounded-lg">
             {sequence.replace(/[^A-Za-z]/g, '').length} residues
           </span>
         </div>
@@ -308,7 +308,7 @@ export function RF3Panel() {
       {/* Advanced Options Toggle */}
       <button
         onClick={() => setShowAdvanced(!showAdvanced)}
-        className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-800 transition-colors"
+        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
       >
         {showAdvanced ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         Advanced Options
@@ -316,31 +316,31 @@ export function RF3Panel() {
 
       {/* Advanced Options (MSA Upload) */}
       {showAdvanced && (
-        <div className="space-y-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+        <div className="space-y-4 p-4 bg-muted rounded-xl border border-border">
           {/* MSA Upload */}
           <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
               <Library className="w-4 h-4" />
               Multiple Sequence Alignment (Optional)
             </label>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               Upload an .a3m or .fasta MSA file to improve prediction quality for natural proteins.
             </p>
 
             {msaFileName ? (
-              <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-emerald-200">
+              <div className="flex items-center justify-between p-3 bg-card rounded-lg border border-emerald-200">
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-5 h-5 text-emerald-600" />
                   <div>
-                    <p className="text-sm font-medium text-slate-700">{msaFileName}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-sm font-medium text-foreground">{msaFileName}</p>
+                    <p className="text-xs text-muted-foreground">
                       {msaContent ? `${msaContent.split('\n').filter(l => l.startsWith('>')).length} sequences` : ''}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={clearMsa}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -354,24 +354,24 @@ export function RF3Panel() {
                   onChange={handleMsaUpload}
                   className="absolute inset-0 opacity-0 cursor-pointer"
                 />
-                <div className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-emerald-400 hover:bg-emerald-50 transition-colors cursor-pointer">
-                  <Upload className="w-5 h-5 text-slate-400" />
-                  <span className="text-sm text-slate-600">Upload MSA file (.a3m, .fasta)</span>
+                <div className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-border rounded-xl hover:border-primary hover:bg-primary/5 transition-colors cursor-pointer">
+                  <Upload className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Upload MSA file (.a3m, .fasta)</span>
                 </div>
               </div>
             )}
 
-            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="p-3 bg-primary/10 rounded-lg border border-primary/20">
               <div className="flex items-start gap-2">
-                <Info className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-blue-700">
+                <Info className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                <div className="text-xs text-primary">
                   <p className="font-medium">When to use MSA:</p>
-                  <ul className="mt-1 space-y-0.5 text-blue-600">
+                  <ul className="mt-1 space-y-0.5 text-primary/80">
                     <li>• Predicting natural protein structures</li>
                     <li>• Improving pLDDT confidence scores</li>
                     <li>• Getting more accurate PAE matrices</li>
                   </ul>
-                  <p className="mt-2 text-blue-600">
+                  <p className="mt-2 text-primary/80">
                     For de novo designed proteins, MSA is typically not needed.
                   </p>
                 </div>
@@ -393,7 +393,7 @@ export function RF3Panel() {
       <button
         onClick={handleSubmit}
         disabled={!health || submitting || !sequence}
-        className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md"
+        className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-all shadow-sm hover:shadow-md"
       >
         {submitting ? (
           <>
@@ -413,7 +413,7 @@ export function RF3Panel() {
         <button
           onClick={handleCalculateRMSD}
           disabled={calculatingRmsd}
-          className="w-full py-3 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-medium flex items-center justify-center gap-2 transition-all text-sm"
+          className="w-full py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-primary-foreground rounded-xl font-medium flex items-center justify-center gap-2 transition-all text-sm"
         >
           {calculatingRmsd ? (
             <>

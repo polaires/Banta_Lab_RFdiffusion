@@ -7,7 +7,11 @@ import {
   Check,
   Circle,
   RefreshCw,
-  FlaskConical
+  FlaskConical,
+  Wifi,
+  WifiOff,
+  User,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -41,6 +45,18 @@ interface SidebarProps {
   onNewDesign: () => void;
   onHistoryClick: (id: string) => void;
   onSettingsClick: () => void;
+  // Connection & user props (previously in header)
+  connectionStatus?: 'connected' | 'disconnected' | 'connecting';
+  onConnectionClick?: () => void;
+  userName?: string;
+  onUserClick?: () => void;
+}
+
+interface WorkflowStepItemProps {
+  step: WorkflowStep;
+  isActive: boolean;
+  manualMode: boolean;
+  onClick: () => void;
 }
 
 export function Sidebar({
@@ -53,18 +69,33 @@ export function Sidebar({
   onNewDesign,
   onHistoryClick,
   onSettingsClick,
+  connectionStatus = 'disconnected',
+  onConnectionClick,
+  userName,
+  onUserClick,
 }: SidebarProps) {
   return (
     <TooltipProvider>
       <div className="h-full flex flex-col">
-        {/* Logo */}
-        <div className="p-4 border-b border-sidebar-border">
-          <div className="flex items-center gap-2">
-            <FlaskConical className="h-6 w-6 text-primary" />
-            <div>
-              <div className="font-semibold text-sm">Banta Lab</div>
-              <div className="text-xs text-muted-foreground">RFdiffusion</div>
+        {/* Logo + User */}
+        <div className="p-3 border-b border-sidebar-border">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <FlaskConical className="h-5 w-5 text-primary" />
+              <div>
+                <div className="font-semibold text-sm leading-tight">Banta Lab</div>
+                <div className="text-[10px] text-muted-foreground">RFdiffusion</div>
+              </div>
             </div>
+            {/* User menu */}
+            <button
+              onClick={onUserClick}
+              className="p-1 rounded-md hover:bg-sidebar-accent transition-colors"
+            >
+              <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center">
+                <User className="h-3.5 w-3.5 text-primary-foreground" />
+              </div>
+            </button>
           </div>
         </div>
 
@@ -89,6 +120,7 @@ export function Sidebar({
                 key={step.id}
                 step={step}
                 isActive={currentStage === step.id}
+                manualMode={manualMode}
                 onClick={() => onStageClick(step.id)}
               />
             ))}
@@ -122,7 +154,31 @@ export function Sidebar({
         <Separator />
 
         {/* Bottom Actions */}
-        <div className="p-3 space-y-2">
+        <div className="p-3 space-y-1">
+          {/* Connection Status */}
+          <button
+            onClick={onConnectionClick}
+            className={cn(
+              'w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors',
+              'hover:bg-sidebar-accent'
+            )}
+          >
+            {connectionStatus === 'connected' ? (
+              <Wifi className="h-4 w-4 text-green-600" />
+            ) : connectionStatus === 'connecting' ? (
+              <Wifi className="h-4 w-4 text-amber-500 animate-pulse" />
+            ) : (
+              <WifiOff className="h-4 w-4 text-destructive" />
+            )}
+            <span className={cn(
+              'flex-1 text-left',
+              connectionStatus === 'connected' ? 'text-foreground' : 'text-muted-foreground'
+            )}>
+              {connectionStatus === 'connected' ? 'Connected' :
+               connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
+            </span>
+          </button>
+
           <button
             onClick={onSettingsClick}
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-sidebar-accent"
@@ -130,6 +186,8 @@ export function Sidebar({
             <Settings className="h-4 w-4" />
             Settings
           </button>
+
+          <Separator className="my-2" />
 
           <div className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">
             <Command className="h-3.5 w-3.5" />
@@ -153,13 +211,11 @@ export function Sidebar({
 function WorkflowStepItem({
   step,
   isActive,
+  manualMode,
   onClick,
-}: {
-  step: WorkflowStep;
-  isActive: boolean;
-  onClick: () => void;
-}) {
-  const isClickable = step.status !== 'pending';
+}: WorkflowStepItemProps) {
+  // In manual mode, all steps are clickable. Otherwise, only completed/active steps are clickable.
+  const isClickable = manualMode || step.status !== 'pending';
 
   const content = (
     <button
@@ -193,7 +249,7 @@ function WorkflowStepItem({
       <Tooltip>
         <TooltipTrigger asChild>{content}</TooltipTrigger>
         <TooltipContent side="right">
-          <p>Complete previous stage first</p>
+          <p>Complete previous stage first, or enable Manual Mode</p>
         </TooltipContent>
       </Tooltip>
     );

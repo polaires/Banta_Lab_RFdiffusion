@@ -256,13 +256,13 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-        <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <FlaskConical className="w-5 h-5 text-slate-600" />
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
+        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+          <FlaskConical className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Small Molecule Binder Design</h2>
-          <p className="text-sm text-slate-500">Design a protein with a binding pocket for a ligand</p>
+          <h2 className="font-semibold text-foreground">Small Molecule Binder Design</h2>
+          <p className="text-sm text-muted-foreground">Design a protein with a binding pocket for a ligand</p>
         </div>
       </div>
 
@@ -287,8 +287,8 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
 
           {/* Detected ligands - inline */}
           {detectedLigands.length > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200">
-              <span className="text-xs text-slate-500 font-medium whitespace-nowrap">Detected:</span>
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 border border-border">
+              <span className="text-xs text-muted-foreground font-medium whitespace-nowrap">Detected:</span>
               <div className="flex flex-wrap gap-1.5">
                 {detectedLigands.map((lig) => (
                   <button
@@ -299,8 +299,8 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
                     }}
                     className={`px-2 py-0.5 text-xs rounded font-mono font-medium transition-all ${
                       (replaceLigand ? sourceLigand : ligandCode) === lig
-                        ? 'bg-slate-700 text-white'
-                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-300'
+                        ? 'bg-foreground text-white'
+                        : 'bg-card text-muted-foreground hover:bg-muted border border-border'
                     }`}
                   >
                     {lig}
@@ -322,9 +322,9 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
                     setSourceLigand(detectedLigands[0]);
                   }
                 }}
-                className="w-4 h-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500"
+                className="w-4 h-4 rounded border-border text-foreground focus:ring-primary"
               />
-              <span className="text-sm text-slate-600 group-hover:text-slate-900">
+              <span className="text-sm text-muted-foreground group-hover:text-foreground">
                 Replace ligand in PDB (e.g., Ca → Gd)
               </span>
             </label>
@@ -332,13 +332,13 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
 
           {/* Replacement controls - show when enabled */}
           {replaceLigand && (
-            <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200">
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-muted/50 border border-border">
               <div>
-                <label className="text-xs text-slate-500 font-medium">Source</label>
+                <label className="text-xs text-muted-foreground font-medium">Source</label>
                 <select
                   value={sourceLigand}
                   onChange={(e) => setSourceLigand(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none bg-white font-mono text-sm"
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none bg-card font-mono text-sm"
                 >
                   <option value="">Select...</option>
                   {detectedLigands.map((lig) => (
@@ -347,14 +347,14 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-500 font-medium">Target</label>
+                <label className="text-xs text-muted-foreground font-medium">Target</label>
                 <input
                   type="text"
                   value={targetLigand}
                   onChange={(e) => setTargetLigand(e.target.value.toUpperCase())}
                   placeholder="GD, LA, EU..."
                   maxLength={4}
-                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none font-mono text-sm uppercase"
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none font-mono text-sm uppercase"
                 />
               </div>
             </div>
@@ -366,9 +366,9 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
               type="checkbox"
               checked={useTemplateRefinement}
               onChange={(e) => setUseTemplateRefinement(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-slate-700 focus:ring-slate-500"
+              className="w-4 h-4 rounded border-border text-foreground focus:ring-primary"
             />
-            <span className="text-sm text-slate-600 group-hover:text-slate-900">
+            <span className="text-sm text-muted-foreground group-hover:text-foreground">
               Refine from template (partial diffusion)
             </span>
             {useTemplateRefinement && (
@@ -378,7 +378,7 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
                 onChange={(e) => setPartialT(e.target.value)}
                 min={1}
                 max={50}
-                className="w-16 px-2 py-1 rounded border border-slate-200 text-sm text-center"
+                className="w-16 px-2 py-1 rounded border border-border text-sm text-center"
                 title="Noise level (lower = more similar to input)"
               />
             )}
@@ -397,11 +397,11 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
             <div className="grid grid-cols-2 gap-3">
               {/* Dropdown with grouped options */}
               <div>
-                <label className="text-xs text-slate-500 font-medium">Common Ligands</label>
+                <label className="text-xs text-muted-foreground font-medium">Common Ligands</label>
                 <select
                   value={ligandCode}
                   onChange={(e) => setLigandCode(e.target.value)}
-                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none bg-white text-sm"
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none bg-card text-sm"
                 >
                   <option value="">Select ligand...</option>
                   {Object.entries(ligandsByCategory).map(([category, ligands]) => (
@@ -418,28 +418,28 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
 
               {/* Custom code input */}
               <div>
-                <label className="text-xs text-slate-500 font-medium">Or enter code</label>
+                <label className="text-xs text-muted-foreground font-medium">Or enter code</label>
                 <input
                   type="text"
                   value={ligandCode}
                   onChange={(e) => setLigandCode(e.target.value.toUpperCase())}
                   placeholder="e.g., ATP"
                   maxLength={4}
-                  className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono uppercase"
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono uppercase"
                 />
               </div>
             </div>
           )}
 
           {replaceLigand && sourceLigand && targetLigand && (
-            <div className="text-sm text-slate-600">
-              Using <code className="font-mono bg-slate-100 px-1.5 py-0.5 rounded">{targetLigand}</code> (replacing {sourceLigand})
+            <div className="text-sm text-muted-foreground">
+              Using <code className="font-mono bg-muted px-1.5 py-0.5 rounded">{targetLigand}</code> (replacing {sourceLigand})
             </div>
           )}
 
           {/* Metal hint - inline */}
           {isMetal && (
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-muted-foreground">
               For proper coordination, use a template PDB with Asp/Glu residues and enable refinement mode above.
             </p>
           )}
@@ -457,7 +457,7 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
                     type="text"
                     value="(from template)"
                     disabled
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-muted text-muted-foreground cursor-not-allowed text-sm"
                   />
                 </FormField>
               </div>
@@ -479,7 +479,7 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
                 onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
                 min={1}
                 max={10}
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+                className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
               />
             </FormField>
           </div>
@@ -497,23 +497,23 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
       <AdvancedOptionsWrapper title="Advanced Options">
         {/* RASA Conditioning */}
         <div className="space-y-3">
-          <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Binding Pocket (RASA)</p>
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Binding Pocket (RASA)</p>
 
           <label className="flex items-center gap-3 cursor-pointer">
             <input
               type="checkbox"
               checked={useBuried}
               onChange={(e) => setUseBuried(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-slate-700"
+              className="w-4 h-4 rounded border-border text-foreground"
             />
-            <span className="text-sm text-slate-600">Buried atoms</span>
+            <span className="text-sm text-muted-foreground">Buried atoms</span>
             {useBuried && (
               <input
                 type="text"
                 value={buriedAtoms}
                 onChange={(e) => setBuriedAtoms(e.target.value)}
                 placeholder="ALL or atom names"
-                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono"
+                className="flex-1 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono"
               />
             )}
           </label>
@@ -523,16 +523,16 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
               type="checkbox"
               checked={useExposed}
               onChange={(e) => setUseExposed(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-slate-700"
+              className="w-4 h-4 rounded border-border text-foreground"
             />
-            <span className="text-sm text-slate-600">Exposed atoms</span>
+            <span className="text-sm text-muted-foreground">Exposed atoms</span>
             {useExposed && (
               <input
                 type="text"
                 value={exposedAtoms}
                 onChange={(e) => setExposedAtoms(e.target.value)}
                 placeholder="ALL or atom names"
-                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono"
+                className="flex-1 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono"
               />
             )}
           </label>
@@ -542,16 +542,16 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
               type="checkbox"
               checked={usePartiallyBuried}
               onChange={(e) => setUsePartiallyBuried(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-slate-700"
+              className="w-4 h-4 rounded border-border text-foreground"
             />
-            <span className="text-sm text-slate-600">Partially buried</span>
+            <span className="text-sm text-muted-foreground">Partially buried</span>
             {usePartiallyBuried && (
               <input
                 type="text"
                 value={partiallyBuriedAtoms}
                 onChange={(e) => setPartiallyBuriedAtoms(e.target.value)}
                 placeholder="Atom names"
-                className="flex-1 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono"
+                className="flex-1 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono"
               />
             )}
           </label>
@@ -559,11 +559,11 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
 
         {/* Fixed Atoms */}
         <div className="space-y-2">
-          <p className="text-xs text-slate-500 font-medium uppercase tracking-wider">Fixed Atoms</p>
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Fixed Atoms</p>
           <select
             value={fixedAtomSelection}
             onChange={(e) => setFixedAtomSelection(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm"
+            className="w-full px-3 py-2 rounded-lg border border-border bg-card text-sm"
           >
             {ATOM_SELECTION_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -580,9 +580,9 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
               type="checkbox"
               checked={useUnindex}
               onChange={(e) => setUseUnindex(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-slate-700"
+              className="w-4 h-4 rounded border-border text-foreground"
             />
-            <span className="text-sm text-slate-600">Coordinating residues (unindex)</span>
+            <span className="text-sm text-muted-foreground">Coordinating residues (unindex)</span>
           </label>
           {useUnindex && (
             <input
@@ -590,7 +590,7 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
               value={unindexResidues}
               onChange={(e) => setUnindexResidues(e.target.value)}
               placeholder="e.g., A10,A15,A20"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm font-mono"
+              className="w-full px-3 py-2 rounded-lg border border-border text-sm font-mono"
             />
           )}
         </div>
@@ -602,43 +602,43 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
               type="checkbox"
               checked={useCovalentBond}
               onChange={(e) => setUseCovalentBond(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-slate-700"
+              className="w-4 h-4 rounded border-border text-foreground"
             />
-            <span className="text-sm text-slate-600">Covalent bond (for covalent inhibitors)</span>
+            <span className="text-sm text-muted-foreground">Covalent bond (for covalent inhibitors)</span>
           </label>
           {useCovalentBond && (
-            <div className="grid grid-cols-3 gap-2 p-3 rounded-lg bg-slate-50 border border-slate-200">
+            <div className="grid grid-cols-3 gap-2 p-3 rounded-lg bg-muted/50 border border-border">
               <div>
-                <label className="text-xs text-slate-500">Protein residue</label>
+                <label className="text-xs text-muted-foreground">Protein residue</label>
                 <input
                   type="text"
                   value={covalentProteinRes}
                   onChange={(e) => setCovalentProteinRes(e.target.value.toUpperCase())}
                   placeholder="A145"
-                  className="mt-1 w-full px-2 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                  className="mt-1 w-full px-2 py-1.5 rounded border border-border text-sm font-mono"
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-500">Protein atom</label>
+                <label className="text-xs text-muted-foreground">Protein atom</label>
                 <input
                   type="text"
                   value={covalentProteinAtom}
                   onChange={(e) => setCovalentProteinAtom(e.target.value.toUpperCase())}
                   placeholder="SG"
-                  className="mt-1 w-full px-2 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                  className="mt-1 w-full px-2 py-1.5 rounded border border-border text-sm font-mono"
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-500">Ligand atom</label>
+                <label className="text-xs text-muted-foreground">Ligand atom</label>
                 <input
                   type="text"
                   value={covalentLigandAtom}
                   onChange={(e) => setCovalentLigandAtom(e.target.value.toUpperCase())}
                   placeholder="C1"
-                  className="mt-1 w-full px-2 py-1.5 rounded border border-slate-200 text-sm font-mono"
+                  className="mt-1 w-full px-2 py-1.5 rounded border border-border text-sm font-mono"
                 />
               </div>
-              <p className="col-span-3 text-xs text-slate-500 mt-1">
+              <p className="col-span-3 text-xs text-muted-foreground mt-1">
                 Common: CYS-SG for warhead attachment (e.g., A145 SG → ligand C1)
               </p>
             </div>
@@ -652,33 +652,33 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
               type="checkbox"
               checked={isNonLoopy}
               onChange={(e) => setIsNonLoopy(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-slate-700"
+              className="w-4 h-4 rounded border-border text-foreground"
             />
-            <span className="text-sm text-slate-600">Non-loopy mode</span>
+            <span className="text-sm text-muted-foreground">Non-loopy mode</span>
           </label>
 
           <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-600">Seed:</span>
+            <span className="text-sm text-muted-foreground">Seed:</span>
             <input
               type="number"
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Random"
-              className="w-24 px-2 py-1 rounded border border-slate-200 text-sm"
+              className="w-24 px-2 py-1 rounded border border-border text-sm"
             />
           </div>
         </div>
       </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-border">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
           className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
-              ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
-              : 'bg-slate-300 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'
+              : 'bg-muted cursor-not-allowed'
           }`}
         >
           {isSubmitting ? (
@@ -694,7 +694,7 @@ export function SmallMoleculeForm({ onSubmit, isSubmitting, health }: TaskFormPr
           )}
         </button>
         {!health && (
-          <p className="text-center text-sm text-slate-500 mt-2">
+          <p className="text-center text-sm text-muted-foreground mt-2">
             Backend service unavailable
           </p>
         )}

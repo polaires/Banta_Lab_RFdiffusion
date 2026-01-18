@@ -19,19 +19,19 @@ export function AdvancedOptionsWrapper({
   const [expanded, setExpanded] = useState(defaultExpanded);
 
   return (
-    <div className={`border border-slate-200 rounded-xl overflow-hidden ${className}`}>
+    <div className={`border border-border rounded-xl overflow-hidden ${className}`}>
       {/* Toggle header */}
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 hover:bg-slate-100 transition-colors"
+        className="w-full px-4 py-3 flex items-center justify-between bg-muted hover:bg-muted/80 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <SlidersHorizontal className="h-5 w-5 text-slate-500" />
-          <span className="text-sm font-medium text-slate-700">{title}</span>
+          <SlidersHorizontal className="h-5 w-5 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">{title}</span>
         </div>
         <ChevronDown
-          className={`h-5 w-5 text-slate-400 transition-transform duration-200 ${
+          className={`h-5 w-5 text-muted-foreground transition-transform duration-200 ${
             expanded ? 'rotate-180' : ''
           }`}
         />
@@ -44,7 +44,7 @@ export function AdvancedOptionsWrapper({
         }`}
       >
         <div className="overflow-hidden">
-          <div className="px-4 py-4 space-y-4 border-t border-slate-100">
+          <div className="px-4 py-4 space-y-4 border-t border-border">
             {children}
           </div>
         </div>

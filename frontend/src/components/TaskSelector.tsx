@@ -96,10 +96,10 @@ export function TaskSelector({ onTaskSelect }: TaskSelectorProps) {
     <div className="space-y-6">
       {/* Header */}
       <div className="text-center pb-4">
-        <h2 className="text-lg font-bold text-slate-900 mb-2">
+        <h2 className="text-lg font-bold text-foreground mb-2">
           What would you like to design?
         </h2>
-        <p className="text-slate-500 text-sm">
+        <p className="text-muted-foreground text-sm">
           Select a design task to see relevant options and recommended settings
         </p>
       </div>
@@ -110,21 +110,21 @@ export function TaskSelector({ onTaskSelect }: TaskSelectorProps) {
           <button
             key={task.id}
             onClick={() => onTaskSelect(task.id)}
-            className="group p-4 rounded-lg border border-slate-200 bg-white
-                       text-left transition-all hover:border-blue-400 hover:shadow-md
-                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="group p-4 rounded-lg border border-border bg-card
+                       text-left transition-all hover:border-primary hover:shadow-md
+                       focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ring"
           >
             {/* Icon and Title */}
             <div className="flex items-start gap-3 mb-2">
-              <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center
-                             group-hover:bg-blue-600 transition-colors flex-shrink-0">
-                <task.Icon className="h-5 w-5 text-slate-600 group-hover:text-white transition-colors" />
+              <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center
+                             group-hover:bg-primary transition-colors flex-shrink-0">
+                <task.Icon className="h-5 w-5 text-muted-foreground group-hover:text-primary-foreground transition-colors" />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-slate-900 text-sm group-hover:text-blue-700 transition-colors">
+                <h3 className="font-semibold text-foreground text-sm group-hover:text-primary transition-colors">
                   {task.name}
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
                   {task.description}
                 </p>
               </div>
@@ -135,7 +135,7 @@ export function TaskSelector({ onTaskSelect }: TaskSelectorProps) {
               {task.requirements.map((req) => (
                 <span
                   key={req}
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium"
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium"
                 >
                   {req}
                 </span>
@@ -147,11 +147,11 @@ export function TaskSelector({ onTaskSelect }: TaskSelectorProps) {
 
       {/* Help Text */}
       <div className="text-center pt-2">
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-muted-foreground">
           Not sure which to choose? Start with{' '}
           <button
             onClick={() => onTaskSelect('denovo')}
-            className="text-blue-600 hover:underline font-medium"
+            className="text-primary hover:underline font-medium"
           >
             De Novo Protein
           </button>{' '}

@@ -192,21 +192,21 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-        <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <Beaker className="w-5 h-5 text-slate-600" />
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
+        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+          <Beaker className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Enzyme Scaffold Design</h2>
-          <p className="text-sm text-slate-500">Build a protein scaffold around an active site (theozyme)</p>
+          <h2 className="font-semibold text-foreground">Enzyme Scaffold Design</h2>
+          <p className="text-sm text-muted-foreground">Build a protein scaffold around an active site (theozyme)</p>
         </div>
       </div>
 
       {/* Info Banner */}
-      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+      <div className="p-4 rounded-xl bg-muted/50 border border-border">
         <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-slate-700">
+          <Info className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-foreground">
             <strong>Theozyme scaffolding:</strong> Your PDB should contain the active site model
             with catalytic residues and substrate/ligand. The model will design a protein scaffold
             that positions these elements correctly for catalysis.
@@ -245,7 +245,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
             value={ligandCodes}
             onChange={(e) => setLigandCodes(e.target.value.toUpperCase())}
             placeholder="SUB,NAD,MG"
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono uppercase"
+            className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all font-mono uppercase"
           />
         </FormField>
       </FormSection>
@@ -263,11 +263,11 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               {catalyticResidues.map((res, i) => (
                 <div
                   key={`${res.chain}-${res.residue}`}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium"
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-muted text-foreground text-sm font-medium"
                 >
                   <span>
                     {res.chain}:{res.residue}
-                    {res.name && <span className="text-slate-600 ml-1">({res.name})</span>}
+                    {res.name && <span className="text-muted-foreground ml-1">({res.name})</span>}
                   </span>
                   <button
                     onClick={() => removeCatalyticResidue(i)}
@@ -288,7 +288,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               onChange={(e) => setNewCatChain(e.target.value.toUpperCase())}
               placeholder="Chain"
               maxLength={1}
-              className="w-20 px-3 py-2 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-center"
+              className="w-20 px-3 py-2 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-center"
             />
             <input
               type="number"
@@ -296,7 +296,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               onChange={(e) => setNewCatResidue(e.target.value)}
               placeholder="Residue #"
               onKeyDown={(e) => e.key === 'Enter' && addCatalyticResidue()}
-              className="w-28 px-3 py-2 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              className="w-28 px-3 py-2 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
             />
             <input
               type="text"
@@ -304,15 +304,15 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               onChange={(e) => setNewCatName(e.target.value.toUpperCase())}
               placeholder="Name (opt)"
               maxLength={3}
-              className="w-24 px-3 py-2 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono"
+              className="w-24 px-3 py-2 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all font-mono"
             />
             <button
               onClick={addCatalyticResidue}
               disabled={!newCatResidue}
               className={`px-4 py-2 rounded-xl font-medium transition-all ${
                 newCatResidue
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                  ? 'bg-primary text-white hover:bg-primary/90'
+                  : 'bg-muted text-muted-foreground cursor-not-allowed'
               }`}
             >
               Add
@@ -327,7 +327,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
           )}
 
           {/* Info about unindex */}
-          <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-600">
+          <div className="p-3 rounded-xl bg-muted/50 border border-border text-sm text-muted-foreground">
             <strong>Note:</strong> "Unindex" means the exact positions of these residues are not
             fixed — the model will determine their optimal placement within the scaffold.
           </div>
@@ -351,12 +351,12 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               onClick={() => setFixedAtomType(opt.value)}
               className={`p-3 rounded-xl border-2 text-left transition-all ${
                 fixedAtomType === opt.value
-                  ? 'border-blue-400 bg-blue-50'
-                  : 'border-slate-200 hover:border-slate-300'
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:border-border'
               }`}
             >
-              <div className="font-medium text-sm text-slate-900">{opt.label}</div>
-              <div className="text-xs text-slate-500 mt-0.5">{opt.desc}</div>
+              <div className="font-medium text-sm text-foreground">{opt.label}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{opt.desc}</div>
             </button>
           ))}
         </div>
@@ -369,38 +369,38 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
       >
         <div className="space-y-4">
           {/* Toggle to show/hide covalent section */}
-          <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+          <label className="flex items-center gap-3 p-3 rounded-xl bg-muted/50 hover:bg-muted cursor-pointer transition-colors">
             <input
               type="checkbox"
               checked={showCovalentSection}
               onChange={(e) => setShowCovalentSection(e.target.checked)}
-              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
             />
             <div>
-              <div className="font-medium text-sm text-slate-900">Add Covalent Bonds</div>
-              <div className="text-xs text-slate-500">
+              <div className="font-medium text-sm text-foreground">Add Covalent Bonds</div>
+              <div className="text-xs text-muted-foreground">
                 For covalent inhibitors, suicide substrates, or covalently-linked cofactors
               </div>
             </div>
           </label>
 
           {showCovalentSection && (
-            <div className="space-y-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div className="space-y-4 p-4 rounded-xl bg-muted/50 border border-border">
               {/* Existing covalent bonds */}
               {covalentBonds.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-sm font-medium text-slate-700">Defined Bonds:</div>
+                  <div className="text-sm font-medium text-foreground">Defined Bonds:</div>
                   {covalentBonds.map((bond, i) => (
                     <div
                       key={i}
-                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-white border border-slate-200"
+                      className="flex items-center justify-between px-3 py-2 rounded-lg bg-card border border-border"
                     >
-                      <code className="text-sm font-mono text-slate-700">
+                      <code className="text-sm font-mono text-foreground">
                         {formatBondString(bond)}
                       </code>
                       <button
                         onClick={() => removeCovalentBond(i)}
-                        className="text-slate-400 hover:text-red-600 transition-colors"
+                        className="text-muted-foreground hover:text-red-600 transition-colors"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -411,11 +411,11 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
               {/* Add new covalent bond form */}
               <div className="space-y-3">
-                <div className="text-sm font-medium text-slate-700">Add New Bond:</div>
+                <div className="text-sm font-medium text-foreground">Add New Bond:</div>
 
                 {/* Protein side */}
-                <div className="p-3 rounded-lg bg-white border border-slate-200">
-                  <div className="text-xs font-medium text-slate-500 mb-2">Protein Residue</div>
+                <div className="p-3 rounded-lg bg-card border border-border">
+                  <div className="text-xs font-medium text-muted-foreground mb-2">Protein Residue</div>
                   <div className="flex gap-2 flex-wrap">
                     <input
                       type="text"
@@ -423,7 +423,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                       onChange={(e) => setNewBond({ ...newBond, proteinChain: e.target.value.toUpperCase() })}
                       placeholder="Chain"
                       maxLength={1}
-                      className="w-16 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm text-center"
+                      className="w-16 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm text-center"
                     />
                     <input
                       type="text"
@@ -431,14 +431,14 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                       onChange={(e) => setNewBond({ ...newBond, proteinResName: e.target.value.toUpperCase() })}
                       placeholder="ResName (e.g., CYS)"
                       maxLength={3}
-                      className="w-28 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono"
+                      className="w-28 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono"
                     />
                     <input
                       type="number"
                       value={newBond.proteinRes || ''}
                       onChange={(e) => setNewBond({ ...newBond, proteinRes: parseInt(e.target.value) || 0 })}
                       placeholder="ResNum"
-                      className="w-20 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm"
+                      className="w-20 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
                     />
                     <input
                       type="text"
@@ -446,14 +446,14 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                       onChange={(e) => setNewBond({ ...newBond, proteinAtom: e.target.value.toUpperCase() })}
                       placeholder="Atom (e.g., SG)"
                       maxLength={4}
-                      className="w-24 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono"
+                      className="w-24 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono"
                     />
                   </div>
                 </div>
 
                 {/* Ligand side */}
-                <div className="p-3 rounded-lg bg-white border border-slate-200">
-                  <div className="text-xs font-medium text-slate-500 mb-2">Ligand Atom</div>
+                <div className="p-3 rounded-lg bg-card border border-border">
+                  <div className="text-xs font-medium text-muted-foreground mb-2">Ligand Atom</div>
                   <div className="flex gap-2 flex-wrap">
                     <input
                       type="text"
@@ -461,21 +461,21 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                       onChange={(e) => setNewBond({ ...newBond, ligandChain: e.target.value.toUpperCase() })}
                       placeholder="Chain (opt)"
                       maxLength={1}
-                      className="w-20 px-2 py-1.5 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none text-sm text-center"
+                      className="w-20 px-2 py-1.5 rounded-lg border border-border focus:border-primary focus:ring-1 focus:ring-ring/20 outline-none text-sm text-center"
                     />
                     <input
                       type="text"
                       value={newBond.ligandResName}
                       onChange={(e) => setNewBond({ ...newBond, ligandResName: e.target.value.toUpperCase() })}
                       placeholder="LigandName (e.g., LIG)"
-                      className="w-32 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono"
+                      className="w-32 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono"
                     />
                     <input
                       type="number"
                       value={newBond.ligandRes || ''}
                       onChange={(e) => setNewBond({ ...newBond, ligandRes: parseInt(e.target.value) || 1 })}
                       placeholder="ResNum"
-                      className="w-20 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm"
+                      className="w-20 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm"
                     />
                     <input
                       type="text"
@@ -483,7 +483,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                       onChange={(e) => setNewBond({ ...newBond, ligandAtom: e.target.value.toUpperCase() })}
                       placeholder="Atom (e.g., C1)"
                       maxLength={4}
-                      className="w-24 px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none text-sm font-mono"
+                      className="w-24 px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none text-sm font-mono"
                     />
                   </div>
                 </div>
@@ -504,8 +504,8 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                     newBond.proteinAtom &&
                     newBond.ligandResName &&
                     newBond.ligandAtom
-                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                      : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                      ? 'bg-primary text-white hover:bg-primary/90'
+                      : 'bg-muted text-muted-foreground cursor-not-allowed'
                   }`}
                 >
                   <span className="flex items-center justify-center gap-2">
@@ -516,7 +516,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               </div>
 
               {/* Help text */}
-              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-700">
+              <div className="p-3 rounded-lg bg-primary/10 border border-primary/30 text-sm text-primary">
                 <strong>Format:</strong> Chain/ResName/ResNum/AtomName (e.g., A/CYS/145/SG for cysteine sulfur)
               </div>
             </div>
@@ -547,7 +547,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               max={10}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </div>
@@ -567,16 +567,16 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
       {/* Structure Options */}
       <FormSection title="Structure Options">
-        <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+        <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors">
           <input
             type="checkbox"
             checked={isNonLoopy}
             onChange={(e) => setIsNonLoopy(e.target.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
           />
           <div>
-            <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
-            <div className="text-xs text-slate-500">
+            <div className="font-medium text-sm text-foreground">Non-loopy Mode</div>
+            <div className="text-xs text-muted-foreground">
               Produces cleaner secondary structures (recommended)
             </div>
           </div>
@@ -592,21 +592,21 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Optional"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </FormRow>
       </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-border">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
           className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
-              ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
-              : 'bg-slate-300 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'
+              : 'bg-muted cursor-not-allowed'
           }`}
         >
           {isSubmitting ? (

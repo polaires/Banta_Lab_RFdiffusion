@@ -254,17 +254,17 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
   };
 
   return (
-    <div className="bg-gradient-to-br from-teal-50 to-emerald-50 rounded-2xl p-6 border border-teal-200 shadow-sm">
+    <div className="bg-muted rounded-2xl p-6 border border-border shadow-sm">
       {/* Progress bar */}
-      <div className="h-1.5 bg-teal-100 rounded-full mb-6 overflow-hidden">
+      <div className="h-1.5 bg-muted-foreground/20 rounded-full mb-6 overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full transition-all duration-500"
+          className="h-full bg-primary rounded-full transition-all duration-500"
           style={{ width: `${progress}%` }}
         />
       </div>
 
       {/* Step indicator */}
-      <div className="flex items-center gap-2 text-teal-600 text-sm mb-4">
+      <div className="flex items-center gap-2 text-primary text-sm mb-4">
         {(() => {
           const IconComponent = STEP_ICONS[step.icon];
           return IconComponent ? <IconComponent className="h-5 w-5" /> : null;
@@ -273,8 +273,8 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
       </div>
 
       {/* Question */}
-      <h3 className="text-xl font-semibold text-slate-900 mb-2">{step.question}</h3>
-      <p className="text-slate-600 text-sm mb-6">{step.description}</p>
+      <h3 className="text-xl font-semibold text-foreground mb-2">{step.question}</h3>
+      <p className="text-muted-foreground text-sm mb-6">{step.description}</p>
 
       {/* Options */}
       <div className="space-y-3 mb-6">
@@ -286,28 +286,28 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
               onClick={() => handleSelect(option.id)}
               className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
                 isSelected
-                  ? 'border-teal-500 bg-teal-50 shadow-sm'
-                  : 'border-slate-200 hover:border-teal-300 hover:bg-teal-50/50'
+                  ? 'border-primary bg-primary/5 shadow-sm'
+                  : 'border-border hover:border-primary/50 hover:bg-muted/50'
               }`}
             >
               <div className="flex items-center justify-between">
                 <div>
-                  <div className={`font-medium ${isSelected ? 'text-teal-900' : 'text-slate-900'}`}>
+                  <div className={`font-medium ${isSelected ? 'text-foreground' : 'text-foreground'}`}>
                     {option.label}
                   </div>
-                  <div className={`text-sm ${isSelected ? 'text-teal-700' : 'text-slate-500'}`}>
+                  <div className={`text-sm ${isSelected ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
                     {option.description}
                   </div>
                   {option.pdbId && (
                     <code className={`text-xs mt-1 inline-block px-2 py-0.5 rounded ${
-                      isSelected ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500'
+                      isSelected ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
                     }`}>
                       PDB: {option.pdbId}
                     </code>
                   )}
                 </div>
                 {isSelected && (
-                  <CheckCircle className="h-6 w-6 text-teal-600" />
+                  <CheckCircle className="h-6 w-6 text-primary" />
                 )}
               </div>
             </button>
@@ -321,7 +321,7 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
           {currentStep > 0 ? (
             <button
               onClick={handleBack}
-              className="text-teal-600 text-sm font-medium hover:text-teal-800 flex items-center gap-1"
+              className="text-primary text-sm font-medium hover:text-primary/80 flex items-center gap-1"
             >
               <ArrowLeft className="h-4 w-4" />
               Back
@@ -329,7 +329,7 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
           ) : onCancel ? (
             <button
               onClick={onCancel}
-              className="text-slate-500 text-sm font-medium hover:text-slate-700"
+              className="text-muted-foreground text-sm font-medium hover:text-foreground"
             >
               Cancel
             </button>
@@ -340,8 +340,8 @@ export function BinderInterviewMode({ onComplete, onCancel }: BinderInterviewMod
           disabled={!selectedOption}
           className={`px-6 py-2.5 rounded-xl font-medium transition-all flex items-center gap-2 ${
             selectedOption
-              ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white hover:from-teal-700 hover:to-emerald-700 shadow-sm'
-              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm'
+              : 'bg-muted text-muted-foreground cursor-not-allowed'
           }`}
         >
           {isLastStep ? 'Review Design' : 'Next'}

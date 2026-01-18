@@ -9,17 +9,17 @@ import { Clock, Loader2, CheckCircle, AlertCircle, Building2, Brain, Type, Histo
 
 // Status display configuration
 const statusConfig: Record<string, { Icon: LucideIcon; color: string; bg: string; label: string; animate?: boolean }> = {
-  pending: { Icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50', label: 'Pending' },
-  running: { Icon: Loader2, color: 'text-blue-500', bg: 'bg-blue-50', label: 'Running', animate: true },
-  completed: { Icon: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-50', label: 'Completed' },
-  failed: { Icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-50', label: 'Failed' },
+  pending: { Icon: Clock, color: 'text-muted-foreground', bg: 'bg-muted', label: 'Pending' },
+  running: { Icon: Loader2, color: 'text-primary', bg: 'bg-primary/10', label: 'Running', animate: true },
+  completed: { Icon: CheckCircle, color: 'text-primary', bg: 'bg-primary/10', label: 'Completed' },
+  failed: { Icon: AlertCircle, color: 'text-destructive', bg: 'bg-destructive/10', label: 'Failed' },
 };
 
 // Type display configuration
 const typeConfig: Record<string, { color: string; label: string; Icon: LucideIcon }> = {
-  rfd3: { color: 'bg-blue-600', label: 'RFD3', Icon: Building2 },
-  rf3: { color: 'bg-emerald-600', label: 'RF3', Icon: Brain },
-  mpnn: { color: 'bg-violet-600', label: 'MPNN', Icon: Type },
+  rfd3: { color: 'bg-primary', label: 'RFD3', Icon: Building2 },
+  rf3: { color: 'bg-primary', label: 'RF3', Icon: Brain },
+  mpnn: { color: 'bg-primary', label: 'MPNN', Icon: Type },
 };
 
 type SortOption = 'date' | 'status' | 'type';
@@ -213,10 +213,10 @@ export function DesignHistoryPanel() {
     return (
       <div className="p-8">
         <div className="text-center py-16">
-          <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
+          <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
+            <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
           </div>
-          <p className="text-slate-500 font-medium">Loading design history...</p>
+          <p className="text-muted-foreground font-medium">Loading design history...</p>
         </div>
       </div>
     );
@@ -225,33 +225,33 @@ export function DesignHistoryPanel() {
   return (
     <div className="p-8 space-y-6">
       {/* Header */}
-      <div className="border-b border-slate-100 pb-6">
+      <div className="border-b border-border pb-6">
         <div className="flex items-center gap-3 mb-2">
-          <History className="w-6 h-6 text-blue-600" />
-          <h2 className="text-xl font-bold text-slate-900">Design History</h2>
+          <History className="w-6 h-6 text-primary" />
+          <h2 className="text-xl font-bold text-foreground">Design History</h2>
         </div>
-        <p className="text-slate-500 text-sm">
+        <p className="text-muted-foreground text-sm">
           All your protein designs in one place. Failed designs are automatically removed after 24 hours.
         </p>
       </div>
 
       {/* Stats Bar */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="bg-slate-50 rounded-xl p-3 text-center">
-          <p className="text-2xl font-bold text-slate-800">{stats.total}</p>
-          <p className="text-xs text-slate-500">Total</p>
+        <div className="bg-muted rounded-xl p-3 text-center">
+          <p className="text-2xl font-bold text-foreground">{stats.total}</p>
+          <p className="text-xs text-muted-foreground">Total</p>
         </div>
-        <div className="bg-emerald-50 rounded-xl p-3 text-center">
-          <p className="text-2xl font-bold text-emerald-600">{stats.completed}</p>
-          <p className="text-xs text-emerald-600">Completed</p>
+        <div className="bg-primary/10 rounded-xl p-3 text-center">
+          <p className="text-2xl font-bold text-primary">{stats.completed}</p>
+          <p className="text-xs text-primary">Completed</p>
         </div>
-        <div className="bg-blue-50 rounded-xl p-3 text-center">
-          <p className="text-2xl font-bold text-blue-600">{stats.running}</p>
-          <p className="text-xs text-blue-600">In Progress</p>
+        <div className="bg-muted rounded-xl p-3 text-center">
+          <p className="text-2xl font-bold text-foreground">{stats.running}</p>
+          <p className="text-xs text-muted-foreground">In Progress</p>
         </div>
-        <div className="bg-red-50 rounded-xl p-3 text-center">
-          <p className="text-2xl font-bold text-red-600">{stats.failed}</p>
-          <p className="text-xs text-red-600">Failed</p>
+        <div className="bg-destructive/10 rounded-xl p-3 text-center">
+          <p className="text-2xl font-bold text-destructive">{stats.failed}</p>
+          <p className="text-xs text-destructive">Failed</p>
         </div>
       </div>
 
@@ -259,13 +259,13 @@ export function DesignHistoryPanel() {
       <div className="flex flex-col sm:flex-row gap-3">
         {/* Search */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by ID or type..."
-            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-ring focus:border-transparent bg-card"
           />
         </div>
 
@@ -273,7 +273,7 @@ export function DesignHistoryPanel() {
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortOption)}
-          className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 border border-border rounded-lg text-sm bg-card focus:ring-2 focus:ring-ring"
         >
           <option value="date">Sort by Date</option>
           <option value="status">Sort by Status</option>
@@ -284,7 +284,7 @@ export function DesignHistoryPanel() {
         <select
           value={filterStatus || ''}
           onChange={(e) => setFilterStatus(e.target.value || null)}
-          className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-2 border border-border rounded-lg text-sm bg-card focus:ring-2 focus:ring-ring"
         >
           <option value="">All Statuses</option>
           <option value="completed">Completed</option>
@@ -297,11 +297,11 @@ export function DesignHistoryPanel() {
       {/* Empty State */}
       {jobs.length === 0 && (
         <div className="text-center py-16">
-          <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
-            <Inbox className="w-8 h-8 text-slate-400" />
+          <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
+            <Inbox className="w-8 h-8 text-muted-foreground" />
           </div>
-          <p className="text-slate-500 font-medium">No designs yet</p>
-          <p className="text-slate-400 text-sm mt-1">Submit a design task to get started</p>
+          <p className="text-foreground font-medium">No designs yet</p>
+          <p className="text-muted-foreground text-sm mt-1">Submit a design task to get started</p>
         </div>
       )}
 
@@ -315,12 +315,12 @@ export function DesignHistoryPanel() {
           >
             <div className="flex items-center gap-2">
               <ChevronDown
-                className={`w-4 h-4 text-slate-400 transition-transform ${
+                className={`w-4 h-4 text-muted-foreground transition-transform ${
                   collapsedGroups.has(group.label) ? '-rotate-90' : ''
                 }`}
               />
-              <span className="text-sm font-semibold text-slate-700">{group.label}</span>
-              <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+              <span className="text-sm font-semibold text-foreground">{group.label}</span>
+              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                 {group.jobs.length}
               </span>
             </div>
@@ -341,7 +341,7 @@ export function DesignHistoryPanel() {
                   <div
                     key={job.id}
                     className={`rounded-xl transition-colors overflow-hidden ${
-                      hasFailed ? 'bg-red-50 border border-red-200' : 'bg-slate-50 hover:bg-slate-100'
+                      hasFailed ? 'bg-destructive/5 border border-destructive/20' : 'bg-muted hover:bg-muted/80'
                     }`}
                   >
                     <div className="flex items-center gap-3 p-3">
@@ -358,10 +358,10 @@ export function DesignHistoryPanel() {
 
                       {/* ID and Time */}
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-mono text-slate-700 truncate" title={job.id}>
+                        <p className="text-sm font-mono text-foreground truncate" title={job.id}>
                           {job.id.slice(0, 12)}...
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           {new Date(job.createdAt).toLocaleTimeString()}
                         </p>
                       </div>
@@ -369,7 +369,7 @@ export function DesignHistoryPanel() {
                       {/* Expiration for failed jobs */}
                       {expiration && (
                         <div className={`text-xs px-2 py-1 rounded-lg flex items-center gap-1 ${
-                          expiration.isExpiringSoon ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
+                          expiration.isExpiringSoon ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
                         }`}>
                           <Timer className="w-3 h-3" />
                           {expiration.remaining}
@@ -386,7 +386,7 @@ export function DesignHistoryPanel() {
                         {job.status === 'completed' && job.result && (
                           <button
                             onClick={() => handleView(job)}
-                            className="p-1.5 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-blue-600"
+                            className="p-1.5 hover:bg-card rounded-lg transition-colors text-muted-foreground hover:text-primary"
                             title="View result"
                           >
                             <Eye className="w-4 h-4" />
@@ -394,7 +394,7 @@ export function DesignHistoryPanel() {
                         )}
                         <button
                           onClick={() => handleDelete(job.id)}
-                          className="p-1.5 hover:bg-white rounded-lg transition-colors text-slate-400 hover:text-red-500"
+                          className="p-1.5 hover:bg-card rounded-lg transition-colors text-muted-foreground hover:text-red-500"
                           title="Delete"
                         >
                           <Trash2 className="w-4 h-4" />

@@ -29,7 +29,7 @@ export function UserMenu() {
   // Loading state
   if (loading) {
     return (
-      <div className="w-8 h-8 rounded-full bg-slate-200 animate-pulse" />
+      <div className="w-8 h-8 rounded-full bg-muted animate-pulse" />
     );
   }
 
@@ -38,7 +38,7 @@ export function UserMenu() {
     return (
       <button
         onClick={signInWithGoogle}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 transition-colors text-sm font-medium text-slate-700"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted hover:bg-muted transition-colors text-sm font-medium text-foreground"
       >
         <svg className="w-4 h-4" viewBox="0 0 24 24">
           <path
@@ -77,7 +77,7 @@ export function UserMenu() {
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 rounded-full hover:ring-2 hover:ring-slate-200 transition-all"
+        className="flex items-center gap-2 rounded-full hover:ring-2 hover:ring-border transition-all"
         title={displayName}
       >
         {avatarUrl ? (
@@ -96,11 +96,11 @@ export function UserMenu() {
 
       {/* Dropdown menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-slate-200 py-2 z-50">
+        <div className="absolute right-0 mt-2 w-56 bg-card rounded-xl shadow-lg border border-border py-2 z-50">
           {/* User info */}
-          <div className="px-4 py-2 border-b border-slate-100">
-            <p className="text-sm font-medium text-slate-900 truncate">{displayName}</p>
-            <p className="text-xs text-slate-500 truncate">{user.email}</p>
+          <div className="px-4 py-2 border-b border-border">
+            <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
+            <p className="text-xs text-muted-foreground truncate">{user.email}</p>
           </div>
 
           {/* Menu items */}
@@ -110,7 +110,7 @@ export function UserMenu() {
                 setIsOpen(false);
                 signOut();
               }}
-              className="w-full px-4 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+              className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-muted/50 flex items-center gap-2"
             >
               <LogOut className="w-4 h-4" />
               Sign out

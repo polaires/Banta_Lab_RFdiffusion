@@ -76,7 +76,7 @@ export function ComparisonView({
 
   // Get RMSD color based on value
   const getRmsdColor = (rmsd: number | null | undefined): string => {
-    if (rmsd === null || rmsd === undefined) return 'text-slate-500';
+    if (rmsd === null || rmsd === undefined) return 'text-muted-foreground';
     if (rmsd < 1.0) return 'text-green-600';
     if (rmsd < 2.0) return 'text-blue-600';
     if (rmsd < 3.0) return 'text-amber-600';
@@ -84,7 +84,7 @@ export function ComparisonView({
   };
 
   const getRmsdBgColor = (rmsd: number | null | undefined): string => {
-    if (rmsd === null || rmsd === undefined) return 'bg-slate-100';
+    if (rmsd === null || rmsd === undefined) return 'bg-muted';
     if (rmsd < 1.0) return 'bg-green-50 border-green-200';
     if (rmsd < 2.0) return 'bg-blue-50 border-blue-200';
     if (rmsd < 3.0) return 'bg-amber-50 border-amber-200';
@@ -98,14 +98,14 @@ export function ComparisonView({
 
   if (!canCompare) {
     return (
-      <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+      <div className="p-4 bg-muted/50 rounded-xl border border-border">
         <div className="flex items-start gap-3">
-          <div className="p-2 rounded-lg bg-slate-100">
-            <GitCompare className="w-5 h-5 text-slate-400" />
+          <div className="p-2 rounded-lg bg-muted">
+            <GitCompare className="w-5 h-5 text-muted-foreground" />
           </div>
           <div>
-            <h3 className="font-medium text-slate-700 text-sm">Structure Comparison</h3>
-            <p className="text-xs text-slate-500 mt-1">
+            <h3 className="font-medium text-foreground text-sm">Structure Comparison</h3>
+            <p className="text-xs text-muted-foreground mt-1">
               {!hasRfd3 && !hasRf3
                 ? 'Run RFD3 design and RF3 prediction to enable comparison'
                 : !hasRfd3
@@ -125,13 +125,13 @@ export function ComparisonView({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <GitCompare className="w-5 h-5 text-violet-600" />
-          <h3 className="font-semibold text-slate-800 text-sm">Structure Comparison</h3>
+          <h3 className="font-semibold text-foreground text-sm">Structure Comparison</h3>
         </div>
 
         {comparisonEnabled && (
           <button
             onClick={handleClearComparison}
-            className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
           >
             <RefreshCw className="w-3 h-3" />
             Reset
@@ -147,49 +147,49 @@ export function ComparisonView({
               <span className={`text-lg font-bold ${getRmsdColor(latestRmsdResult.rmsd)}`}>
                 {latestRmsdResult.rmsd?.toFixed(2)} Å
               </span>
-              <span className="text-xs font-medium text-slate-600">
+              <span className="text-xs font-medium text-muted-foreground">
                 {latestRmsdResult.interpretation}
               </span>
             </div>
             <div className="group relative">
-              <Info className="w-4 h-4 text-slate-400 cursor-help" />
-              <div className="absolute right-0 bottom-6 w-64 p-3 bg-white rounded-lg shadow-lg border border-slate-200 hidden group-hover:block z-10">
-                <p className="text-xs text-slate-600">{latestRmsdResult.description}</p>
+              <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+              <div className="absolute right-0 bottom-6 w-64 p-3 bg-card rounded-lg shadow-lg border border-border hidden group-hover:block z-10">
+                <p className="text-xs text-muted-foreground">{latestRmsdResult.description}</p>
                 <div className="mt-2 space-y-1 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="text-slate-500">&lt; 1.0 Å: Excellent</span>
+                    <span className="text-muted-foreground">&lt; 1.0 Å: Excellent</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-blue-500" />
-                    <span className="text-slate-500">1.0-2.0 Å: Good</span>
+                    <span className="text-muted-foreground">1.0-2.0 Å: Good</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-amber-500" />
-                    <span className="text-slate-500">2.0-3.0 Å: Moderate</span>
+                    <span className="text-muted-foreground">2.0-3.0 Å: Moderate</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-red-500" />
-                    <span className="text-slate-500">&gt; 3.0 Å: Poor</span>
+                    <span className="text-muted-foreground">&gt; 3.0 Å: Poor</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             Backbone RMSD between RFD3 design and RF3 prediction
           </p>
         </div>
       )}
 
       {/* Mode selector */}
-      <div className="flex gap-2 p-1 bg-slate-100 rounded-lg">
+      <div className="flex gap-2 p-1 bg-muted rounded-lg">
         <button
           onClick={() => setComparisonMode('overlay')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-colors ${
             comparisonMode === 'overlay'
-              ? 'bg-white text-violet-700 shadow-sm'
-              : 'text-slate-600 hover:text-slate-800'
+              ? 'bg-card text-violet-700 shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
@@ -199,8 +199,8 @@ export function ComparisonView({
           onClick={() => setComparisonMode('side-by-side')}
           className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium transition-colors ${
             comparisonMode === 'side-by-side'
-              ? 'bg-white text-violet-700 shadow-sm'
-              : 'text-slate-600 hover:text-slate-800'
+              ? 'bg-card text-violet-700 shadow-sm'
+              : 'text-muted-foreground hover:text-foreground'
           }`}
         >
           <SplitSquareHorizontal className="w-3.5 h-3.5" />
@@ -210,7 +210,7 @@ export function ComparisonView({
 
       {/* Structure selection */}
       <div className="space-y-2">
-        <p className="text-xs font-medium text-slate-600">Select reference structure:</p>
+        <p className="text-xs font-medium text-muted-foreground">Select reference structure:</p>
 
         <div className="grid grid-cols-2 gap-2">
           {/* RFD3 Design */}
@@ -220,14 +220,14 @@ export function ComparisonView({
             className={`p-3 rounded-xl border-2 text-left transition-all ${
               selectedReference === 'rfd3'
                 ? 'border-violet-400 bg-violet-50'
-                : 'border-slate-200 hover:border-slate-300'
+                : 'border-border hover:border-border'
             } ${!hasRfd3 ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${selectedReference === 'rfd3' ? 'bg-violet-500' : 'bg-slate-300'}`} />
-              <span className="text-sm font-medium text-slate-800">RFD3 Design</span>
+              <div className={`w-3 h-3 rounded-full ${selectedReference === 'rfd3' ? 'bg-violet-500' : 'bg-muted'}`} />
+              <span className="text-sm font-medium text-foreground">RFD3 Design</span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">Original backbone design</p>
+            <p className="text-xs text-muted-foreground mt-1">Original backbone design</p>
           </button>
 
           {/* RF3 Prediction */}
@@ -237,24 +237,24 @@ export function ComparisonView({
             className={`p-3 rounded-xl border-2 text-left transition-all ${
               selectedReference === 'rf3'
                 ? 'border-emerald-400 bg-emerald-50'
-                : 'border-slate-200 hover:border-slate-300'
+                : 'border-border hover:border-border'
             } ${!hasRf3 ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <div className="flex items-center gap-2">
-              <div className={`w-3 h-3 rounded-full ${selectedReference === 'rf3' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-              <span className="text-sm font-medium text-slate-800">RF3 Prediction</span>
+              <div className={`w-3 h-3 rounded-full ${selectedReference === 'rf3' ? 'bg-emerald-500' : 'bg-muted'}`} />
+              <span className="text-sm font-medium text-foreground">RF3 Prediction</span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">Structure prediction</p>
+            <p className="text-xs text-muted-foreground mt-1">Structure prediction</p>
           </button>
         </div>
       </div>
 
       {/* Overlay controls (when in overlay mode and comparison is active) */}
       {comparisonMode === 'overlay' && comparisonEnabled && (
-        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+        <div className="flex items-center justify-between p-3 bg-muted/50 rounded-xl">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-600">Reference overlay:</span>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs font-medium text-muted-foreground">Reference overlay:</span>
+            <span className="text-xs text-muted-foreground">
               {referenceStructure?.label || 'None'}
             </span>
           </div>
@@ -263,7 +263,7 @@ export function ComparisonView({
             className={`p-2 rounded-lg transition-colors ${
               overlayVisible
                 ? 'bg-violet-100 text-violet-700'
-                : 'bg-slate-200 text-slate-500'
+                : 'bg-muted text-muted-foreground'
             }`}
             title={overlayVisible ? 'Hide reference' : 'Show reference'}
           >
@@ -274,16 +274,16 @@ export function ComparisonView({
 
       {/* Color legend */}
       {comparisonEnabled && (
-        <div className="p-3 bg-slate-50 rounded-xl">
-          <p className="text-xs font-medium text-slate-600 mb-2">Structure colors:</p>
+        <div className="p-3 bg-muted/50 rounded-xl">
+          <p className="text-xs font-medium text-muted-foreground mb-2">Structure colors:</p>
           <div className="flex flex-wrap gap-3">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-violet-500" />
-              <span className="text-xs text-slate-600">RFD3 Design</span>
+              <span className="text-xs text-muted-foreground">RFD3 Design</span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-emerald-500" />
-              <span className="text-xs text-slate-600">RF3 Prediction</span>
+              <span className="text-xs text-muted-foreground">RF3 Prediction</span>
             </div>
           </div>
         </div>

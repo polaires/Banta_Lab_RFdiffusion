@@ -92,13 +92,13 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-        <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <Hexagon className="w-5 h-5 text-slate-600" />
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
+        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+          <Hexagon className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Symmetric Oligomer Design</h2>
-          <p className="text-sm text-slate-500">Design homo-oligomeric proteins (dimers, trimers, etc.)</p>
+          <h2 className="font-semibold text-foreground">Symmetric Oligomer Design</h2>
+          <p className="text-sm text-muted-foreground">Design homo-oligomeric proteins (dimers, trimers, etc.)</p>
         </div>
       </div>
 
@@ -111,7 +111,7 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
         <div className="space-y-4">
           {Object.entries(symmetryByCategory).map(([category, options]) => (
             <div key={category}>
-              <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
                 {category}
               </h4>
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
@@ -121,12 +121,12 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
                     onClick={() => setSymmetry(opt.id)}
                     className={`p-3 rounded-xl border-2 text-center transition-all ${
                       symmetry === opt.id
-                        ? 'border-blue-400 bg-blue-50'
-                        : 'border-slate-200 hover:border-slate-300'
+                        ? 'border-primary bg-primary/10'
+                        : 'border-border hover:border-border'
                     }`}
                   >
-                    <div className="font-bold text-lg text-slate-900">{opt.id}</div>
-                    <div className="text-xs text-slate-500">{opt.subunits} units</div>
+                    <div className="font-bold text-lg text-foreground">{opt.id}</div>
+                    <div className="text-xs text-muted-foreground">{opt.subunits} units</div>
                   </button>
                 ))}
               </div>
@@ -158,22 +158,22 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
               onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               max={10}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </div>
 
         {/* Total size info */}
         <div className={`p-3 rounded-xl border mt-3 ${
-          isHighSymmetry ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'
+          isHighSymmetry ? 'bg-amber-50 border-amber-200' : 'bg-muted/50 border-border'
         }`}>
           <div className="flex items-start gap-2">
             {isHighSymmetry ? (
               <AlertTriangle className={`w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5`} />
             ) : (
-              <Info className={`w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5`} />
+              <Info className={`w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5`} />
             )}
-            <div className={`text-sm ${isHighSymmetry ? 'text-amber-800' : 'text-slate-700'}`}>
+            <div className={`text-sm ${isHighSymmetry ? 'text-amber-800' : 'text-foreground'}`}>
               <strong>{symmetry}</strong> with {estimatedLength} residues/subunit
               = <strong>{totalLength} total residues</strong> ({totalSubunits} subunits)
               {isHighSymmetry && (
@@ -191,23 +191,23 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
         title="Motif Scaffolding (Optional)"
         description="Design symmetric oligomers around an existing motif"
       >
-        <label className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors mb-4">
+        <label className="flex items-center gap-3 p-3 rounded-xl bg-muted/50 hover:bg-muted cursor-pointer transition-colors mb-4">
           <input
             type="checkbox"
             checked={useMotif}
             onChange={(e) => setUseMotif(e.target.checked)}
-            className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
           />
           <div>
-            <div className="font-medium text-sm text-slate-900">Use Motif Scaffolding</div>
-            <div className="text-xs text-slate-500">
+            <div className="font-medium text-sm text-foreground">Use Motif Scaffolding</div>
+            <div className="text-xs text-muted-foreground">
               Build symmetric structure around an existing motif
             </div>
           </div>
         </label>
 
         {useMotif && (
-          <div className="space-y-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="space-y-4 p-4 rounded-xl bg-muted/50 border border-border">
             <PdbUploader
               label="Motif PDB"
               description="PDB containing the motif to scaffold"
@@ -228,7 +228,7 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
                   onChange={(e) => setMotifChain(e.target.value.toUpperCase())}
                   placeholder="A"
                   maxLength={1}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
                 />
               </FormField>
               <FormField label="Motif Residues" hint="e.g., 1-20 or 5,10,15">
@@ -237,22 +237,22 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
                   value={motifResidues}
                   onChange={(e) => setMotifResidues(e.target.value)}
                   placeholder="1-20"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
                 />
               </FormField>
             </FormRow>
 
             <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 rounded-xl bg-white hover:bg-slate-100 cursor-pointer transition-colors">
+              <label className="flex items-center gap-3 p-3 rounded-xl bg-white hover:bg-muted cursor-pointer transition-colors">
                 <input
                   type="checkbox"
                   checked={isSymmetricMotif}
                   onChange={(e) => setIsSymmetricMotif(e.target.checked)}
-                  className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
                 />
                 <div>
-                  <div className="font-medium text-sm text-slate-900">Symmetric Motif</div>
-                  <div className="text-xs text-slate-500">
+                  <div className="font-medium text-sm text-foreground">Symmetric Motif</div>
+                  <div className="text-xs text-muted-foreground">
                     Motif already has the target symmetry
                   </div>
                 </div>
@@ -264,7 +264,7 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
                   value={isUnsymMotif}
                   onChange={(e) => setIsUnsymMotif(e.target.value.toUpperCase())}
                   placeholder="B,C"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
                 />
               </FormField>
             </div>
@@ -286,16 +286,16 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
 
       {/* Structure Options */}
       <FormSection title="Structure Options">
-        <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+        <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors">
           <input
             type="checkbox"
             checked={isNonLoopy}
             onChange={(e) => setIsNonLoopy(e.target.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
           />
           <div>
-            <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
-            <div className="text-xs text-slate-500">
+            <div className="font-medium text-sm text-foreground">Non-loopy Mode</div>
+            <div className="text-xs text-muted-foreground">
               Produces cleaner secondary structures (recommended)
             </div>
           </div>
@@ -311,21 +311,21 @@ export function SymmetricForm({ onSubmit, isSubmitting, health }: TaskFormProps)
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Optional"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </FormRow>
       </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-border">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
           className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
-              ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
-              : 'bg-slate-300 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'
+              : 'bg-muted cursor-not-allowed'
           }`}
         >
           {isSubmitting ? (

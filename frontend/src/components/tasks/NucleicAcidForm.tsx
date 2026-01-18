@@ -118,21 +118,21 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
-        <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center">
-          <Dna className="w-5 h-5 text-slate-600" />
+      <div className="flex items-center gap-3 pb-4 border-b border-border">
+        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+          <Dna className="w-5 h-5 text-muted-foreground" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Nucleic Acid Binder Design</h2>
-          <p className="text-sm text-slate-500">Design a protein that binds DNA or RNA</p>
+          <h2 className="font-semibold text-foreground">Nucleic Acid Binder Design</h2>
+          <p className="text-sm text-muted-foreground">Design a protein that binds DNA or RNA</p>
         </div>
       </div>
 
       {/* Info Banner */}
-      <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+      <div className="p-4 rounded-xl bg-muted/50 border border-border">
         <div className="flex items-start gap-3">
-          <Info className="w-5 h-5 text-slate-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-slate-700">
+          <Info className="w-5 h-5 text-muted-foreground flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-foreground">
             <strong>Requirements:</strong> Your PDB must contain the DNA or RNA structure you want
             to target. The model will design a protein that interacts with the nucleic acid.
           </div>
@@ -173,12 +173,12 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
                 onClick={() => setNaChains(preset.chains)}
                 className={`p-3 rounded-xl border-2 text-left transition-all ${
                   naChains === preset.chains
-                    ? 'border-blue-400 bg-blue-50'
-                    : 'border-slate-200 hover:border-slate-300'
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border hover:border-border'
                 }`}
               >
-                <div className="font-medium text-sm text-slate-900">{preset.label}</div>
-                <div className="text-xs text-slate-500 mt-0.5">{preset.description}</div>
+                <div className="font-medium text-sm text-foreground">{preset.label}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{preset.description}</div>
               </button>
             ))}
           </div>
@@ -189,7 +189,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
               value={naChains}
               onChange={(e) => setNaChains(e.target.value.toUpperCase())}
               placeholder="A,B"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono"
+              className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all font-mono"
             />
           </FormField>
         </div>
@@ -218,7 +218,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
               onChange={(e) => setNumDesigns(Math.max(1, parseInt(e.target.value) || 1))}
               min={1}
               max={10}
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </div>
@@ -230,18 +230,18 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
         description="Position the protein binder relative to the nucleic acid using an origin token"
       >
         <div className={`p-4 rounded-xl border transition-all ${
-          useOriToken ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 border-slate-200'
+          useOriToken ? 'bg-muted/50 border-border' : 'bg-muted/50 border-border'
         }`}>
           <label className="flex items-center gap-3 cursor-pointer mb-4">
             <input
               type="checkbox"
               checked={useOriToken}
               onChange={(e) => setUseOriToken(e.target.checked)}
-              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
             />
             <div>
-              <div className="font-medium text-sm text-slate-900">Use Origin Token</div>
-              <div className="text-xs text-slate-500">
+              <div className="font-medium text-sm text-foreground">Use Origin Token</div>
+              <div className="text-xs text-muted-foreground">
                 Define a 3D position for the binder relative to NA center of mass
               </div>
             </div>
@@ -254,7 +254,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
                   type="number"
                   value={oriTokenX}
                   onChange={(e) => setOriTokenX(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
                 />
               </FormField>
               <FormField label="Y (Å)">
@@ -262,7 +262,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
                   type="number"
                   value={oriTokenY}
                   onChange={(e) => setOriTokenY(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
                 />
               </FormField>
               <FormField label="Z (Å)">
@@ -270,7 +270,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
                   type="number"
                   value={oriTokenZ}
                   onChange={(e) => setOriTokenZ(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all"
                 />
               </FormField>
             </div>
@@ -284,18 +284,18 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
         description="Guide which NA atoms should form H-bonds with the designed protein"
       >
         <div className={`p-4 rounded-xl border transition-all ${
-          useHbonds ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 border-slate-200'
+          useHbonds ? 'bg-muted/50 border-border' : 'bg-muted/50 border-border'
         }`}>
           <label className="flex items-center gap-3 cursor-pointer mb-4">
             <input
               type="checkbox"
               checked={useHbonds}
               onChange={(e) => setUseHbonds(e.target.checked)}
-              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
             />
             <div>
-              <div className="font-medium text-sm text-slate-900">Enable H-bond Conditioning</div>
-              <div className="text-xs text-slate-500">
+              <div className="font-medium text-sm text-foreground">Enable H-bond Conditioning</div>
+              <div className="text-xs text-muted-foreground">
                 Specify which NA atoms should donate/accept H-bonds
               </div>
             </div>
@@ -309,7 +309,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
                   value={hbondDonors}
                   onChange={(e) => setHbondDonors(e.target.value)}
                   placeholder="N1,N3,N6"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono text-sm"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all font-mono text-sm"
                 />
               </FormField>
               <FormField label="H-bond Acceptor Atoms" hint="Atoms that should accept H-bonds (e.g., O2,O4)">
@@ -318,7 +318,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
                   value={hbondAcceptors}
                   onChange={(e) => setHbondAcceptors(e.target.value)}
                   placeholder="O2,O4,O6"
-                  className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono text-sm"
+                  className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all font-mono text-sm"
                 />
               </FormField>
             </div>
@@ -332,18 +332,18 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
         description="Which nucleic acid atoms should stay fixed in space"
       >
         <div className={`p-4 rounded-xl border transition-all ${
-          useFixedAtoms ? 'bg-slate-50 border-slate-200' : 'bg-slate-50 border-slate-200'
+          useFixedAtoms ? 'bg-muted/50 border-border' : 'bg-muted/50 border-border'
         }`}>
           <label className="flex items-center gap-3 cursor-pointer mb-3">
             <input
               type="checkbox"
               checked={useFixedAtoms}
               onChange={(e) => setUseFixedAtoms(e.target.checked)}
-              className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+              className="w-5 h-5 rounded border-border text-primary focus:ring-primary"
             />
             <div>
-              <div className="font-medium text-sm text-slate-900">Specify Fixed Atoms</div>
-              <div className="text-xs text-slate-500">
+              <div className="font-medium text-sm text-foreground">Specify Fixed Atoms</div>
+              <div className="text-xs text-muted-foreground">
                 By default, phosphate backbone is fixed
               </div>
             </div>
@@ -355,7 +355,7 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
               value={fixedAtoms}
               onChange={(e) => setFixedAtoms(e.target.value)}
               placeholder="P,O5',O3' or ALL"
-              className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all font-mono text-sm"
+              className="w-full px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all font-mono text-sm"
             />
           )}
         </div>
@@ -375,16 +375,16 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
 
       {/* Structure Options */}
       <FormSection title="Structure Options">
-        <label className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 hover:bg-slate-100 cursor-pointer transition-colors">
+        <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted cursor-pointer transition-colors">
           <input
             type="checkbox"
             checked={isNonLoopy}
             onChange={(e) => setIsNonLoopy(e.target.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
           />
           <div>
-            <div className="font-medium text-sm text-slate-800">Non-loopy Mode</div>
-            <div className="text-xs text-slate-500">
+            <div className="font-medium text-sm text-foreground">Non-loopy Mode</div>
+            <div className="text-xs text-muted-foreground">
               Produces cleaner secondary structures (recommended)
             </div>
           </div>
@@ -400,21 +400,21 @@ export function NucleicAcidForm({ onSubmit, isSubmitting, health }: TaskFormProp
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               placeholder="Optional"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition-all text-sm"
+              className="w-full px-3 py-2 rounded-lg border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 outline-none transition-all text-sm"
             />
           </FormField>
         </FormRow>
       </AdvancedOptionsWrapper>
 
       {/* Submit Button */}
-      <div className="pt-4 border-t border-slate-200">
+      <div className="pt-4 border-t border-border">
         <button
           onClick={handleSubmit}
           disabled={!isValid || isSubmitting || !health}
           className={`w-full py-3 px-6 rounded-xl font-semibold text-white transition-all flex items-center justify-center gap-2 ${
             isValid && !isSubmitting && !!health
-              ? 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20'
-              : 'bg-slate-300 cursor-not-allowed'
+              ? 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'
+              : 'bg-muted cursor-not-allowed'
           }`}
         >
           {isSubmitting ? (

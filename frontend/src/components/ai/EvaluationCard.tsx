@@ -70,21 +70,21 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
   return (
     <div className={`rounded-xl p-5 border shadow-sm ${
       overallPass
-        ? 'bg-gradient-to-br from-emerald-50 to-green-50 border-emerald-200'
-        : 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200'
+        ? 'bg-green-50 border-green-200'
+        : 'bg-amber-50 border-amber-200'
     }`}>
       {/* Header with score */}
       <div className="flex items-center justify-between mb-4">
-        <h4 className="font-semibold text-slate-900 flex items-center gap-2">
+        <h4 className="font-semibold text-foreground flex items-center gap-2">
           {overallPass
-            ? <BadgeCheck className="h-5 w-5 text-emerald-600" />
+            ? <BadgeCheck className="h-5 w-5 text-green-600" />
             : <Clock className="h-5 w-5 text-amber-600" />
           }
           Design Evaluation
         </h4>
         <span className={`px-3 py-1 rounded-full text-xs font-bold ${
           overallPass
-            ? 'bg-emerald-500 text-white'
+            ? 'bg-green-500 text-white'
             : 'bg-amber-500 text-white'
         }`}>
           {passCount}/{criteria.length} PASS
@@ -103,17 +103,17 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
             <div className="flex items-center gap-3">
               {(() => {
                 const IconComponent = CRITERIA_ICONS[c.icon];
-                return IconComponent ? <IconComponent className={`h-4 w-4 ${c.pass ? 'text-emerald-500' : 'text-amber-500'}`} /> : null;
+                return IconComponent ? <IconComponent className={`h-4 w-4 ${c.pass ? 'text-green-500' : 'text-amber-500'}`} /> : null;
               })()}
               <div>
-                <div className="text-sm font-medium text-slate-800">{c.label}</div>
-                <div className="text-xs text-slate-500">Target: {c.target}</div>
+                <div className="text-sm font-medium text-foreground">{c.label}</div>
+                <div className="text-xs text-muted-foreground">Target: {c.target}</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-sm text-slate-700">{c.value}</span>
+              <span className="font-mono text-sm text-foreground">{c.value}</span>
               {c.pass
-                ? <CheckCircle className="h-5 w-5 text-emerald-500" />
+                ? <CheckCircle className="h-5 w-5 text-green-500" />
                 : <AlertCircle className="h-5 w-5 text-amber-500" />
               }
             </div>
@@ -124,7 +124,7 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
       {/* Overall assessment */}
       <div className={`p-3 rounded-lg text-sm ${
         overallPass
-          ? 'bg-emerald-100 text-emerald-800'
+          ? 'bg-green-100 text-green-800'
           : 'bg-amber-100 text-amber-800'
       }`}>
         <div className="flex items-start gap-2">
@@ -148,11 +148,11 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
       {/* Suggestions if not all pass */}
       {!overallPass && evaluation.suggestions && evaluation.suggestions.length > 0 && (
         <div className="mt-3 p-3 bg-white/60 rounded-lg">
-          <div className="text-xs font-semibold text-slate-600 mb-2 flex items-center gap-1">
+          <div className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1">
             <Lightbulb className="h-4 w-4" />
             Suggestions
           </div>
-          <ul className="text-xs text-slate-600 space-y-1">
+          <ul className="text-xs text-muted-foreground space-y-1">
             {evaluation.suggestions.map((s, i) => (
               <li key={i} className="flex items-start gap-2">
                 <span className="text-amber-500">•</span>

@@ -69,9 +69,9 @@ const ProteinViewer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="w-full h-[300px] bg-slate-100 rounded-lg flex items-center justify-center">
-        <div className="flex items-center gap-2 text-slate-500">
-          <div className="w-5 h-5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+      <div className="w-full h-[300px] bg-muted rounded-lg flex items-center justify-center">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <div className="w-5 h-5 border-2 border-muted-foreground/40 border-t-transparent rounded-full animate-spin" />
           Loading viewer...
         </div>
       </div>
@@ -132,11 +132,11 @@ function AIMessage({
 
   return (
     <div className="flex gap-3">
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-        <Sparkles className="h-4 w-4 text-white" />
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
+        <Sparkles className="h-4 w-4 text-primary-foreground" />
       </div>
       <div className="flex-1 space-y-3">
-        <div className="bg-slate-50 rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+        <div className="bg-muted rounded-2xl rounded-tl-sm px-4 py-3 text-sm text-foreground leading-relaxed whitespace-pre-wrap">
           {displayedText}
           {!isComplete && <span className="animate-pulse">|</span>}
         </div>
@@ -149,11 +149,11 @@ function AIMessage({
 function UserMessage({ content }: { content: string }) {
   return (
     <div className="flex gap-3 justify-end">
-      <div className="bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-[80%]">
+      <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-sm px-4 py-3 text-sm max-w-[80%]">
         {content}
       </div>
-      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-        <User className="h-4 w-4 text-slate-600" />
+      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+        <User className="h-4 w-4 text-muted-foreground" />
       </div>
     </div>
   );
@@ -162,7 +162,7 @@ function UserMessage({ content }: { content: string }) {
 function SystemMessage({ content }: { content: string }) {
   return (
     <div className="flex justify-center">
-      <div className="bg-slate-100 text-slate-600 rounded-full px-4 py-1.5 text-xs flex items-center gap-2">
+      <div className="bg-muted text-muted-foreground rounded-full px-4 py-1.5 text-xs flex items-center gap-2">
         <Info className="h-4 w-4" />
         {content}
       </div>
@@ -183,12 +183,12 @@ function LigandPreferenceSummaryCard({
   isRunning: boolean;
 }) {
   return (
-    <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-6 border border-purple-200 shadow-sm">
+    <div className="bg-muted rounded-2xl p-6 border border-border shadow-sm">
       <div className="flex items-center gap-2 mb-4">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-          <FlaskConical className="h-4 w-4 text-white" />
+        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+          <FlaskConical className="h-4 w-4 text-primary-foreground" />
         </div>
-        <h4 className="font-semibold text-slate-900">Interface Dimer Configuration</h4>
+        <h4 className="font-semibold text-foreground">Interface Dimer Configuration</h4>
       </div>
 
       <div className="space-y-2 mb-6">
@@ -202,14 +202,14 @@ function LigandPreferenceSummaryCard({
         <button
           onClick={onEdit}
           disabled={isRunning}
-          className="flex-1 px-4 py-2.5 text-purple-600 bg-white border border-purple-200 rounded-xl font-medium text-sm hover:bg-purple-50 transition-all disabled:opacity-50"
+          className="flex-1 px-4 py-2.5 text-primary bg-card border border-border rounded-xl font-medium text-sm hover:bg-muted transition-all disabled:opacity-50"
         >
           Edit
         </button>
         <button
           onClick={onConfirm}
           disabled={isRunning}
-          className="flex-1 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-medium text-sm hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          className="flex-1 px-4 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium text-sm hover:bg-primary/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {isRunning ? (
             <>
@@ -241,12 +241,12 @@ function BinderPreferenceSummaryCard({
   isRunning: boolean;
 }) {
   return (
-    <div className="bg-gradient-to-br from-teal-50 to-emerald-50 rounded-2xl p-6 border border-teal-200 shadow-sm">
+    <div className="bg-muted rounded-2xl p-6 border border-border shadow-sm">
       <div className="flex items-center gap-2 mb-4">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center">
-          <Link className="h-4 w-4 text-white" />
+        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+          <Link className="h-4 w-4 text-primary-foreground" />
         </div>
-        <h4 className="font-semibold text-slate-900">Protein Binder Configuration</h4>
+        <h4 className="font-semibold text-foreground">Protein Binder Configuration</h4>
       </div>
 
       <div className="space-y-2 mb-6">
@@ -261,14 +261,14 @@ function BinderPreferenceSummaryCard({
         <button
           onClick={onEdit}
           disabled={isRunning}
-          className="flex-1 px-4 py-2.5 text-teal-600 bg-white border border-teal-200 rounded-xl font-medium text-sm hover:bg-teal-50 transition-all disabled:opacity-50"
+          className="flex-1 px-4 py-2.5 text-primary bg-card border border-border rounded-xl font-medium text-sm hover:bg-muted transition-all disabled:opacity-50"
         >
           Edit
         </button>
         <button
           onClick={onConfirm}
           disabled={isRunning}
-          className="flex-1 px-4 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 text-white rounded-xl font-medium text-sm hover:from-teal-700 hover:to-emerald-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          className="flex-1 px-4 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium text-sm hover:bg-primary/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {isRunning ? (
             <>
@@ -290,9 +290,9 @@ function BinderPreferenceSummaryCard({
 // Shared preference row component
 function PreferenceRow({ label, value, isLast = false }: { label: string; value: string; isLast?: boolean }) {
   return (
-    <div className={`flex justify-between items-center py-2 ${!isLast ? 'border-b border-slate-100' : ''}`}>
-      <span className="text-sm text-slate-600">{label}</span>
-      <span className="font-medium text-slate-900">{value}</span>
+    <div className={`flex justify-between items-center py-2 ${!isLast ? 'border-b border-border' : ''}`}>
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }
@@ -312,11 +312,11 @@ function StructureViewerSection({
   emptyMessage?: string;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-      <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
+      <div className="bg-muted px-4 py-2 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Box className="h-5 w-5 text-purple-600" />
-          <h4 className="font-semibold text-slate-900 text-sm">{title}</h4>
+          <Box className="h-5 w-5 text-primary" />
+          <h4 className="font-semibold text-foreground text-sm">{title}</h4>
           {badge && (
             <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
               {badge}
@@ -329,10 +329,10 @@ function StructureViewerSection({
         {pdbContent ? (
           <ProteinViewer pdbContent={pdbContent} className="h-[350px]" />
         ) : (
-          <div className="h-[350px] bg-gradient-to-br from-slate-100 to-slate-50 flex flex-col items-center justify-center text-slate-500">
-            <Box className="h-10 w-10 mb-2 text-slate-400" />
+          <div className="h-[350px] bg-gradient-to-br from-muted to-background flex flex-col items-center justify-center text-muted-foreground">
+            <Box className="h-10 w-10 mb-2 text-muted-foreground/60" />
             <p className="text-sm font-medium">{emptyMessage || 'No Structure Available'}</p>
-            <p className="text-xs text-slate-400 mt-1">Connect to backend to view actual designs</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">Connect to backend to view actual designs</p>
           </div>
         )}
       </div>
@@ -981,26 +981,26 @@ export function AIDesignAssistantPanel() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-slate-100 pb-6 mb-6">
+      <div className="border-b border-border pb-6 mb-6">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
-            <span className="bg-gradient-to-r from-violet-500 to-purple-600 text-white text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wide flex items-center gap-1.5">
+            <span className="bg-gradient-to-r from-primary to-primary/80 text-primary-foreground text-[11px] font-bold px-3 py-1 rounded-full uppercase tracking-wide flex items-center gap-1.5">
               <Sparkles className="h-4 w-4" />
               Phase 0
             </span>
-            <h2 className="text-xl font-bold text-slate-900">AI Design Assistant</h2>
+            <h2 className="text-xl font-bold text-foreground">AI Design Assistant</h2>
           </div>
           {workflowPhase !== 'idle' && (
             <button
               onClick={handleStartNew}
-              className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1"
+              className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
             >
               <RefreshCw className="h-4 w-4" />
               Start New
             </button>
           )}
         </div>
-        <p className="text-slate-500 text-sm leading-relaxed max-w-3xl pl-1">
+        <p className="text-muted-foreground text-sm leading-relaxed max-w-3xl pl-1">
           {workflowPhase === 'idle'
             ? "Enter a PDB code to begin. I'll analyze the structure and guide you through designing a new metal binding site."
             : "Answer simple questions about your design goals. I'll handle the technical parameters for you."}
@@ -1023,10 +1023,6 @@ export function AIDesignAssistantPanel() {
             description="Convert iron-binding Rubredoxin (1BRF) to bind terbium."
             buttonText="Try 1BRF"
             onClick={handleQuickStart}
-            gradient="from-violet-50 to-purple-50"
-            borderColor="violet-100"
-            iconColor="violet-600"
-            buttonGradient="bg-violet-600 hover:bg-violet-700"
           />
           <QuickStartCard
             icon="science"
@@ -1034,10 +1030,6 @@ export function AIDesignAssistantPanel() {
             description="Design separable dimer with azobenzene at the interface."
             buttonText="Try AZOB"
             onClick={() => { setPdbInput('AZOB'); delay(100).then(handleStructureInput); }}
-            gradient="from-purple-50 to-pink-50"
-            borderColor="purple-200"
-            iconColor="pink-600"
-            buttonGradient="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
           />
           <QuickStartCard
             icon="link"
@@ -1045,10 +1037,6 @@ export function AIDesignAssistantPanel() {
             description="Design high-affinity binders with ESM-3 validation."
             buttonText="Try BIND"
             onClick={() => { setPdbInput('BIND'); delay(100).then(handleStructureInput); }}
-            gradient="from-teal-50 to-emerald-50"
-            borderColor="teal-200"
-            iconColor="teal-600"
-            buttonGradient="bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700"
           />
         </div>
       )}
@@ -1178,7 +1166,7 @@ export function AIDesignAssistantPanel() {
               title="Structure Viewer"
               badge={selectedDesignId ? `Design #${designResults.find(d => d.id === selectedDesignId)?.rank || '?'}` : undefined}
               colorLegend={
-                <div className="flex items-center gap-1 text-xs text-slate-500">
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
                   <span className="w-3 h-3 rounded-full bg-purple-400" />
                   <span>Chain A</span>
                   <span className="ml-2 w-3 h-3 rounded-full bg-cyan-400" />
@@ -1201,7 +1189,7 @@ export function AIDesignAssistantPanel() {
 
             <button
               onClick={handleRetry}
-              className="w-full px-4 py-2.5 text-purple-600 bg-white border border-purple-200 rounded-xl font-medium text-sm hover:bg-purple-50 transition-all flex items-center justify-center gap-2"
+              className="w-full px-4 py-2.5 text-primary bg-card border border-border rounded-xl font-medium text-sm hover:bg-muted transition-all flex items-center justify-center gap-2"
             >
               <RefreshCw className="h-4 w-4" />
               Try Different Settings
@@ -1218,11 +1206,11 @@ export function AIDesignAssistantPanel() {
 
             {/* Design list */}
             {binderDesigns.length > 1 && (
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="bg-gradient-to-r from-teal-50 to-emerald-50 px-4 py-3 border-b border-teal-100">
+              <div className="bg-card rounded-xl border border-border overflow-hidden">
+                <div className="bg-muted px-4 py-3 border-b border-border">
                   <div className="flex items-center gap-2">
-                    <ListOrdered className="h-5 w-5 text-teal-600" />
-                    <h4 className="font-semibold text-slate-900 text-sm">All Designs ({binderDesigns.length})</h4>
+                    <ListOrdered className="h-5 w-5 text-primary" />
+                    <h4 className="font-semibold text-foreground text-sm">All Designs ({binderDesigns.length})</h4>
                   </div>
                 </div>
                 <div className="p-4 space-y-2">
@@ -1232,20 +1220,20 @@ export function AIDesignAssistantPanel() {
                       onClick={() => setSelectedBinderDesign(design)}
                       className={`w-full text-left p-3 rounded-lg border transition-all ${
                         selectedBinderDesign?.rank === design.rank
-                          ? 'border-teal-500 bg-teal-50'
-                          : 'border-slate-200 hover:border-teal-300 hover:bg-teal-50/50'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/50 hover:bg-muted'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                            design.rank === 1 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                            design.rank === 1 ? 'bg-amber-100 text-amber-700' : 'bg-muted text-muted-foreground'
                           }`}>
                             {design.rank}
                           </span>
                           <div>
-                            <div className="text-sm font-medium text-slate-900">Design #{design.rank}</div>
-                            <div className="text-xs text-slate-500">
+                            <div className="text-sm font-medium text-foreground">Design #{design.rank}</div>
+                            <div className="text-xs text-muted-foreground">
                               ESM: {design.esm_confidence ? `${(design.esm_confidence * 100).toFixed(0)}%` : 'N/A'} |
                               Contacts: {design.interface_contacts || 'N/A'} |
                               H-bonds: {design.interface_hbonds || 'N/A'}
@@ -1253,7 +1241,7 @@ export function AIDesignAssistantPanel() {
                           </div>
                         </div>
                         {selectedBinderDesign?.rank === design.rank && (
-                          <CheckCircle className="h-5 w-5 text-teal-600" />
+                          <CheckCircle className="h-5 w-5 text-primary" />
                         )}
                       </div>
                     </button>
@@ -1269,8 +1257,8 @@ export function AIDesignAssistantPanel() {
                 title="Structure Viewer"
                 badge={`Design #${selectedBinderDesign.rank}`}
                 colorLegend={
-                  <div className="flex items-center gap-1 text-xs text-slate-500">
-                    <span className="w-3 h-3 rounded-full bg-slate-400" />
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <span className="w-3 h-3 rounded-full bg-muted-foreground/60" />
                     <span>Target</span>
                     <span className="ml-2 w-3 h-3 rounded-full bg-violet-400" />
                     <span>Binder</span>
@@ -1281,7 +1269,7 @@ export function AIDesignAssistantPanel() {
 
             <button
               onClick={handleRetry}
-              className="w-full px-4 py-2.5 text-teal-600 bg-white border border-teal-200 rounded-xl font-medium text-sm hover:bg-teal-50 transition-all flex items-center justify-center gap-2"
+              className="w-full px-4 py-2.5 text-primary bg-card border border-border rounded-xl font-medium text-sm hover:bg-muted transition-all flex items-center justify-center gap-2"
             >
               <RefreshCw className="h-4 w-4" />
               Try Different Settings
@@ -1292,10 +1280,10 @@ export function AIDesignAssistantPanel() {
         {/* Loading indicator */}
         {aiCaseStudy.isProcessing && workflowPhase !== 'interview' && (
           <div className="flex gap-3">
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-              <Loader2 className="h-4 w-4 text-white animate-spin" />
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center">
+              <Loader2 className="h-4 w-4 text-primary-foreground animate-spin" />
             </div>
-            <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>
                 {workflowPhase === 'fetching' && 'Fetching structure from RCSB...'}
                 {workflowPhase === 'analyzing' && !isLigandDesign && !isBinderDesign && 'Analyzing metal binding site...'}
@@ -1313,7 +1301,7 @@ export function AIDesignAssistantPanel() {
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-slate-100 pt-4 mt-auto">
+      <div className="border-t border-border pt-4 mt-auto">
         {(workflowPhase === 'idle' || workflowPhase === 'structure_input') ? (
           <div className="flex gap-3">
             <input
@@ -1323,14 +1311,14 @@ export function AIDesignAssistantPanel() {
               onChange={(e) => setPdbInput(e.target.value.toUpperCase())}
               onKeyDown={(e) => e.key === 'Enter' && handleStructureInput()}
               placeholder="Enter PDB code (e.g., 1BRF) or AZOB for demo"
-              className="flex-1 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none text-slate-900 text-sm transition-all font-mono uppercase"
+              className="flex-1 px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all font-mono uppercase"
               disabled={aiCaseStudy.isProcessing}
               maxLength={4}
             />
             <button
               onClick={handleStructureInput}
               disabled={!pdbInput.trim() || aiCaseStudy.isProcessing}
-              className="px-6 py-3 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-medium text-sm transition-all flex items-center gap-2"
+              className="px-6 py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground rounded-xl font-medium text-sm transition-all flex items-center gap-2"
             >
               <Search className="h-5 w-5" />
               Analyze
@@ -1343,18 +1331,18 @@ export function AIDesignAssistantPanel() {
               value={followUpInput}
               onChange={(e) => setFollowUpInput(e.target.value)}
               placeholder={workflowPhase === 'complete' ? "Ask a follow-up question..." : "Type a message..."}
-              className="flex-1 px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:outline-none text-slate-900 text-sm transition-all"
+              className="flex-1 px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all"
               disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running'}
             />
             <button
               disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running' || !followUpInput.trim()}
-              className="px-4 py-3 bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-medium text-sm transition-all flex items-center gap-2"
+              className="px-4 py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground rounded-xl font-medium text-sm transition-all flex items-center gap-2"
             >
               <Send className="h-5 w-5" />
             </button>
           </div>
         )}
-        <p className="mt-2 text-xs text-slate-400 text-center">
+        <p className="mt-2 text-xs text-muted-foreground text-center">
           {workflowPhase === 'idle' && "Enter a 4-letter PDB code to start"}
           {workflowPhase === 'interview' && "Answer the questions above to configure your design"}
           {workflowPhase === 'confirming' && "Review your preferences and run the design"}
@@ -1373,35 +1361,27 @@ function QuickStartCard({
   description,
   buttonText,
   onClick,
-  gradient,
-  borderColor,
-  iconColor,
-  buttonGradient,
 }: {
   icon: string;
   title: string;
   description: string;
   buttonText: string;
   onClick: () => void;
-  gradient: string;
-  borderColor: string;
-  iconColor: string;
-  buttonGradient: string;
 }) {
   const IconComponent = QUICK_START_ICONS[icon];
 
   return (
-    <div className={`p-5 bg-gradient-to-br ${gradient} rounded-2xl border border-${borderColor}`}>
+    <div className="p-5 bg-muted rounded-2xl border border-border">
       <div className="flex items-start gap-3">
-        <div className="p-2.5 bg-white rounded-xl shadow-sm">
-          {IconComponent && <IconComponent className={`h-5 w-5 text-${iconColor}`} />}
+        <div className="p-2.5 bg-card rounded-xl shadow-sm">
+          {IconComponent && <IconComponent className="h-5 w-5 text-primary" />}
         </div>
         <div className="flex-1">
-          <h3 className="font-bold text-slate-900 mb-1 text-sm">{title}</h3>
-          <p className="text-xs text-slate-600 mb-3">{description}</p>
+          <h3 className="font-bold text-foreground mb-1 text-sm">{title}</h3>
+          <p className="text-xs text-muted-foreground mb-3">{description}</p>
           <button
             onClick={onClick}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 ${buttonGradient} text-white rounded-lg font-medium text-xs transition-all`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg font-medium text-xs transition-all"
           >
             <Play className="h-4 w-4" />
             {buttonText}

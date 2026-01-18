@@ -72,10 +72,10 @@ export function AIChat({
         <div
           className={`max-w-[85%] rounded-2xl px-4 py-3 ${
             isUser
-              ? 'bg-violet-600 text-white rounded-br-md'
+              ? 'bg-primary text-primary-foreground rounded-br-md'
               : isSystem
               ? 'bg-amber-50 text-amber-900 border border-amber-200'
-              : 'bg-slate-100 text-slate-900 rounded-bl-md'
+              : 'bg-muted text-foreground rounded-bl-md'
           }`}
         >
           {/* Message content */}
@@ -85,12 +85,12 @@ export function AIChat({
 
           {/* Data payload (if analysis response) */}
           {message.data?.type === 'analysis' && message.data.payload && (
-            <div className="mt-3 pt-3 border-t border-slate-200/50">
+            <div className="mt-3 pt-3 border-t border-border/50">
               <div className="flex items-center gap-2 text-xs">
                 <span className={`font-medium ${getConfidenceColor((message.data.payload as any).confidence || 0)}`}>
                   {formatConfidence((message.data.payload as any).confidence || 0)}
                 </span>
-                <span className="text-slate-500">confidence</span>
+                <span className="text-muted-foreground">confidence</span>
               </div>
             </div>
           )}
@@ -98,7 +98,7 @@ export function AIChat({
           {/* Timestamp */}
           <div
             className={`text-xs mt-2 ${
-              isUser ? 'text-violet-200' : 'text-slate-400'
+              isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'
             }`}
           >
             {new Date(message.timestamp).toLocaleTimeString([], {
@@ -119,18 +119,18 @@ export function AIChat({
   ];
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="flex flex-col h-full bg-card rounded-xl border border-border shadow-sm overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-4 border-b border-violet-100">
+      <div className="bg-muted px-5 py-4 border-b border-border">
         <div className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5 text-violet-600" />
-          <h3 className="font-semibold text-slate-900">AI Assistant</h3>
+          <MessageSquare className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold text-foreground">AI Assistant</h3>
         </div>
-        <p className="text-sm text-slate-600 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Describe your protein design goal in natural language
         </p>
         {structureInfo?.pdbId && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-violet-600 bg-violet-100/50 rounded-full px-3 py-1 w-fit">
+          <div className="mt-2 flex items-center gap-2 text-xs text-primary bg-primary/10 rounded-full px-3 py-1 w-fit">
             <FlaskConical className="h-4 w-4" />
             Working with {structureInfo.pdbId}
             {structureInfo.numResidues && ` (${structureInfo.numResidues} residues)`}
@@ -142,13 +142,13 @@ export function AIChat({
       <div className="flex-1 overflow-y-auto p-4 min-h-[300px]">
         {messages.length === 0 ? (
           <div className="text-center py-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-violet-100 mb-4">
-              <Sparkles className="h-8 w-8 text-violet-600" />
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+              <Sparkles className="h-8 w-8 text-primary" />
             </div>
-            <h4 className="font-medium text-slate-900 mb-2">
+            <h4 className="font-medium text-foreground mb-2">
               What would you like to design?
             </h4>
-            <p className="text-sm text-slate-500 mb-4">
+            <p className="text-sm text-muted-foreground mb-4">
               Describe your goal and I&apos;ll suggest the best approach
             </p>
 
@@ -161,7 +161,7 @@ export function AIChat({
                     setInput(prompt);
                     inputRef.current?.focus();
                   }}
-                  className="text-xs px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 hover:bg-violet-100 hover:text-violet-700 transition-colors"
+                  className="text-xs px-3 py-1.5 rounded-full bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
                 >
                   {prompt}
                 </button>
@@ -178,8 +178,8 @@ export function AIChat({
         {/* Loading indicator */}
         {isLoading && (
           <div className="flex justify-start mb-4">
-            <div className="bg-slate-100 rounded-2xl rounded-bl-md px-4 py-3">
-              <div className="flex items-center gap-2 text-sm text-slate-500">
+            <div className="bg-muted rounded-2xl rounded-bl-md px-4 py-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Thinking...
               </div>
@@ -189,7 +189,7 @@ export function AIChat({
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="p-4 border-t border-slate-200 bg-slate-50">
+      <form onSubmit={handleSubmit} className="p-4 border-t border-border bg-muted/50">
         <div className="flex gap-2">
           <input
             ref={inputRef}
@@ -198,17 +198,17 @@ export function AIChat({
             onChange={(e) => setInput(e.target.value)}
             placeholder="Describe your design goal..."
             disabled={isLoading}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 focus:border-violet-500 focus:ring-2 focus:ring-violet-200 text-sm disabled:opacity-50 disabled:bg-slate-100"
+            className="flex-1 px-4 py-2.5 rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-primary/20 text-sm disabled:opacity-50 disabled:bg-muted"
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="px-4 py-2.5 rounded-xl bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="h-5 w-5" />
           </button>
         </div>
-        <p className="text-xs text-slate-400 mt-2 text-center">
+        <p className="text-xs text-muted-foreground mt-2 text-center">
           Press Enter to send, or click suggested prompts above
         </p>
       </form>

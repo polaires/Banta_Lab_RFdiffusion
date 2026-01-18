@@ -49,7 +49,7 @@ function getRatingColorClasses(rating: QualityRating): string {
     case 'POOR':
       return 'bg-red-100 text-red-700 border-red-200';
     default:
-      return 'bg-slate-100 text-slate-700 border-slate-200';
+      return 'bg-muted text-foreground border-border';
   }
 }
 
@@ -73,7 +73,7 @@ function BindingSiteTypeBadge({ type }: { type: 'functional' | 'crystal_artifact
       );
     case 'crystal_artifact':
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600 border border-slate-200">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-muted text-muted-foreground border border-border">
           <AlertCircle className="w-3 h-3" />
           Crystal Artifact
         </span>
@@ -104,7 +104,7 @@ function getPharmacophoreColor(type: PharmacophoreType): string {
     case 'negative':
       return 'bg-orange-100 text-orange-700';
     default:
-      return 'bg-slate-100 text-slate-700';
+      return 'bg-muted text-foreground';
   }
 }
 
@@ -150,7 +150,7 @@ function LigandCard({
       className={`rounded-lg border shadow-sm transition-all cursor-pointer ${
         isFocused
           ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-200'
-          : 'border-slate-200 bg-white hover:border-slate-300'
+          : 'border-border bg-card hover:border-border'
       }`}
       onClick={() => onFocus(isFocused ? null : index)}
     >
@@ -159,7 +159,7 @@ function LigandCard({
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <BindingSiteTypeBadge type={ligand.bindingSiteType} />
-            <span className="font-semibold text-slate-800">{ligand.name}</span>
+            <span className="font-semibold text-foreground">{ligand.name}</span>
           </div>
           {isFocused && (
             <div className="p-1.5 rounded bg-blue-600 text-white">
@@ -168,9 +168,9 @@ function LigandCard({
           )}
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-slate-500">
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <span>{ligand.chainId}:{ligand.resSeq}</span>
-          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+          <span className="px-2 py-0.5 rounded bg-muted text-muted-foreground border border-border">
             {ligand.contacts.length} contacts
           </span>
         </div>
@@ -178,11 +178,11 @@ function LigandCard({
 
       {/* Expanded analysis - only when focused */}
       {isFocused && (
-        <div className="border-t border-slate-100 p-3 space-y-4 bg-slate-50/50">
+        <div className="border-t border-border p-3 space-y-4 bg-muted/50/50">
           {/* Binder Quality Score */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
+          <div className="bg-card rounded-lg border border-border p-3">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Binder Quality Score
               </h4>
               <span className={`px-2 py-0.5 rounded text-xs font-medium border ${getRatingColorClasses(quality.rating)}`}>
@@ -193,10 +193,10 @@ function LigandCard({
             {/* Score bar */}
             <div className="mb-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-2xl font-bold text-slate-800">{quality.score}</span>
-                <span className="text-xs text-slate-500">/ 100</span>
+                <span className="text-2xl font-bold text-foreground">{quality.score}</span>
+                <span className="text-xs text-muted-foreground">/ 100</span>
               </div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
                 <div
                   className={`h-full ${getScoreBarColor(quality.score)} transition-all`}
                   style={{ width: `${quality.score}%` }}
@@ -206,32 +206,32 @@ function LigandCard({
 
             {/* Score breakdown grid */}
             <div className="grid grid-cols-5 gap-2 text-center">
-              <div className="p-2 bg-slate-50 rounded">
+              <div className="p-2 bg-muted/50 rounded">
                 <div className="text-sm font-bold text-blue-600">{quality.breakdown.hbondScore}</div>
-                <div className="text-[10px] text-slate-500">H-bond</div>
+                <div className="text-[10px] text-muted-foreground">H-bond</div>
               </div>
-              <div className="p-2 bg-slate-50 rounded">
+              <div className="p-2 bg-muted/50 rounded">
                 <div className="text-sm font-bold text-green-600">{quality.breakdown.hydrophobicScore}</div>
-                <div className="text-[10px] text-slate-500">Hydro</div>
+                <div className="text-[10px] text-muted-foreground">Hydro</div>
               </div>
-              <div className="p-2 bg-slate-50 rounded">
+              <div className="p-2 bg-muted/50 rounded">
                 <div className="text-sm font-bold text-purple-600">{quality.breakdown.piStackScore}</div>
-                <div className="text-[10px] text-slate-500">Pi-stack</div>
+                <div className="text-[10px] text-muted-foreground">Pi-stack</div>
               </div>
-              <div className="p-2 bg-slate-50 rounded">
+              <div className="p-2 bg-muted/50 rounded">
                 <div className="text-sm font-bold text-red-600">{quality.breakdown.saltBridgeScore}</div>
-                <div className="text-[10px] text-slate-500">Salt</div>
+                <div className="text-[10px] text-muted-foreground">Salt</div>
               </div>
-              <div className="p-2 bg-slate-50 rounded">
-                <div className="text-sm font-bold text-slate-600">{quality.breakdown.burialnessScore}</div>
-                <div className="text-[10px] text-slate-500">Burial</div>
+              <div className="p-2 bg-muted/50 rounded">
+                <div className="text-sm font-bold text-muted-foreground">{quality.breakdown.burialnessScore}</div>
+                <div className="text-[10px] text-muted-foreground">Burial</div>
               </div>
             </div>
           </div>
 
           {/* Shell Analysis */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
-            <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-1">
+          <div className="bg-card rounded-lg border border-border p-3">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
               <Layers className="w-3 h-3" />
               Shell Analysis
             </h4>
@@ -258,9 +258,9 @@ function LigandCard({
           </div>
 
           {/* Pharmacophore Features */}
-          <div className="bg-white rounded-lg border border-slate-200 p-3">
+          <div className="bg-card rounded-lg border border-border p-3">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                 Pharmacophore Features
               </h4>
               {onToggle3D && (
@@ -272,7 +272,7 @@ function LigandCard({
                   className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
                     show3D
                       ? 'bg-purple-100 text-purple-700 border border-purple-200'
-                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'
+                      : 'bg-muted text-muted-foreground hover:bg-muted border border-border'
                   }`}
                 >
                   {show3D ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
@@ -292,7 +292,7 @@ function LigandCard({
                   </span>
                 ))}
               {Object.values(pharmacophoreCounts).every((c) => c === 0) && (
-                <span className="text-xs text-slate-500">No features detected</span>
+                <span className="text-xs text-muted-foreground">No features detected</span>
               )}
             </div>
           </div>
@@ -350,12 +350,12 @@ export function LigandBindingPanel({ onToggle3D, show3D }: LigandBindingPanelPro
 
   if (!hasLigands) {
     return (
-      <div className="bg-white rounded-lg border border-slate-200 p-4">
-        <div className="flex items-center gap-2 text-slate-500">
+      <div className="bg-card rounded-lg border border-border p-4">
+        <div className="flex items-center gap-2 text-muted-foreground">
           <HelpCircle className="w-4 h-4" />
           <span className="text-sm font-medium">No ligands detected</span>
         </div>
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-xs text-muted-foreground mt-2">
           Load a structure with ligands to see binding analysis.
         </p>
       </div>
@@ -363,12 +363,12 @@ export function LigandBindingPanel({ onToggle3D, show3D }: LigandBindingPanelPro
   }
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+    <div className="bg-card rounded-lg border border-border overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+      <div className="px-4 py-3 border-b border-border bg-muted/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-slate-800">Ligand Binding Analysis</h3>
+            <h3 className="font-semibold text-foreground">Ligand Binding Analysis</h3>
             <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
               {ligandData.ligandCount}
             </span>
@@ -378,7 +378,7 @@ export function LigandBindingPanel({ onToggle3D, show3D }: LigandBindingPanelPro
           <div className="relative">
             <button
               onClick={() => setExportMenuOpen(!exportMenuOpen)}
-              className="flex items-center gap-1 px-2 py-1.5 rounded text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors border border-slate-200"
+              className="flex items-center gap-1 px-2 py-1.5 rounded text-xs font-medium bg-muted text-muted-foreground hover:bg-muted transition-colors border border-border"
             >
               <Download className="w-3.5 h-3.5" />
               Export
@@ -393,25 +393,25 @@ export function LigandBindingPanel({ onToggle3D, show3D }: LigandBindingPanelPro
                   onClick={() => setExportMenuOpen(false)}
                 />
                 {/* Menu */}
-                <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg border border-slate-200 shadow-lg z-20 py-1">
+                <div className="absolute right-0 mt-1 w-48 bg-card rounded-lg border border-border shadow-lg z-20 py-1">
                   <button
                     onClick={handleExportJSON}
-                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50 flex items-center gap-2"
                   >
                     <FileJson className="w-4 h-4 text-blue-500" />
                     Export as JSON
                   </button>
                   <button
                     onClick={handleExportCSV}
-                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50 flex items-center gap-2"
                   >
                     <FileSpreadsheet className="w-4 h-4 text-green-500" />
                     Export as CSV
                   </button>
-                  <div className="border-t border-slate-100 my-1" />
+                  <div className="border-t border-border my-1" />
                   <button
                     onClick={handleExportRFdiffusion}
-                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full px-3 py-2 text-left text-sm text-foreground hover:bg-muted/50 flex items-center gap-2"
                   >
                     <Target className="w-4 h-4 text-purple-500" />
                     RFdiffusion Hotspots

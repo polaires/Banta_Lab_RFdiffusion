@@ -61,14 +61,14 @@ export function LigandSelector({
   return (
     <div className={`space-y-2 ${className}`}>
       {label && (
-        <label className="block text-sm font-medium text-slate-700">{label}</label>
+        <label className="block text-sm font-medium text-foreground">{label}</label>
       )}
 
       {!isCustom ? (
         <select
           value={isPreset ? value : '__custom__'}
           onChange={handlePresetChange}
-          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+          className="w-full px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-ring focus:border-transparent bg-card"
         >
           <option value="" disabled>
             Select a ligand...
@@ -106,7 +106,7 @@ export function LigandSelector({
             onChange={handleCustomChange}
             placeholder={customPlaceholder}
             maxLength={10}
-            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono uppercase"
+            className="flex-1 px-3 py-2 border border-border rounded-lg text-sm focus:ring-2 focus:ring-ring focus:border-transparent bg-card font-mono uppercase"
           />
           <button
             type="button"
@@ -115,7 +115,7 @@ export function LigandSelector({
               setCustomValue('');
               onChange('');
             }}
-            className="px-3 py-2 text-slate-600 hover:text-slate-800 border border-slate-200 rounded-lg text-sm transition-colors"
+            className="px-3 py-2 text-muted-foreground hover:text-foreground border border-border rounded-lg text-sm transition-colors"
           >
             Cancel
           </button>
@@ -124,15 +124,15 @@ export function LigandSelector({
 
       {/* Show selected ligand info */}
       {selectedLigand && (
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <FlaskConical className="h-4 w-4 text-slate-400" />
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <FlaskConical className="h-4 w-4 text-muted-foreground" />
           <span>{selectedLigand.category}</span>
-          <span className="text-slate-300">|</span>
+          <span className="text-border">|</span>
           <a
             href={`https://www.rcsb.org/ligand/${selectedLigand.id}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
+            className="text-primary hover:underline"
           >
             View in PDB
           </a>
@@ -140,14 +140,14 @@ export function LigandSelector({
       )}
 
       {isCustom && customValue && (
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <AlertTriangle className="h-4 w-4 text-amber-500" />
           <span>Custom code - verify it exists in the PDB</span>
           <a
             href={`https://www.rcsb.org/ligand/${customValue}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
+            className="text-primary hover:underline"
           >
             Check
           </a>

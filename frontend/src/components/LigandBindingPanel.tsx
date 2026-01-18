@@ -25,6 +25,7 @@ import {
   type LigandData,
   type QualityRating,
   type PharmacophoreType,
+  type PiStackingResult,
 } from '@/lib/ligandAnalysis';
 import {
   downloadJSON,
@@ -296,6 +297,39 @@ function LigandCard({
               )}
             </div>
           </div>
+
+          {/* Pi-Stacking Interactions */}
+          {ligand.piStackingResults && ligand.piStackingResults.filter(stack => stack.isStacking && stack.type !== 'none').length > 0 && (
+            <div className="bg-card rounded-lg border border-border p-3">
+              <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                Pi-Stacking Interactions
+              </h4>
+              <div className="space-y-2">
+                {ligand.piStackingResults
+                  .filter(stack => stack.isStacking && stack.type !== 'none')
+                  .map((stack, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded font-medium ${
+                          stack.type === 'parallel' ? 'bg-purple-100 text-purple-700' :
+                          stack.type === 't-shaped' ? 'bg-blue-100 text-blue-700' :
+                          stack.type === 'offset-parallel' ? 'bg-indigo-100 text-indigo-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {stack.type}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {stack.proteinResidue}{stack.proteinChain ? ` (${stack.proteinChain})` : ''}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground font-mono">
+                        {stack.distance.toFixed(1)}A / {stack.angle.toFixed(0)}deg
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
 
           {/* Suggestions */}
           {quality.suggestions.length > 0 && (

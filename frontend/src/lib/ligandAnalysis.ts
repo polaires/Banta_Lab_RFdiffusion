@@ -199,6 +199,7 @@ export interface LigandData {
   waterContactCount: number;
   bindingSiteType: 'functional' | 'crystal_artifact' | 'uncertain';
   bindingSiteReason: string;
+  piStackingResults?: PiStackingResult[];
 }
 
 export interface LigandAnalysisResult {

@@ -8,6 +8,7 @@ export { SymmetricForm } from './SymmetricForm';
 export { RefinementForm } from './RefinementForm';
 export { InterfaceLigandForm } from './InterfaceLigandForm';
 export { InterfaceMetalForm } from './InterfaceMetalForm';
+export { InterfaceMetalLigandForm } from './InterfaceMetalLigandForm';
 
 // Results panels
 export { InterfaceLigandResultsPanel } from './InterfaceLigandResultsPanel';

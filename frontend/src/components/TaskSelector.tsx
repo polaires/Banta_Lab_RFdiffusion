@@ -1,6 +1,6 @@
 'use client';
 
-import { LucideIcon, PlusCircle, Network, FlaskConical, Dna, Beaker, Hexagon, SlidersHorizontal, Link, Circle } from 'lucide-react';
+import { LucideIcon, PlusCircle, Network, FlaskConical, Dna, Beaker, Hexagon, SlidersHorizontal, Link, Circle, Sparkles } from 'lucide-react';
 
 export type DesignTask =
   | 'denovo'
@@ -11,7 +11,8 @@ export type DesignTask =
   | 'symmetric'
   | 'refinement'
   | 'interface_ligand'
-  | 'interface_metal';
+  | 'interface_metal'
+  | 'interface_metal_ligand';
 
 interface TaskConfig {
   id: DesignTask;
@@ -84,6 +85,13 @@ const TASKS: TaskConfig[] = [
     description: 'Design protein heterodimers with metal coordination at the interface',
     Icon: Circle,
     requirements: ['Metal ion', 'Coordination split'],
+  },
+  {
+    id: 'interface_metal_ligand',
+    name: 'Metal-Ligand Complex Dimer',
+    description: 'Design homodimers binding metal-ligand complexes (e.g., citrate-Tb, PQQ-Ca)',
+    Icon: Sparkles,
+    requirements: ['Complex template', 'Ligand SMILES'],
   },
 ];
 

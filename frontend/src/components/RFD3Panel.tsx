@@ -25,6 +25,7 @@ import {
   RefinementForm,
   InterfaceLigandForm,
   InterfaceMetalForm,
+  InterfaceMetalLigandForm,
   RFD3Request,
 } from './tasks';
 
@@ -39,6 +40,7 @@ const TASK_NAMES: Record<DesignTask, string> = {
   refinement: 'Structure Refinement',
   interface_ligand: 'Interface Ligand Dimer',
   interface_metal: 'Interface Metal Dimer',
+  interface_metal_ligand: 'Metal-Ligand Complex Dimer',
 };
 
 export function RFD3Panel() {
@@ -483,6 +485,7 @@ export function RFD3Panel() {
     refinement: RefinementForm,
     interface_ligand: InterfaceLigandForm,
     interface_metal: InterfaceMetalForm,
+    interface_metal_ligand: InterfaceMetalLigandForm,
   };
 
   const CurrentForm = selectedDesignTask ? TaskForms[selectedDesignTask as DesignTask] : null;

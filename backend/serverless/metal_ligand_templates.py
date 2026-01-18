@@ -71,6 +71,16 @@ PQQ_CA_TEMPLATE = {
 # Citrate-Lanthanide template
 # Source: Citrate tricarboxylate coordination to Tb3+/Eu3+
 # Reference: Wang et al. 2008 - Lanthanide-citrate complexes
+#
+# Coordination accounting:
+#   Metal (Tb³⁺) total capacity: 9
+#   Ligand (citrate) provides: 3 (O2, O5, O7 - tridentate based on PDB 3C9H)
+#   Protein must provide: 6 (9 - 3 = 6 remaining sites)
+#
+# Ligand atom roles (based on PDB 3C9H citrate-Ca geometry):
+#   Metal-coordinating: O2, O5, O7 (tridentate, 2.36-2.61Å from metal)
+#   Protein H-bond acceptors: O1, O3, O4, O6 (non-coordinating carboxylate O)
+#
 CITRATE_LANTHANIDE_TEMPLATE = {
     "name": "Citrate-Lanthanide",
     "description": "Citrate-coordinated lanthanide (Tb/Eu/Gd) for luminescent biosensors",
@@ -80,19 +90,35 @@ CITRATE_LANTHANIDE_TEMPLATE = {
     "ligand_res_name": "CIT",
     "molecular_weight": 189.10,  # Citrate anion
     "coordination": {
-        "metal_coordination_number": 9,  # Typical for Ln3+
-        "ligand_donors": ["O1", "O3", "O5", "O7"],  # Carboxylate oxygens
-        "ligand_donor_count": 4,  # Citrate can be tetradentate
-        "citrate_denticity": "tetradentate",  # Can vary from bi- to tetra-
-        "protein_sites": 5,  # Remaining coordination sites
+        # Metal coordination budget
+        "metal_coordination_number": 9,  # Total capacity for Ln³⁺
         "geometry": "tricapped_trigonal_prism",
-        "bond_distances": {
-            "carboxylate_O": 2.35,  # Typical Ln-O distance
-            "hydroxyl_O": 2.45,
-        },
+
+        # Ligand contribution (FIXED - pre-formed complex)
+        # Based on PDB 3C9H citrate-Ca geometry (representative of citrate-metal binding)
+        # O2 (carboxylate), O5 (carboxylate), O7 (hydroxyl) coordinate metal
+        "ligand_metal_donors": ["O2", "O5", "O7"],  # Atoms that bind metal
+        "ligand_donor_count": 3,  # Citrate is TRIDENTATE based on 3C9H
+        "ligand_denticity": "tridentate",
+        "ligand_metal_bond_distance": 2.48,  # Based on 3C9H: O2=2.48, O5=2.61, O7=2.36Å
+
+        # Protein contribution (NEEDED - what design must achieve)
+        "protein_sites_needed": 6,  # Remaining sites: 9 - 3 = 6
+        "protein_donor_distance": 2.4,  # Target Ln-O distance for protein (Å)
+
+        # Ligand atoms available for protein interaction (H-bonds, not metal coord)
+        # O1, O3, O4, O6 are non-coordinating carboxylate oxygens
+        "ligand_hbond_acceptors": ["O1", "O3", "O4", "O6"],  # Non-coordinating O atoms
+        "ligand_hbond_distance": 2.8,  # Typical H-bond distance (Å)
     },
-    "preferred_protein_donors": ["Glu", "Asp", "Asn", "water"],
-    "donor_atom_types": ["OE1", "OE2", "OD1", "OD2"],
+    # Suggested distribution for dimer interface
+    "dimer_coordination_split": {
+        "chain_a_target": 3,  # 3 donors from chain A
+        "chain_b_target": 3,  # 3 donors from chain B
+        "symmetric_ok": True,  # 3+3 symmetric
+    },
+    "preferred_protein_donors": ["Glu", "Asp", "Asn", "His", "water"],
+    "donor_atom_types": ["OE1", "OE2", "OD1", "OD2", "NE2"],
     "luminescence": {
         "TB": {"emission": "green", "wavelength_nm": 545, "transition": "5D4->7F5"},
         "EU": {"emission": "red", "wavelength_nm": 615, "transition": "5D0->7F2"},
@@ -176,16 +202,23 @@ def get_template_info(template_name: str) -> Optional[Dict[str, Any]]:
     if not template:
         return None
 
+    coord = template.get("coordination", {})
+    metal_cn = coord.get("metal_coordination_number", 6)
+    ligand_donors = coord.get("ligand_donor_count", 0)
+
+    # Handle both field names: "protein_sites" (PQQ) and "protein_sites_needed" (citrate)
+    protein_sites = coord.get("protein_sites", coord.get("protein_sites_needed", metal_cn - ligand_donors))
+
     return {
         "name": template.get("name"),
         "description": template.get("description"),
         "metal": template.get("metal") or template.get("default_metal"),
         "ligand": template.get("ligand_res_name"),
         "ligand_smiles": template.get("ligand_smiles"),
-        "coordination_number": template["coordination"]["metal_coordination_number"],
-        "ligand_donors": template["coordination"]["ligand_donor_count"],
-        "protein_sites": template["coordination"]["protein_sites"],
-        "geometry": template["coordination"]["geometry"],
+        "coordination_number": metal_cn,
+        "ligand_donors": ligand_donors,
+        "protein_sites": protein_sites,
+        "geometry": coord.get("geometry", "octahedral"),
         "preferred_donors": template.get("preferred_protein_donors", []),
         "best_for": template.get("best_for", []),
     }
@@ -399,6 +432,12 @@ def generate_complex_pdb(
 
     ligand_name = template.get("ligand_res_name", "LIG")
 
+    # For citrate-lanthanide complexes, use fallback with proper coordination geometry
+    # RDKit doesn't understand metal coordination, so the fallback has correct Ln-O distances
+    if "citrate" in template_name.lower():
+        print("[MetalLigandTemplates] Using coordination-aware geometry for citrate-Ln")
+        return _generate_fallback_pdb(template_name, metal_code, center)
+
     # Generate ligand conformer
     if not RDKIT_AVAILABLE:
         print("[MetalLigandTemplates] RDKit not available, using fallback PDB")
@@ -514,26 +553,90 @@ def _generate_fallback_pdb(
 
     if "pqq" in template_name.lower():
         # Simplified PQQ-Ca: quinone oxygens + carboxylates + Ca
+        #
+        # Geometry: Metal at center, coordinating atoms at correct distances
+        # Ca-O bond: ~2.40Å, Ca-N bond: ~2.50Å (from PDB 1W6S)
+        #
+        # Place coordinating atoms in a plane around Ca (distorted octahedral):
+        # - O5 (quinone C=O): 2.40Å from Ca
+        # - N6 (pyridine N): 2.50Å from Ca
+        # - O7A (carboxylate O): 2.40Å from Ca
+        #
+        # Carbons placed further away (>3Å from metal for RFD3 compatibility)
         lines = [
-            f"HETATM    1  O5  PQQ L   1    {cx-2.0:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    2  N6  PQQ L   1    {cx:8.3f}{cy+2.0:8.3f}{cz:8.3f}  1.00  0.00           N",
-            f"HETATM    3  O7A PQQ L   1    {cx+2.0:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    4  C1  PQQ L   1    {cx-3.0:8.3f}{cy-1.0:8.3f}{cz:8.3f}  1.00  0.00           C",
-            f"HETATM    5  C2  PQQ L   1    {cx+3.0:8.3f}{cy-1.0:8.3f}{cz:8.3f}  1.00  0.00           C",
-            f"HETATM    6 CA   CA  M   2    {cx:8.3f}{cy:8.3f}{cz+2.4:8.3f}  1.00  0.00          CA",
+            # Coordinating atoms positioned at correct bond distances from metal
+            f"HETATM    1  O5  PQQ L   1    {cx-2.40:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           O",
+            f"HETATM    2  N6  PQQ L   1    {cx:8.3f}{cy+2.50:8.3f}{cz:8.3f}  1.00  0.00           N",
+            f"HETATM    3  O7A PQQ L   1    {cx+2.40:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           O",
+            # Carbon backbone atoms (>3Å from metal)
+            f"HETATM    4  C1  PQQ L   1    {cx-3.50:8.3f}{cy-1.0:8.3f}{cz:8.3f}  1.00  0.00           C",
+            f"HETATM    5  C2  PQQ L   1    {cx+3.50:8.3f}{cy-1.0:8.3f}{cz:8.3f}  1.00  0.00           C",
+            # Metal at center (same Z as ligand for proper coordination)
+            f"HETATM    6 CA   CA  M   2    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          CA",
             "END",
         ]
     elif "citrate" in template_name.lower():
-        # Simplified citrate-Ln: 3 carboxylate groups + central C + metal
+        # Citrate-Ln using REAL geometry from PDB 3C9H (citrate-Ca structure)
+        # This ensures proper Y-shaped citrate with ALL CARBONS >3Å from metal
+        #
+        # Real citrate structure from 3C9H:
+        # - C3 is central quaternary carbon with hydroxyl O7
+        # - C1-O1/O2 is terminal carboxylate (via C2 methylene)
+        # - C5-O3/O4 is another carboxylate arm (via C4 methylene)
+        # - C6-O5/O6 is third carboxylate arm
+        #
+        # Coordination: Metal binds O2, O5, O7 (tridentate)
+        # Key: All carbons must be >3Å from metal!
+        #
+        # Reference coordinates from 3C9H, translated so metal is at (cx, cy, cz)
+        # Original metal position in 3C9H: (48.044, 3.540, 11.340)
+
+        # Translation offset from original metal pos to target center
+        # 3C9H metal: (48.044, 3.540, 11.340) -> target: (cx, cy, cz)
+        tx = cx - 48.044
+        ty = cy - 3.540
+        tz = cz - 11.340
+
+        # Real citrate atom positions from PDB 3C9H chain A, translated
+        # These maintain correct bond lengths (~1.5Å C-C, ~1.25Å C=O)
+        # and keep all carbons >3Å from metal
+        atoms = {
+            # Terminal carboxylate 1
+            'C1': (50.774 + tx, 5.151 + ty, 11.017 + tz),   # 3.19Å from metal
+            'O1': (51.750 + tx, 4.983 + ty, 11.801 + tz),   # 4.00Å (non-coord)
+            'O2': (50.263 + tx, 4.175 + ty, 10.429 + tz),   # 2.48Å COORDINATING
+            # Methylene connecting to central C
+            'C2': (50.238 + tx, 6.531 + ty, 10.743 + tz),   # 3.76Å from metal
+            # Central quaternary carbon
+            'C3': (48.708 + tx, 6.584 + ty, 10.576 + tz),   # 3.21Å from metal
+            'O7': (48.063 + tx, 5.873 + ty, 11.676 + tz),   # 2.36Å COORDINATING (hydroxyl)
+            # Carboxylate arm 2 (via C4)
+            'C4': (48.209 + tx, 8.025 + ty, 10.587 + tz),   # 4.55Å from metal
+            'C5': (48.428 + tx, 8.713 + ty, 11.897 + tz),   # 5.22Å from metal
+            'O3': (48.912 + tx, 9.889 + ty, 11.949 + tz),   # 6.44Å (non-coord)
+            'O4': (48.055 + tx, 8.096 + ty, 12.906 + tz),   # 4.82Å (non-coord)
+            # Carboxylate arm 3
+            'C6': (48.248 + tx, 5.943 + ty, 9.256 + tz),    # 3.19Å from metal
+            'O5': (47.458 + tx, 4.961 + ty, 9.225 + tz),    # 2.61Å COORDINATING
+            'O6': (48.661 + tx, 6.370 + ty, 8.171 + tz),    # 4.29Å (non-coord)
+        }
+
         lines = [
-            f"HETATM    1  O1  CIT L   1    {cx-2.5:8.3f}{cy+1.5:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    2  O2  CIT L   1    {cx-2.5:8.3f}{cy-1.5:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    3  O3  CIT L   1    {cx+2.5:8.3f}{cy+1.5:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    4  O4  CIT L   1    {cx+2.5:8.3f}{cy-1.5:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    5  O5  CIT L   1    {cx:8.3f}{cy+2.5:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    6  O6  CIT L   1    {cx:8.3f}{cy-2.5:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    7  C1  CIT L   1    {cx:8.3f}{cy:8.3f}{cz-1.0:8.3f}  1.00  0.00           C",
-            f"HETATM    8 {metal_code:4s} {metal_code:3s} M   2    {cx:8.3f}{cy:8.3f}{cz+2.35:8.3f}  1.00  0.00          {metal_code[:2]:>2s}",
+            f"HETATM    1  C1  CIT L   1    {atoms['C1'][0]:8.3f}{atoms['C1'][1]:8.3f}{atoms['C1'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    2  O1  CIT L   1    {atoms['O1'][0]:8.3f}{atoms['O1'][1]:8.3f}{atoms['O1'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM    3  O2  CIT L   1    {atoms['O2'][0]:8.3f}{atoms['O2'][1]:8.3f}{atoms['O2'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM    4  C2  CIT L   1    {atoms['C2'][0]:8.3f}{atoms['C2'][1]:8.3f}{atoms['C2'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    5  C3  CIT L   1    {atoms['C3'][0]:8.3f}{atoms['C3'][1]:8.3f}{atoms['C3'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    6  O7  CIT L   1    {atoms['O7'][0]:8.3f}{atoms['O7'][1]:8.3f}{atoms['O7'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM    7  C4  CIT L   1    {atoms['C4'][0]:8.3f}{atoms['C4'][1]:8.3f}{atoms['C4'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    8  C5  CIT L   1    {atoms['C5'][0]:8.3f}{atoms['C5'][1]:8.3f}{atoms['C5'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    9  O3  CIT L   1    {atoms['O3'][0]:8.3f}{atoms['O3'][1]:8.3f}{atoms['O3'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM   10  O4  CIT L   1    {atoms['O4'][0]:8.3f}{atoms['O4'][1]:8.3f}{atoms['O4'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM   11  C6  CIT L   1    {atoms['C6'][0]:8.3f}{atoms['C6'][1]:8.3f}{atoms['C6'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   12  O5  CIT L   1    {atoms['O5'][0]:8.3f}{atoms['O5'][1]:8.3f}{atoms['O5'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM   13  O6  CIT L   1    {atoms['O6'][0]:8.3f}{atoms['O6'][1]:8.3f}{atoms['O6'][2]:8.3f}  1.00  0.00           O",
+            # Metal at coordination center
+            f"HETATM   14 {metal_code:4s} {metal_code:3s} M   2    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          {metal_code[:2]:>2s}",
             "END",
         ]
     else:
@@ -549,13 +652,12 @@ def _generate_fallback_pdb(
 
 def get_template_coordination_info(template_name: str) -> Dict[str, Any]:
     """
-    Get coordination information for RFD3 configuration.
+    Get coordination information for RFD3 configuration and validation.
 
     Returns dict with:
-    - hotspot_atoms: Atoms to use in select_hotspots
-    - hbond_acceptors: Atoms for select_hbond_acceptor
-    - exposed_atoms: Atoms for select_exposed
-    - fixed_atoms: Atoms for select_fixed_atoms
+    - Coordination accounting (metal capacity, ligand donors, protein needed)
+    - RFD3 config (hotspot_atoms, hbond_acceptors, exposed_atoms)
+    - Validation parameters (ligand H-bond acceptors)
     """
     template = get_template(template_name)
     if not template:
@@ -565,27 +667,54 @@ def get_template_coordination_info(template_name: str) -> Dict[str, Any]:
     ligand_name = template.get("ligand_res_name", "LIG")
     metal = template.get("metal") or template.get("default_metal", "")
 
-    # Ligand donors that should contact the protein
-    ligand_donors = coord.get("ligand_donors", [])
+    # Ligand atoms that coordinate metal (fixed in pre-formed complex)
+    ligand_metal_donors = coord.get("ligand_metal_donors", coord.get("ligand_donors", []))
 
-    # All ligand oxygen atoms can be H-bond acceptors
-    # For PQQ: quinone O, carboxylate O
-    # For citrate: carboxylate O
-    hbond_acceptors = [a for a in ligand_donors if a.startswith("O")]
+    # Ligand atoms available for protein H-bonds (not coordinating metal)
+    ligand_hbond_acceptors = coord.get("ligand_hbond_acceptors", [])
+
+    # Coordination accounting
+    metal_coord_number = coord.get("metal_coordination_number", 6)
+    ligand_donor_count = coord.get("ligand_donor_count", len(ligand_metal_donors))
+    protein_sites_needed = coord.get("protein_sites_needed", metal_coord_number - ligand_donor_count)
+
+    # Dimer coordination split
+    dimer_split = template.get("dimer_coordination_split", {})
 
     # Atoms to expose (not coordinating metal, available for protein contact)
-    # Typically non-coordinating atoms on the ligand
     exposed_atoms = []
 
     return {
+        # Basic info
         "ligand_name": ligand_name,
         "metal_code": metal,
+
+        # Coordination accounting (for validation)
+        "coordination": {
+            "metal_coordination_number": metal_coord_number,
+            "ligand_metal_donors": ligand_metal_donors,
+            "ligand_donor_count": ligand_donor_count,
+            "protein_sites_needed": protein_sites_needed,
+            "ligand_hbond_acceptors": ligand_hbond_acceptors,
+            "ligand_metal_bond_distance": coord.get("ligand_metal_bond_distance", 2.35),
+            "geometry": coord.get("geometry", "octahedral"),
+        },
+
+        # Dimer interface targets
+        "dimer_split": {
+            "chain_a_target": dimer_split.get("chain_a_target", protein_sites_needed // 2),
+            "chain_b_target": dimer_split.get("chain_b_target", protein_sites_needed - protein_sites_needed // 2),
+        },
+
+        # RFD3 configuration
         "hotspot_atoms": {metal: "ALL"},  # Ensure protein contacts metal
-        "hbond_acceptors": {ligand_name: ",".join(hbond_acceptors)} if hbond_acceptors else {},
+        "hbond_acceptors": {ligand_name: ",".join(ligand_hbond_acceptors)} if ligand_hbond_acceptors else {},
         "exposed_atoms": {ligand_name: ",".join(exposed_atoms)} if exposed_atoms else {},
         "preferred_donors": template.get("preferred_protein_donors", []),
-        "target_coordination": coord.get("metal_coordination_number", 6),
-        "protein_sites": coord.get("protein_sites", 3),
+
+        # Legacy compatibility
+        "target_coordination": metal_coord_number,
+        "protein_sites": protein_sites_needed,
     }
 
 

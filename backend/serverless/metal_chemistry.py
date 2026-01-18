@@ -705,3 +705,495 @@ def get_metal_info(metal: str) -> Dict[str, Any]:
     if metal not in METAL_DATABASE:
         raise ValueError(f"Unknown metal: {metal}")
     return METAL_DATABASE[metal].copy()
+
+
+# =============================================================================
+# COORDINATION MOTIFS DATABASE
+# =============================================================================
+
+import math
+
+COORDINATION_MOTIFS: Dict[str, Dict[str, Any]] = {
+    "ef_hand": {
+        "description": "EF-hand calcium binding motif",
+        "metals": ["CA"],
+        "coordination_number": 7,
+        "geometry": "pentagonal_bipyramidal",
+        "example_pdbs": ["1CLL", "3CLN"],
+        "typical_residues": ["GLU", "ASP", "ASN", "GLN"],
+        "notes": "Helix-loop-helix motif, 12-residue loop with conserved positions",
+    },
+    "zinc_finger": {
+        "description": "Zinc finger structural motif",
+        "metals": ["ZN"],
+        "coordination_number": 4,
+        "geometry": "tetrahedral",
+        "example_pdbs": ["1ZNF", "1AAY"],
+        "typical_residues": ["CYS", "HIS"],
+        "notes": "C2H2, C4, or C3H variants common in DNA-binding proteins",
+    },
+    "his_tag": {
+        "description": "Histidine tag binding site (IMAC)",
+        "metals": ["NI", "CO", "ZN", "CU"],
+        "coordination_number": 6,
+        "geometry": "octahedral",
+        "example_pdbs": [],
+        "typical_residues": ["HIS"],
+        "notes": "Polyhistidine sequence coordination for affinity purification",
+    },
+    "lanthanide_site": {
+        "description": "Lanthanide binding site (engineered or natural)",
+        "metals": ["TB", "EU", "GD", "LA"],
+        "coordination_number": [8, 9],
+        "geometry": ["square_antiprism", "tricapped_trigonal_prism"],
+        "example_pdbs": [],
+        "typical_residues": ["GLU", "ASP", "ASN", "GLN"],
+        "notes": "High CN due to large ionic radius, O donors strongly preferred",
+    },
+    "rubredoxin": {
+        "description": "Rubredoxin iron-sulfur center",
+        "metals": ["FE"],
+        "coordination_number": 4,
+        "geometry": "tetrahedral",
+        "example_pdbs": ["1IRO", "5RXN"],
+        "typical_residues": ["CYS"],
+        "notes": "FeS4 center with 4 Cys ligands, electron transfer protein",
+    },
+    "carbonic_anhydrase": {
+        "description": "Carbonic anhydrase zinc active site",
+        "metals": ["ZN"],
+        "coordination_number": 4,
+        "geometry": "tetrahedral",
+        "example_pdbs": ["1CA2"],
+        "typical_residues": ["HIS"],
+        "notes": "Three His + water/hydroxide, catalyzes CO2 hydration",
+    },
+}
+
+
+# =============================================================================
+# IDEAL GEOMETRIES DATABASE
+# =============================================================================
+
+def _generate_sap_positions() -> List[Tuple[float, float, float]]:
+    """
+    Generate square antiprism (SAP) positions on unit sphere.
+
+    CN=8: Two square faces rotated 45 degrees relative to each other.
+    """
+    positions = []
+    # Top square (z positive)
+    z_top = math.sin(math.radians(45))
+    r_top = math.cos(math.radians(45))
+    for i in range(4):
+        angle = math.radians(i * 90)
+        x = r_top * math.cos(angle)
+        y = r_top * math.sin(angle)
+        positions.append((x, y, z_top))
+
+    # Bottom square (z negative), rotated 45 degrees
+    z_bot = -z_top
+    for i in range(4):
+        angle = math.radians(i * 90 + 45)  # 45 degree rotation
+        x = r_top * math.cos(angle)
+        y = r_top * math.sin(angle)
+        positions.append((x, y, z_bot))
+
+    # Normalize to unit sphere
+    normalized = []
+    for x, y, z in positions:
+        length = math.sqrt(x*x + y*y + z*z)
+        normalized.append((x/length, y/length, z/length))
+
+    return normalized
+
+
+def _generate_ttp_positions() -> List[Tuple[float, float, float]]:
+    """
+    Generate tricapped trigonal prism (TTP) positions on unit sphere.
+
+    CN=9: Trigonal prism (6 vertices) with 3 caps on the rectangular faces.
+    """
+    positions = []
+
+    # Trigonal prism: two triangular faces
+    z_top = 0.5
+    z_bot = -0.5
+    r_prism = math.sqrt(1 - z_top*z_top) * 0.866  # Scale for unit sphere
+
+    # Top triangle
+    for i in range(3):
+        angle = math.radians(i * 120)
+        x = r_prism * math.cos(angle)
+        y = r_prism * math.sin(angle)
+        positions.append((x, y, z_top))
+
+    # Bottom triangle (aligned with top)
+    for i in range(3):
+        angle = math.radians(i * 120)
+        x = r_prism * math.cos(angle)
+        y = r_prism * math.sin(angle)
+        positions.append((x, y, z_bot))
+
+    # Three caps on rectangular faces (at z=0, midway between prism vertices)
+    r_cap = 1.0
+    for i in range(3):
+        angle = math.radians(i * 120 + 60)  # Offset 60 degrees from prism vertices
+        x = r_cap * math.cos(angle)
+        y = r_cap * math.sin(angle)
+        positions.append((x, y, 0.0))
+
+    # Normalize to unit sphere
+    normalized = []
+    for x, y, z in positions:
+        length = math.sqrt(x*x + y*y + z*z)
+        if length > 0:
+            normalized.append((x/length, y/length, z/length))
+        else:
+            normalized.append((0.0, 0.0, 1.0))  # Fallback for origin
+
+    return normalized
+
+
+IDEAL_GEOMETRIES: Dict[str, Dict[str, Any]] = {
+    "linear": {
+        "coordination_number": 2,
+        "positions": [
+            (0.0, 0.0, 1.0),
+            (0.0, 0.0, -1.0),
+        ],
+        "description": "Linear geometry, 180 degree angle",
+    },
+    "trigonal_planar": {
+        "coordination_number": 3,
+        "positions": [
+            (1.0, 0.0, 0.0),
+            (-0.5, math.sqrt(3)/2, 0.0),
+            (-0.5, -math.sqrt(3)/2, 0.0),
+        ],
+        "description": "Trigonal planar, 120 degree angles in xy plane",
+    },
+    "tetrahedral": {
+        "coordination_number": 4,
+        "positions": [
+            (1.0, 1.0, 1.0),
+            (1.0, -1.0, -1.0),
+            (-1.0, 1.0, -1.0),
+            (-1.0, -1.0, 1.0),
+        ],
+        "description": "Tetrahedral geometry, 109.5 degree angles",
+    },
+    "square_planar": {
+        "coordination_number": 4,
+        "positions": [
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (-1.0, 0.0, 0.0),
+            (0.0, -1.0, 0.0),
+        ],
+        "description": "Square planar, 90 degree angles in xy plane",
+    },
+    "trigonal_bipyramidal": {
+        "coordination_number": 5,
+        "positions": [
+            (0.0, 0.0, 1.0),   # Axial top
+            (0.0, 0.0, -1.0),  # Axial bottom
+            (1.0, 0.0, 0.0),   # Equatorial
+            (-0.5, math.sqrt(3)/2, 0.0),
+            (-0.5, -math.sqrt(3)/2, 0.0),
+        ],
+        "description": "Trigonal bipyramidal, axial 180, equatorial 120",
+    },
+    "square_pyramidal": {
+        "coordination_number": 5,
+        "positions": [
+            (0.0, 0.0, 1.0),   # Apex
+            (1.0, 0.0, 0.0),   # Base
+            (0.0, 1.0, 0.0),
+            (-1.0, 0.0, 0.0),
+            (0.0, -1.0, 0.0),
+        ],
+        "description": "Square pyramidal, apex + square base",
+    },
+    "octahedral": {
+        "coordination_number": 6,
+        "positions": [
+            (1.0, 0.0, 0.0),
+            (-1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, -1.0, 0.0),
+            (0.0, 0.0, 1.0),
+            (0.0, 0.0, -1.0),
+        ],
+        "description": "Octahedral, 90 degree angles",
+    },
+    "pentagonal_bipyramidal": {
+        "coordination_number": 7,
+        "positions": [
+            (0.0, 0.0, 1.0),   # Axial top
+            (0.0, 0.0, -1.0),  # Axial bottom
+            (1.0, 0.0, 0.0),   # Equatorial pentagon
+            (math.cos(math.radians(72)), math.sin(math.radians(72)), 0.0),
+            (math.cos(math.radians(144)), math.sin(math.radians(144)), 0.0),
+            (math.cos(math.radians(216)), math.sin(math.radians(216)), 0.0),
+            (math.cos(math.radians(288)), math.sin(math.radians(288)), 0.0),
+        ],
+        "description": "Pentagonal bipyramidal, common for Ca2+ in EF-hands",
+    },
+    "square_antiprism": {
+        "coordination_number": 8,
+        "positions": _generate_sap_positions(),
+        "description": "Square antiprism, two squares rotated 45 degrees",
+    },
+    "tricapped_trigonal_prism": {
+        "coordination_number": 9,
+        "positions": _generate_ttp_positions(),
+        "description": "Tricapped trigonal prism, common for lanthanides",
+    },
+}
+
+# Normalize tetrahedral positions to unit sphere
+_tet_norm = math.sqrt(3)
+IDEAL_GEOMETRIES["tetrahedral"]["positions"] = [
+    (x/_tet_norm, y/_tet_norm, z/_tet_norm)
+    for x, y, z in IDEAL_GEOMETRIES["tetrahedral"]["positions"]
+]
+
+
+# =============================================================================
+# COORDINATION TEMPLATE FUNCTIONS
+# =============================================================================
+
+def get_coordination_template(
+    metal: str,
+    coordination_number: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Get coordination template for a metal with optional coordination number.
+
+    Returns information about expected geometry, typical residues, and
+    example structures for the given metal and coordination number.
+
+    Args:
+        metal: Metal element symbol (e.g., "ZN", "CA", "TB")
+        coordination_number: Optional specific coordination number. If not provided,
+                           returns template for the metal's default coordination.
+
+    Returns:
+        Dict with keys:
+            - metal: The metal symbol
+            - coordination_number: The CN used
+            - geometries: List of possible geometry names
+            - typical_residues: List of residue codes
+            - example_pdbs: List of example PDB IDs
+            - motifs: List of matching coordination motifs
+    """
+    metal = metal.upper()
+
+    if metal not in METAL_DATABASE:
+        raise ValueError(f"Unknown metal: {metal}. Valid metals: {list(METAL_DATABASE.keys())}")
+
+    metal_data = METAL_DATABASE[metal]
+    default_ox = metal_data["default_oxidation"]
+    cn_range = metal_data["coordination_numbers"].get(default_ox, (4, 6))
+
+    # Determine the coordination number to use
+    if coordination_number is None:
+        # Use middle of range
+        cn = (cn_range[0] + cn_range[1]) // 2
+    else:
+        cn = coordination_number
+
+    # Find matching motifs for this metal and CN
+    matching_motifs = []
+    geometries = []
+    example_pdbs = []
+
+    for motif_name, motif_data in COORDINATION_MOTIFS.items():
+        if metal in motif_data["metals"]:
+            motif_cn = motif_data["coordination_number"]
+            # Handle list of CNs (e.g., lanthanide_site)
+            if isinstance(motif_cn, list):
+                if cn in motif_cn:
+                    matching_motifs.append(motif_name)
+                    geom = motif_data["geometry"]
+                    if isinstance(geom, list):
+                        geometries.extend(geom)
+                    else:
+                        geometries.append(geom)
+                    example_pdbs.extend(motif_data.get("example_pdbs", []))
+            elif motif_cn == cn:
+                matching_motifs.append(motif_name)
+                geom = motif_data["geometry"]
+                if isinstance(geom, list):
+                    geometries.extend(geom)
+                else:
+                    geometries.append(geom)
+                example_pdbs.extend(motif_data.get("example_pdbs", []))
+
+    # If no motifs found, infer geometry from CN
+    if not geometries:
+        cn_to_geom = {
+            2: ["linear"],
+            3: ["trigonal_planar"],
+            4: ["tetrahedral", "square_planar"],
+            5: ["trigonal_bipyramidal", "square_pyramidal"],
+            6: ["octahedral"],
+            7: ["pentagonal_bipyramidal"],
+            8: ["square_antiprism"],
+            9: ["tricapped_trigonal_prism"],
+        }
+        geometries = cn_to_geom.get(cn, ["unknown"])
+
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_geometries = []
+    for g in geometries:
+        if g not in seen:
+            seen.add(g)
+            unique_geometries.append(g)
+
+    return {
+        "metal": metal,
+        "coordination_number": cn,
+        "geometries": unique_geometries,
+        "typical_residues": metal_data.get("common_residues", []),
+        "example_pdbs": list(set(example_pdbs)),
+        "motifs": matching_motifs,
+    }
+
+
+def get_ideal_geometry(geometry_name: str) -> List[Tuple[float, float, float]]:
+    """
+    Get ideal ligand positions for a coordination geometry on unit sphere.
+
+    Args:
+        geometry_name: Name of geometry (e.g., "octahedral", "tetrahedral")
+
+    Returns:
+        List of (x, y, z) tuples representing ligand positions on unit sphere.
+        Metal is assumed to be at origin (0, 0, 0).
+
+    Raises:
+        ValueError: If geometry_name is unknown.
+    """
+    geometry_name = geometry_name.lower()
+
+    if geometry_name not in IDEAL_GEOMETRIES:
+        valid = list(IDEAL_GEOMETRIES.keys())
+        raise ValueError(f"Unknown geometry: {geometry_name}. Valid geometries: {valid}")
+
+    return IDEAL_GEOMETRIES[geometry_name]["positions"].copy()
+
+
+def validate_coordination(
+    positions: List[Tuple[float, float, float]],
+    metal_pos: Tuple[float, float, float],
+    metal: str,
+    expected_cn: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Validate coordination geometry around a metal center.
+
+    Checks that ligand positions are within expected distance ranges for the
+    metal and flags any geometric issues.
+
+    Args:
+        positions: List of (x, y, z) ligand atom positions in Angstroms
+        metal_pos: (x, y, z) position of metal center in Angstroms
+        metal: Metal element symbol
+        expected_cn: Expected coordination number (optional)
+
+    Returns:
+        Dict with keys:
+            - valid: bool - whether geometry is valid
+            - coordination_number: int - actual number of coordinating atoms
+            - issues: List[str] - list of any detected issues
+            - distances: List[float] - distances to each ligand
+            - geometry_match: str or None - best matching ideal geometry
+    """
+    metal = metal.upper()
+    issues = []
+
+    if metal not in METAL_DATABASE:
+        return {
+            "valid": False,
+            "coordination_number": len(positions),
+            "issues": [f"Unknown metal: {metal}"],
+            "distances": [],
+            "geometry_match": None,
+        }
+
+    metal_data = METAL_DATABASE[metal]
+    default_ox = metal_data["default_oxidation"]
+
+    # Calculate distances from metal to each ligand
+    distances = []
+    mx, my, mz = metal_pos
+    for lx, ly, lz in positions:
+        dist = math.sqrt((lx - mx)**2 + (ly - my)**2 + (lz - mz)**2)
+        distances.append(dist)
+
+    actual_cn = len(positions)
+
+    # Check coordination number
+    cn_range = metal_data["coordination_numbers"].get(default_ox, (4, 6))
+    if expected_cn is not None:
+        if actual_cn != expected_cn:
+            issues.append(f"coordination_number: expected {expected_cn}, found {actual_cn}")
+
+    if actual_cn < cn_range[0]:
+        issues.append(f"coordination_number: {actual_cn} below minimum {cn_range[0]}")
+    elif actual_cn > cn_range[1]:
+        issues.append(f"coordination_number: {actual_cn} above maximum {cn_range[1]}")
+
+    # Check distances against expected ranges
+    # Use O donor range as default (most common)
+    bond_distances = metal_data.get("bond_distances", {}).get(default_ox, {})
+
+    # Get the broadest acceptable range from all donor types
+    min_dist = float('inf')
+    max_dist = 0.0
+    for donor, (d_min, d_max) in bond_distances.items():
+        min_dist = min(min_dist, d_min)
+        max_dist = max(max_dist, d_max)
+
+    # Default range if no specific data
+    if min_dist == float('inf'):
+        min_dist = 1.8
+        max_dist = 3.0
+
+    # Add some tolerance
+    min_dist_tol = min_dist - 0.2
+    max_dist_tol = max_dist + 0.3
+
+    for i, dist in enumerate(distances):
+        if dist < min_dist_tol:
+            issues.append(f"distance: ligand {i} at {dist:.2f}A is too close (min {min_dist_tol:.2f}A)")
+        elif dist > max_dist_tol:
+            issues.append(f"distance: ligand {i} at {dist:.2f}A is too far (max {max_dist_tol:.2f}A)")
+
+    # Try to match to ideal geometry
+    geometry_match = None
+    if actual_cn in [2, 3, 4, 5, 6, 7, 8, 9]:
+        cn_to_geom = {
+            2: "linear",
+            3: "trigonal_planar",
+            4: "tetrahedral",  # Default; could also be square_planar
+            5: "trigonal_bipyramidal",
+            6: "octahedral",
+            7: "pentagonal_bipyramidal",
+            8: "square_antiprism",
+            9: "tricapped_trigonal_prism",
+        }
+        geometry_match = cn_to_geom.get(actual_cn)
+
+    valid = len(issues) == 0
+
+    return {
+        "valid": valid,
+        "coordination_number": actual_cn,
+        "issues": issues,
+        "distances": distances,
+        "geometry_match": geometry_match,
+    }

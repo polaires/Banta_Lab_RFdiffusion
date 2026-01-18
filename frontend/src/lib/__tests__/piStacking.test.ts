@@ -3,7 +3,6 @@ import {
   calculateRingGeometry,
   analyzePiStacking,
   type RingGeometry,
-  type PiStackingResult,
 } from '../ligandAnalysis';
 
 describe('calculateRingGeometry', () => {

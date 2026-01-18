@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  computeInteractionLines,
-  type InteractionLine,
-} from '../interactionGeometry';
+import { computeInteractionLines } from '../interactionGeometry';
 
 describe('computeInteractionLines', () => {
   const samplePdb = `

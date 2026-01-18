@@ -25,7 +25,6 @@ import {
   type LigandData,
   type QualityRating,
   type PharmacophoreType,
-  type PiStackingResult,
 } from '@/lib/ligandAnalysis';
 import {
   downloadJSON,

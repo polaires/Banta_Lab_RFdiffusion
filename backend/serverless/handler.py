@@ -6880,34 +6880,34 @@ def _design_metal_ligand_joint(
         # use them directly without CCD validation.
     }
 
-    # === IMPROVEMENT 1: select_buried for BOTH metal AND ligand as SINGLE UNIT ===
-    # STRATEGY: Treat metal-ligand complex as a unified entity
+    # === STRATEGY: Fix metal+ligand geometry, use H-bonds for coordination ===
     #
-    # Key insight: The ori_token offset (calculated above) positions the protein COM
-    # AWAY from the metal. Combined with burying the entire complex, this should:
-    # 1. Tell RFD3 "wrap protein around this whole complex"
-    # 2. But position protein COM offset from metal (via ori_token)
-    # 3. Result: protein wraps around ligand side, sidechains can reach metal
+    # EXPERIMENTAL: No select_buried to avoid backbone crowding
+    # Instead, rely on:
+    # 1. select_fixed_atoms: Lock metal AND ligand positions (preserve geometry)
+    # 2. select_hotspots: Ensure protein makes contact with complex
+    # 3. select_hbond_acceptor: Condition H-bonds to ligand for coordination
+    # 4. ori_token: Position protein COM away from metal
     #
-    # The increased ORI_TOKEN_OFFSET (5Å) compensates for burying both.
+    # This approach lets RFD3 naturally position backbone while sidechains
+    # can reach the metal-ligand complex for coordination.
     metal_chain_resnum = f"{metal_chain}{metal_resnum}" if metal_chain and metal_resnum else "M1"
     ligand_chain_resnum = f"{ligand_chain}{ligand_resnum}" if ligand_chain and ligand_resnum else "L1"
 
-    # Bury BOTH metal AND ligand as a single unit
-    # The ori_token offset prevents backbone from crowding the metal
-    rfd3_config["select_buried"] = {
-        metal_chain_resnum: "ALL",  # Bury metal (complex is single unit)
-        ligand_chain_resnum: "ALL"  # Bury ligand (complex is single unit)
-    }
-    print(f"[MetalLigandJoint] Added select_buried: {{{metal_chain_resnum}: 'ALL', {ligand_chain_resnum}: 'ALL'}} (bury as SINGLE UNIT, offset by ori_token)")
+    # === NO select_buried - avoid forcing backbone close to metal ===
+    # Previous approach: bury metal+ligand → backbone at ~2Å (too close!)
+    # New approach: hotspots + H-bonds → sidechains reach, backbone stays back
+    print(f"[MetalLigandJoint] EXPERIMENTAL: No select_buried (using hotspots + H-bonds instead)")
 
-    # === IMPROVEMENT 2: select_fixed_atoms to lock metal position ===
-    # Fix the metal atom so RFD3 designs around its exact position
-    # This ensures the coordination geometry is preserved
+    # === Fix BOTH metal AND ligand positions ===
+    # This preserves the metal-ligand coordination geometry from the template
+    # Both must be fixed so RFD3 designs protein around the exact complex
     if metal and complex_info:
-        # Use chain+residue format for key, "ALL" for value (fix all atoms in that residue)
-        rfd3_config["select_fixed_atoms"] = {metal_chain_resnum: "ALL"}
-        print(f"[MetalLigandJoint] Added select_fixed_atoms: {{{metal_chain_resnum}: 'ALL'}} (locks metal position)")
+        rfd3_config["select_fixed_atoms"] = {
+            metal_chain_resnum: "ALL",   # Fix metal position
+            ligand_chain_resnum: "ALL"   # Fix ligand geometry (preserves metal-ligand coordination)
+        }
+        print(f"[MetalLigandJoint] Added select_fixed_atoms: {{{metal_chain_resnum}: 'ALL', {ligand_chain_resnum}: 'ALL'}} (locks BOTH metal AND ligand)")
 
     # === IMPROVEMENT 3: select_hotspots for BOTH metal AND ligand ===
     # STRATEGY: Treat metal-ligand complex as a unified hotspot
@@ -6925,23 +6925,41 @@ def _design_metal_ligand_joint(
         rfd3_config["hotspots"] = hotspots
         print(f"[MetalLigandJoint] Added hotspots: {hotspots} (BOTH metal+ligand as single unit)")
 
-    # === IMPROVEMENT 4: H-bond conditioning for carboxylate oxygens ===
-    # For citrate and similar ligands, condition H-bonds to carboxylate oxygens
-    # This helps position Glu/Asp sidechains to coordinate the metal
-    if coord_info:
+    # === CRITICAL: H-bond conditioning for coordination ===
+    # Without select_buried, H-bond conditioning is our main tool for
+    # achieving protein-ligand coordination. We need to specify ALL
+    # potential H-bond sites on the ligand.
+    #
+    # Strategy:
+    # 1. Ligand carboxylate oxygens → H-bond acceptors (protein donates)
+    # 2. This encourages Glu/Asp/Asn/Gln sidechains near the ligand
+    # 3. These sidechains can also coordinate the metal
+
+    # Collect all oxygen atoms from ligand for H-bond conditioning
+    ligand_oxygens = []
+    for line in complex_pdb.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            atom_name = line[12:16].strip()
+            if res_name == ligand_name and atom_name.startswith('O'):
+                ligand_oxygens.append(atom_name)
+
+    if ligand_oxygens:
+        # Use ALL oxygen atoms as H-bond acceptors
+        hbond_oxygens = ",".join(sorted(set(ligand_oxygens)))
+        rfd3_config["select_hbond_acceptor"] = {ligand_chain_resnum: hbond_oxygens}
+        print(f"[MetalLigandJoint] H-bond acceptors (ALL oxygens): {{{ligand_chain_resnum}: '{hbond_oxygens}'}}")
+        print(f"[MetalLigandJoint] Note: H-bond success rate ~37% per site, using {len(ligand_oxygens)} sites")
+    elif coord_info:
         ligand_coord = coord_info.get("coordination", {})
-        # Get ligand atoms that could accept H-bonds (carboxylate oxygens)
         hbond_atoms = ligand_coord.get("ligand_hbond_acceptors")
         if hbond_atoms:
-            # Use chain+residue format, not residue name
             rfd3_config["select_hbond_acceptor"] = {ligand_chain_resnum: ",".join(hbond_atoms)}
             print(f"[MetalLigandJoint] Added select_hbond_acceptor: {{{ligand_chain_resnum}: '{','.join(hbond_atoms)}'}}")
-        else:
-            # Fallback: for citrate, use known carboxylate oxygens
-            if ligand_name == "CIT":
-                hbond_oxygens = "O1,O3,O4,O6"  # Non-coordinating carboxylate O
-                rfd3_config["select_hbond_acceptor"] = {ligand_chain_resnum: hbond_oxygens}
-                print(f"[MetalLigandJoint] Added select_hbond_acceptor (citrate): {{{ligand_chain_resnum}: '{hbond_oxygens}'}}")
+        elif ligand_name == "CIT":
+            hbond_oxygens = "O1,O2,O3,O4,O5,O6,O7"  # ALL citrate oxygens
+            rfd3_config["select_hbond_acceptor"] = {ligand_chain_resnum: hbond_oxygens}
+            print(f"[MetalLigandJoint] Added select_hbond_acceptor (citrate): {{{ligand_chain_resnum}: '{hbond_oxygens}'}}")
 
     designs = []
     best_design_idx = 0
@@ -7412,26 +7430,319 @@ def _design_metal_ligand_sequential(
     """
     Design chains sequentially: first chain A, then chain B.
 
-    This approach first designs one chain around the complex,
-    then designs the second chain to fill remaining coordination sites.
-    """
-    # For now, redirect to joint design
-    # Sequential approach would be similar to interface_ligand_design sequential
-    print("[MetalLigandSequential] Using joint design (sequential not yet optimized)")
+    Sequential approach advantages:
+    1. Each chain designed independently → more freedom for backbone positioning
+    2. Chain A coordinates first → establishes geometry
+    3. Chain B fills remaining sites → constrained by Chain A's geometry
+    4. Less crowding around metal → potentially better backbone distances
 
-    return _design_metal_ligand_joint(
-        complex_pdb=complex_pdb,
-        complex_info=complex_info,
-        coord_info=coord_info,
-        chain_length=chain_length,
-        num_designs=num_designs,
-        seed=seed,
-        chain_a_donors=chain_a_donors,
-        chain_b_donors=chain_b_donors,
-        coordination_split=[2, 2],
-        validate_coordination=True,
-        use_mock=use_mock,
-    )
+    Strategy:
+    - Chain A: Design around metal-ligand, expose metal for Chain B
+    - Chain B: Design around Chain A + metal-ligand, fill remaining coordination
+    """
+    print("[MetalLigandSequential] Starting sequential design approach")
+
+    # Get metal and ligand info from complex_info
+    metal = complex_info.metal_code if complex_info else "CA"
+    ligand_name = complex_info.ligand_res_name if complex_info else "PQQ"
+    metal_chain = complex_info.metal_chain if complex_info else "M"
+    metal_resnum = str(complex_info.metal_resnum) if complex_info else "1"
+    ligand_chain = complex_info.ligand_chain if complex_info else "L"
+    ligand_resnum = str(complex_info.ligand_resnum) if complex_info else "1"
+
+    # Parse chain length
+    length_parts = chain_length.split("-")
+    min_len = int(length_parts[0]) if len(length_parts) > 0 else 60
+    max_len = int(length_parts[1]) if len(length_parts) > 1 else 80
+
+    metal_chain_resnum = f"{metal_chain}{metal_resnum}"
+    ligand_chain_resnum = f"{ligand_chain}{ligand_resnum}"
+
+    print(f"[MetalLigandSequential] Metal: {metal} at {metal_chain_resnum}")
+    print(f"[MetalLigandSequential] Ligand: {ligand_name} at {ligand_chain_resnum}")
+
+    designs = []
+    best_design_idx = 0
+    best_score = float('-inf')
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"\n[MetalLigandSequential] === Design {design_idx + 1}/{num_designs} ===")
+
+        # ============ STEP 1: Design Chain A ============
+        # Design Chain A around metal-ligand complex
+        # Use select_exposed on METAL to keep coordination sites open for Chain B
+        print("[MetalLigandSequential] Step 1: Designing Chain A...")
+
+        # ============ Chain A: Simple single chain design ============
+        # SIMPLEST approach: just design a chain with the ligand as small molecule
+        # RFD3's ligand binding mode will naturally position the protein around the ligand
+        print(f"[MetalLigandSequential] Chain A: Simple ligand binding design")
+
+        if use_mock:
+            chain_a_result = {"status": "completed", "result": {"designs": [{"content": complex_pdb}]}}
+        else:
+            # Design single chain with ligand present
+            # Use ligand parameter to enable small molecule binding mode
+            chain_a_result = run_rfd3_inference(
+                length=f"{min_len}-{max_len}",  # Just chain length
+                pdb_content=complex_pdb,
+                num_designs=1,
+                seed=design_seed,
+                ligand=ligand_name,  # Tell RFD3 this is the ligand
+            )
+
+        if chain_a_result.get("status") != "completed":
+            print(f"[MetalLigandSequential] Chain A failed: {chain_a_result.get('error')}")
+            continue
+
+        chain_a_designs = chain_a_result.get("result", {}).get("designs", [])
+        if not chain_a_designs:
+            print("[MetalLigandSequential] Chain A produced no designs")
+            continue
+
+        chain_a_pdb = chain_a_designs[0].get("content") or chain_a_designs[0].get("pdb_content")
+        if not chain_a_pdb:
+            print("[MetalLigandSequential] Chain A: No PDB content")
+            continue
+
+        # Count Chain A backbone clashes with metal
+        chain_a_clashes = _count_backbone_metal_clashes(chain_a_pdb, metal)
+        print(f"[MetalLigandSequential] Chain A clashes: {chain_a_clashes}")
+
+        # ============ STEP 2: Design Chain B ============
+        # Design Chain B around Chain A + metal-ligand
+        # Chain B fills remaining coordination sites
+        print("[MetalLigandSequential] Step 2: Designing Chain B...")
+
+        # Relabel Chain A as chain A (ensure proper labeling)
+        chain_a_relabeled = _relabel_chain_atoms(chain_a_pdb, "A")
+
+        # Build combined PDB: Chain A + metal-ligand complex
+        combined_pdb = chain_a_relabeled
+
+        chain_b_config = {
+            "contig": f"A1-{_count_residues(chain_a_relabeled)},/0,{min_len}-{max_len}",
+            "pdb_content": combined_pdb,
+            "num_designs": 1,
+            "seed": (design_seed + 1000) if design_seed else None,
+        }
+
+        # Fix Chain A + metal + ligand
+        chain_a_residues = _get_residue_range(chain_a_relabeled, "A")
+        chain_b_config["select_fixed_atoms"] = {
+            f"A{chain_a_residues}": "ALL",  # Fix all of Chain A
+            metal_chain_resnum: "ALL",
+            ligand_chain_resnum: "ALL"
+        }
+
+        # Bury metal for Chain B (it needs to coordinate the metal)
+        chain_b_config["select_buried"] = {metal_chain_resnum: "ALL"}
+
+        # Hotspots: Chain B contacts metal
+        chain_b_config["hotspots"] = [metal_chain_resnum]
+
+        # H-bond conditioning for metal coordination
+        chain_b_config["select_hbond_acceptor"] = {metal_chain_resnum: "ALL"}
+
+        print(f"[MetalLigandSequential] Chain B config: bury metal, fix Chain A")
+
+        if use_mock:
+            chain_b_result = {"status": "completed", "result": {"designs": [{"content": combined_pdb}]}}
+        else:
+            chain_b_result = run_rfd3_inference(
+                contig=chain_b_config["contig"],
+                pdb_content=chain_b_config["pdb_content"],
+                num_designs=1,
+                seed=chain_b_config.get("seed"),
+                select_fixed_atoms=chain_b_config.get("select_fixed_atoms"),
+                select_buried=chain_b_config.get("select_buried"),
+                hotspots=chain_b_config.get("hotspots"),
+                select_hbond_acceptor=chain_b_config.get("select_hbond_acceptor"),
+            )
+
+        if chain_b_result.get("status") != "completed":
+            print(f"[MetalLigandSequential] Chain B failed: {chain_b_result.get('error')}")
+            continue
+
+        chain_b_designs = chain_b_result.get("result", {}).get("designs", [])
+        if not chain_b_designs:
+            print("[MetalLigandSequential] Chain B produced no designs")
+            continue
+
+        dimer_pdb = chain_b_designs[0].get("content") or chain_b_designs[0].get("pdb_content")
+        if not dimer_pdb:
+            print("[MetalLigandSequential] Chain B: No PDB content")
+            continue
+
+        # Count total backbone clashes
+        total_clashes = _count_backbone_metal_clashes(dimer_pdb, metal)
+        print(f"[MetalLigandSequential] Total dimer clashes: {total_clashes}")
+
+        # Run LigandMPNN for sequence design
+        # (Similar to joint approach)
+        print("[MetalLigandSequential] Running LigandMPNN...")
+
+        # Get HSAB bias for the metal
+        from metal_chemistry import get_hsab_bias
+        hsab_bias = get_hsab_bias(metal)
+        print(f"[MetalLigandSequential] HSAB bias: {hsab_bias}")
+
+        mpnn_result = run_ligandmpnn(
+            pdb_content=dimer_pdb,
+            bias_AA=hsab_bias,
+            num_sequences=1,
+            temperature=0.2,
+        )
+
+        if mpnn_result.get("status") == "completed":
+            mpnn_designs = mpnn_result.get("result", {}).get("designs", [])
+            if mpnn_designs:
+                dimer_pdb = mpnn_designs[0].get("pdb_content", dimer_pdb)
+                print(f"[MetalLigandSequential] LigandMPNN sequence applied")
+
+        # Calculate coordination score
+        coord_count = _count_metal_coordination(dimer_pdb, metal)
+        score = coord_count * 100 - total_clashes
+
+        print(f"[MetalLigandSequential] Design {design_idx + 1}: coordination={coord_count}, clashes={total_clashes}, score={score}")
+
+        design_entry = {
+            "pdb_content": dimer_pdb,
+            "design_index": design_idx,
+            "metrics": {
+                "coordination": coord_count,
+                "clashes": total_clashes,
+                "chain_a_clashes": chain_a_clashes,
+            }
+        }
+        designs.append(design_entry)
+
+        if score > best_score:
+            best_score = score
+            best_design_idx = len(designs) - 1
+
+    if not designs:
+        return {"status": "failed", "error": "No valid designs generated"}
+
+    return {
+        "status": "completed",
+        "result": {
+            "designs": designs,
+            "best_design_index": best_design_idx,
+        }
+    }
+
+
+def _count_backbone_metal_clashes(pdb_content: str, metal: str, threshold: float = 3.5) -> int:
+    """Count backbone atoms within threshold distance of metal."""
+    metal_pos = None
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name == metal:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_pos = (x, y, z)
+                    break
+                except:
+                    pass
+
+    if not metal_pos:
+        return 0
+
+    backbone = {'N', 'CA', 'C', 'O'}
+    clashes = 0
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            atom = line[12:16].strip()
+            if atom in backbone:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    dist = ((x-metal_pos[0])**2 + (y-metal_pos[1])**2 + (z-metal_pos[2])**2)**0.5
+                    if dist < threshold:
+                        clashes += 1
+                except:
+                    pass
+    return clashes
+
+
+def _count_residues(pdb_content: str) -> int:
+    """Count residues in PDB."""
+    residues = set()
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            chain = line[21]
+            resnum = line[22:26].strip()
+            residues.add(f"{chain}{resnum}")
+    return len(residues)
+
+
+def _get_residue_range(pdb_content: str, chain: str) -> str:
+    """Get residue range for a chain (e.g., '1-65')."""
+    resnums = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM') and line[21] == chain:
+            try:
+                resnum = int(line[22:26].strip())
+                resnums.append(resnum)
+            except:
+                pass
+    if resnums:
+        return f"{min(resnums)}-{max(resnums)}"
+    return "1-1"
+
+
+def _relabel_chain_atoms(pdb_content: str, new_chain: str) -> str:
+    """Relabel all ATOM records to a new chain ID."""
+    lines = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            line = line[:21] + new_chain + line[22:]
+        lines.append(line)
+    return '\n'.join(lines)
+
+
+def _count_metal_coordination(pdb_content: str, metal: str, threshold: float = 3.0) -> int:
+    """Count atoms coordinating the metal (within threshold)."""
+    metal_pos = None
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name == metal:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_pos = (x, y, z)
+                    break
+                except:
+                    pass
+
+    if not metal_pos:
+        return 0
+
+    # Coordinating atoms: carboxylate oxygens (OE1, OE2, OD1, OD2), imidazole N (NE2, ND1)
+    coord_atoms = {'OE1', 'OE2', 'OD1', 'OD2', 'NE2', 'ND1', 'SG'}
+    count = 0
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            atom = line[12:16].strip()
+            if atom in coord_atoms:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    dist = ((x-metal_pos[0])**2 + (y-metal_pos[1])**2 + (z-metal_pos[2])**2)**0.5
+                    if dist < threshold:
+                        count += 1
+                except:
+                    pass
+    return count
 
 
 def _translate_backbone_to_complex(

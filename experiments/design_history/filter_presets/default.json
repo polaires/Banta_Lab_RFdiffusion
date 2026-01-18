@@ -1,0 +1,28 @@
+{
+  "name": "default",
+  "description": "Standard thresholds for general design filtering",
+  "filters": {
+    "structure_confidence": {
+      "plddt": {"min": 0.8, "direction": "higher_better"},
+      "pae_mean": {"max": 10.0, "direction": "lower_better"}
+    },
+    "interface_quality": {
+      "shape_complementarity": {"min": 0.6, "direction": "higher_better"},
+      "dG": {"max": 0, "direction": "lower_better"},
+      "dSASA": {"min": 500, "direction": "higher_better"},
+      "interface_hbonds": {"min": 3, "direction": "higher_better"},
+      "unsatisfied_hbonds": {"max": 4, "direction": "lower_better"},
+      "surface_hydrophobicity": {"max": 0.35, "direction": "lower_better"}
+    },
+    "metal_coordination": {
+      "coordination_distance": {"max": 2.5, "direction": "lower_better"},
+      "hsab_compatible": {"equals": true}
+    },
+    "ligand_binding": {
+      "gnina_affinity": {"max": -6.0, "direction": "lower_better"}
+    },
+    "symmetry": {
+      "c2_score": {"min": 0.7, "direction": "higher_better"}
+    }
+  }
+}

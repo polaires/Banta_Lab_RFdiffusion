@@ -1,0 +1,20 @@
+{
+  "name": "metal_specific",
+  "description": "Optimized for metal coordination designs",
+  "filters": {
+    "structure_confidence": {
+      "plddt": {"min": 0.8, "direction": "higher_better"}
+    },
+    "metal_coordination": {
+      "coordination_distance": {"max": 2.5, "direction": "lower_better"},
+      "coordination_number": {"min": 4, "direction": "higher_better"},
+      "geometry_rmsd": {"max": 15.0, "direction": "lower_better"},
+      "hsab_compatible": {"equals": true},
+      "carboxylate_donors": {"min": 4, "direction": "higher_better"}
+    },
+    "tebl": {
+      "has_antenna": {"equals": true},
+      "predicted_efficiency": {"min": 0.3, "direction": "higher_better"}
+    }
+  }
+}

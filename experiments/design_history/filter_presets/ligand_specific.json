@@ -1,0 +1,20 @@
+{
+  "name": "ligand_specific",
+  "description": "Optimized for small molecule binding designs",
+  "filters": {
+    "structure_confidence": {
+      "plddt": {"min": 0.8, "direction": "higher_better"}
+    },
+    "ligand_binding": {
+      "gnina_affinity": {"max": -6.0, "direction": "lower_better"},
+      "gnina_cnn_score": {"min": 0.5, "direction": "higher_better"}
+    },
+    "interface_quality": {
+      "shape_complementarity": {"min": 0.6, "direction": "higher_better"},
+      "contacts": {"min": 10, "direction": "higher_better"}
+    },
+    "symmetry": {
+      "c2_score": {"min": 0.7, "direction": "higher_better"}
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "stringent",
+  "description": "High bar for final candidates",
+  "filters": {
+    "structure_confidence": {
+      "plddt": {"min": 0.85, "direction": "higher_better"},
+      "pae_mean": {"max": 6.0, "direction": "lower_better"}
+    },
+    "interface_quality": {
+      "shape_complementarity": {"min": 0.7, "direction": "higher_better"},
+      "dG": {"max": -10, "direction": "lower_better"},
+      "dSASA": {"min": 700, "direction": "higher_better"},
+      "interface_hbonds": {"min": 5, "direction": "higher_better"},
+      "unsatisfied_hbonds": {"max": 2, "direction": "lower_better"},
+      "surface_hydrophobicity": {"max": 0.30, "direction": "lower_better"}
+    },
+    "metal_coordination": {
+      "coordination_distance": {"max": 2.3, "direction": "lower_better"},
+      "hsab_compatible": {"equals": true}
+    },
+    "ligand_binding": {
+      "gnina_affinity": {"max": -8.0, "direction": "lower_better"}
+    },
+    "symmetry": {
+      "c2_score": {"min": 0.85, "direction": "higher_better"}
+    }
+  }
+}

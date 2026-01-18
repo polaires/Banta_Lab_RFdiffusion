@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
 import type { MetalCoordination } from '@/lib/metalAnalysis';
 import type { LigandData, PharmacophoreFeature } from '@/lib/ligandAnalysis';
+import { computeInteractionLines, type InteractionLine } from '@/lib/interactionGeometry';
 import { useStore } from '@/lib/store';
 
 // Types for Mol* that we'll import dynamically
@@ -267,6 +268,79 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       }
     }, [pdbContent, metalCoordination, focusSettings]);
 
+    // Render interaction lines as 3D cylinders
+    const renderInteractionLines = useCallback(async (lines: InteractionLine[]) => {
+      if (!globalPlugin || !globalStructureRef || lines.length === 0) return;
+
+      await loadMolstarModules();
+      const plugin = globalPlugin;
+
+      try {
+        // Clear existing interaction lines
+        const state = plugin.state.data;
+        const toRemove: string[] = [];
+        state.cells.forEach((cell: any, ref: string) => {
+          if (cell.obj?.label?.startsWith('interaction-line-')) {
+            toRemove.push(ref);
+          }
+        });
+        for (const ref of toRemove) {
+          await plugin.build().delete(ref).commit();
+        }
+
+        // Create shape provider for lines using Molstar's Shape API
+        const { Shape } = await import('molstar/lib/mol-model/shape');
+        const { MeshBuilder } = await import('molstar/lib/mol-geo/geometry/mesh/mesh-builder');
+        const { addCylinder } = await import('molstar/lib/mol-geo/geometry/mesh/builder/cylinder');
+        const { Vec3 } = await import('molstar/lib/mol-math/linear-algebra');
+        const { StateTransforms } = await import('molstar/lib/mol-plugin-state/transforms');
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const builderState = MeshBuilder.createState(256, 128);
+
+          // Convert array coordinates to Vec3
+          const startVec = Vec3.create(line.start[0], line.start[1], line.start[2]);
+          const endVec = Vec3.create(line.end[0], line.end[1], line.end[2]);
+
+          // Add cylinder from start to end
+          addCylinder(builderState, startVec, endVec, 0.08, {
+            radiusTop: 0.08,
+            radiusBottom: 0.08,
+          });
+
+          const mesh = MeshBuilder.getMesh(builderState);
+
+          // Create shape with color
+          const shape = Shape.create(
+            `interaction-line-${i}`,
+            {},
+            mesh,
+            () => Color(line.color),
+            () => 1,
+            () => `${line.label || line.type}`
+          );
+
+          // Add shape to scene using plugin's shape provider
+          const shapeData = await plugin.builders.data.rawData({
+            data: shape,
+            label: `interaction-line-${i}`,
+          });
+
+          await plugin.build()
+            .to(shapeData)
+            .apply(StateTransforms.Representation.ShapeRepresentation3D, {
+              alpha: 1,
+            })
+            .commit();
+        }
+
+        console.log(`[ProteinViewer] Rendered ${lines.length} interaction lines`);
+      } catch (err) {
+        console.error('[ProteinViewer] Failed to render interaction lines:', err);
+      }
+    }, []);
+
     // Focus on a ligand site
     const focusOnLigand = useCallback(async (index: number) => {
       if (!globalPlugin || !ligandData || !ligandData.ligandDetails[index]) return;
@@ -409,7 +483,24 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           });
         }
 
-        // 5. Focus camera
+        // 5. Render interaction lines if enabled
+        if (focusSettings.showInteractionLines && ligand.contacts.length > 0) {
+          const lineContacts = ligand.contacts.map(c => ({
+            ligandChain: ligand.chainId,
+            ligandResSeq: ligand.resSeq,
+            ligandAtom: c.atom,
+            proteinResidue: c.residue,
+            proteinChain: c.chain,
+            proteinAtom: c.atom,
+            interactionType: c.interactionType,
+            distance: c.distance,
+          }));
+
+          const lines = computeInteractionLines(pdbContent || '', lineContacts);
+          await renderInteractionLines(lines);
+        }
+
+        // 6. Focus camera
         const state = plugin.state.data;
         const cell = state.cells.get(structure.ref);
         if (cell?.obj?.data) {
@@ -427,7 +518,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       } catch (err) {
         console.error('[ProteinViewer] Failed to focus on ligand:', err);
       }
-    }, [pdbContent, ligandData, focusSettings]);
+    }, [pdbContent, ligandData, focusSettings, renderInteractionLines]);
 
     // Clear all pharmacophore representations
     const clearPharmacophores = useCallback(async () => {

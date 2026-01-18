@@ -288,7 +288,16 @@ def get_template_with_fallback(
     """
     template_key = template_name.lower()
 
-    # Priority 1: Try PDB database
+    # Priority 1: Library templates (curated with matching atom names)
+    # IMPORTANT: Library templates have coordination info (ligand_donors, etc.) that
+    # match our fallback PDB atom names. PDB-derived templates use CCD atom names
+    # which may differ, causing select_buried/hotspots to fail.
+    if template_key in METAL_LIGAND_COMPLEX_TEMPLATES:
+        template = dict(METAL_LIGAND_COMPLEX_TEMPLATES[template_key])
+        template["source"] = "library"
+        return template
+
+    # Priority 2: Try PDB database (for templates not in library)
     if template_key in KNOWN_COMPLEX_PDBS:
         complex_info = KNOWN_COMPLEX_PDBS[template_key]
 
@@ -305,12 +314,6 @@ def get_template_with_fallback(
                     return template
             except Exception as e:
                 continue
-
-    # Priority 2: Try library templates
-    if template_key in METAL_LIGAND_COMPLEX_TEMPLATES:
-        template = dict(METAL_LIGAND_COMPLEX_TEMPLATES[template_key])
-        template["source"] = "library"
-        return template
 
     # Priority 3: Calculated fallback
     if fallback_enabled and metal:

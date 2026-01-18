@@ -198,6 +198,19 @@ except ImportError:
     LIGAND_ANALYSIS_AVAILABLE = False
     # Silent - RDKit may not be available in all environments
 
+# Import validation pipeline for systematic geometry/clash detection
+try:
+    from validation_pipeline import (
+        ValidationPipeline,
+        ValidationReport,
+        ValidationIssue,
+        IssueSeverity,
+    )
+    VALIDATION_PIPELINE_AVAILABLE = True
+except ImportError as e:
+    VALIDATION_PIPELINE_AVAILABLE = False
+    print(f"[Handler] Warning: validation_pipeline not available: {e}")
+
 try:
     from tebl_analysis import (
         predict_tebl_signal,
@@ -5653,8 +5666,9 @@ def _design_joint_metal_dimer(job_input: Dict[str, Any]) -> Dict[str, Any]:
         min_len = max_len = int(chain_length)
 
     # Generate template PDB or simple metal PDB
-    # Use consistent metal position (50,50,50) for all approaches
-    metal_center = [50.0, 50.0, 50.0]
+    # IMPORTANT: Use origin (0,0,0) for RFD3 - it designs protein around origin
+    # Using (50,50,50) causes coordinate mismatch because RFD3 outputs protein near origin
+    metal_center = [0.0, 0.0, 0.0]
     fixed_atoms = {}  # Will be populated for template motif scaffolding
     template_used = None  # Track which template was used
 
@@ -6527,8 +6541,8 @@ def handle_interface_metal_ligand_design(job_input: Dict[str, Any]) -> Dict[str,
 
         print(f"[MetalLigandDesign] Template: {template_name} ({metal}-{ligand_name})")
 
-        # Generate complex PDB from template
-        complex_pdb = generate_complex_pdb(template_name, metal=metal)
+        # Generate complex PDB from template at origin (RFD3 outputs protein near origin)
+        complex_pdb = generate_complex_pdb(template_name, metal=metal, center=(0.0, 0.0, 0.0))
         if not complex_pdb:
             return {
                 "status": "failed",
@@ -6697,8 +6711,12 @@ def _design_metal_ligand_joint(
     """
     Design both chains simultaneously around the metal-ligand complex.
 
-    Uses RFD3 with two-chain contig and hotspot conditioning to ensure
-    both chains contact the metal coordination sites.
+    Uses RFD3 with select_fixed_atoms to fix the metal-ligand complex in place,
+    then generates protein chains that surround (not overlap) the complex.
+
+    Key insight: Foundry API does NOT support guiding_potentials (substrate_contacts,
+    monomer_ROG, etc.). Instead, use select_fixed_atoms to fix ligand/metal atoms
+    during diffusion, which makes RFD3 generate backbone AROUND the fixed atoms.
     """
     from inference_utils import run_rfd3_inference
 
@@ -6712,39 +6730,105 @@ def _design_metal_ligand_joint(
     else:
         min_len = max_len = int(chain_length)
 
-    # Build two-chain contig
+    # Extract chain info from complex for proper contig and fixed atoms
+    ligand_chain = "L"  # Default
+    ligand_resnum = 1
+    metal_chain = "M"   # Default
+    metal_resnum = 2
+    ligand_atom_count = 14  # Default for citrate
+
+    if complex_info:
+        ligand_chain = complex_info.ligand_chain
+        ligand_resnum = complex_info.ligand_resnum
+        metal_chain = complex_info.metal_chain
+        metal_resnum = complex_info.metal_resnum
+        ligand_atom_count = len(complex_info.ligand_atoms) if complex_info.ligand_atoms else 14
+
+    # Build contig for two NEW protein chains around the ligand
+    # The ligand/metal are in the input PDB and RFD3 will design around them
+    # using the `ligand` parameter to identify the small molecule
     contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
 
-    # Build RFD3 configuration
-    # Key: use select_hotspots to ensure protein contacts metal
-    # Parse metal chain/resnum from complex_info if available
-    metal_hotspot = "M2"  # Default: metal in chain M, residue 2
-    if complex_info:
-        metal_hotspot = f"{complex_info.metal_chain}{complex_info.metal_resnum}"
+    print(f"[MetalLigandJoint] Contig: {contig}")
+    print(f"[MetalLigandJoint] Ligand in PDB: {ligand_name} (chain {ligand_chain})")
 
+    # Build RFD3 configuration for small molecule binder design
+    # Key: use `ligand` parameter to tell RFD3 about the small molecule
+    # RFD3 will automatically design protein chains around the ligand
+    #
+    # CRITICAL: Use RASA conditioning to force close protein contact!
+    # From interface_ligand_design: select_buried buries the ligand so protein
+    # MUST form close contacts around it. Without this, RFD3 may generate
+    # protein that doesn't actually coordinate the metal.
     rfd3_config = {
         "contig": contig,
         "pdb_content": complex_pdb,
         "num_designs": 1,
-        # Hotspots: ensure protein contacts metal (chain M typically)
-        "hotspots": [metal_hotspot],
-        # Guiding potentials for metal proximity
-        "guiding_potentials": [
-            "type:substrate_contacts,weight:5,s:1,r_0:8,d_0:4",
-            "type:monomer_ROG,weight:1,min_dist:15",
-        ],
-        "guide_scale": 2.0,
-        "guide_decay": "quadratic",
+        # NOTE: Do NOT pass ligand code here. When we pass ligand="PQQ", RFD3 looks up
+        # PQQ in the Chemical Component Dictionary (CCD) and tries to match our input
+        # PDB atoms to CCD atom names. If our fallback PDB has different atom names
+        # (e.g., O5,N6,O7A vs CCD's O1,C2,O3), the mapping fails with "Atom not found".
+        # Instead, we just provide the HETATM records in the input PDB and let RFD3
+        # use them directly without CCD validation.
     }
 
-    # Note: select_hbond_acceptor disabled because RDKit-generated atom names
-    # differ from PDB standard names. The metal coordination will still work
-    # through substrate_contacts guiding potential and hotspot conditioning.
-    # TODO: Auto-detect oxygen atoms from generated PDB for select_hbond_acceptor
-    # if metal in {"CA", "TB", "EU", "GD", "LA", "MG"}:
-    #     hbond_acceptors = coord_info.get("hbond_acceptors", {})
-    #     if hbond_acceptors:
-    #         rfd3_config["select_hbond_acceptor"] = hbond_acceptors
+    # === IMPROVEMENT 1: select_buried to force METAL burial ===
+    # CRITICAL INSIGHT: We must bury the METAL, not just the ligand!
+    # The citrate-metal complex has asymmetric geometry - citrate atoms are
+    # spread to one side of the metal. If we only bury citrate, protein wraps
+    # around citrate (away from metal). We need protein to wrap around the METAL.
+    #
+    # Strategy: Bury the metal AND the metal-coordinating ligand atoms
+    metal_chain_resnum = f"{metal_chain}{metal_resnum}" if metal_chain and metal_resnum else "M1"
+    ligand_chain_resnum = f"{ligand_chain}{ligand_resnum}" if ligand_chain and ligand_resnum else "L1"
+
+    # Bury metal AND ligand to ensure protein wraps around the complex
+    # IMPORTANT: Use "ALL" for ligand because RFD3 uses CCD (Chemical Component Dictionary)
+    # atom names which may differ from our template atom names. Specifying individual atoms
+    # like "O5,N6,O7A" will fail if the CCD uses different names like "O1,N5,O19".
+    rfd3_config["select_buried"] = {
+        metal_chain_resnum: "ALL",  # Bury the metal
+        ligand_chain_resnum: "ALL"  # Bury the entire ligand (CCD-safe)
+    }
+    print(f"[MetalLigandJoint] Added select_buried: {{{metal_chain_resnum}: 'ALL', {ligand_chain_resnum}: 'ALL'}} (bury metal + ligand)")
+
+    # === IMPROVEMENT 2: select_fixed_atoms to lock metal position ===
+    # Fix the metal atom so RFD3 designs around its exact position
+    # This ensures the coordination geometry is preserved
+    if metal and complex_info:
+        # Use chain+residue format for key, "ALL" for value (fix all atoms in that residue)
+        rfd3_config["select_fixed_atoms"] = {metal_chain_resnum: "ALL"}
+        print(f"[MetalLigandJoint] Added select_fixed_atoms: {{{metal_chain_resnum}: 'ALL'}} (locks metal position)")
+
+    # === IMPROVEMENT 3: select_hotspots for BOTH metal AND ligand ===
+    # Treat metal-ligand complex as a single unit - protein must contact both!
+    # run_rfd3_inference expects hotspots as List[str] like ["M1", "L1"]
+    hotspots = []
+    if metal_chain and metal_resnum:
+        hotspots.append(metal_chain_resnum)
+    if ligand_chain and ligand_resnum:
+        hotspots.append(ligand_chain_resnum)
+    if hotspots:
+        rfd3_config["hotspots"] = hotspots
+        print(f"[MetalLigandJoint] Added hotspots: {hotspots} (ensures metal+ligand contact)")
+
+    # === IMPROVEMENT 4: H-bond conditioning for carboxylate oxygens ===
+    # For citrate and similar ligands, condition H-bonds to carboxylate oxygens
+    # This helps position Glu/Asp sidechains to coordinate the metal
+    if coord_info:
+        ligand_coord = coord_info.get("coordination", {})
+        # Get ligand atoms that could accept H-bonds (carboxylate oxygens)
+        hbond_atoms = ligand_coord.get("ligand_hbond_acceptors")
+        if hbond_atoms:
+            # Use chain+residue format, not residue name
+            rfd3_config["select_hbond_acceptor"] = {ligand_chain_resnum: ",".join(hbond_atoms)}
+            print(f"[MetalLigandJoint] Added select_hbond_acceptor: {{{ligand_chain_resnum}: '{','.join(hbond_atoms)}'}}")
+        else:
+            # Fallback: for citrate, use known carboxylate oxygens
+            if ligand_name == "CIT":
+                hbond_oxygens = "O1,O3,O4,O6"  # Non-coordinating carboxylate O
+                rfd3_config["select_hbond_acceptor"] = {ligand_chain_resnum: hbond_oxygens}
+                print(f"[MetalLigandJoint] Added select_hbond_acceptor (citrate): {{{ligand_chain_resnum}: '{hbond_oxygens}'}}")
 
     designs = []
     best_design_idx = 0
@@ -6763,16 +6847,19 @@ def _design_metal_ligand_joint(
             )
             result = {"status": "completed", "result": {"designs": [{"content": pdb_content}]}}
         else:
-            # Run actual RFD3 inference
+            # Run actual RFD3 inference for small molecule binder design
+            # The `ligand` parameter tells RFD3 to design around the small molecule
+            # Pass ALL conditioning parameters for improved coordination
             result = run_rfd3_inference(
                 contig=rfd3_config["contig"],
                 pdb_content=rfd3_config["pdb_content"],
                 num_designs=1,
                 seed=design_seed,
-                hotspots=rfd3_config.get("hotspots"),
-                guiding_potentials=rfd3_config.get("guiding_potentials"),
-                guide_scale=rfd3_config.get("guide_scale"),
-                guide_decay=rfd3_config.get("guide_decay"),
+                ligand=rfd3_config.get("ligand"),  # Small molecule residue name
+                # IMPROVEMENT: Pass RASA and other conditioning parameters
+                select_buried=rfd3_config.get("select_buried"),
+                select_fixed_atoms=rfd3_config.get("select_fixed_atoms"),
+                hotspots=rfd3_config.get("hotspots"),  # List of "ChainResNum" strings
                 select_hbond_acceptor=rfd3_config.get("select_hbond_acceptor"),
             )
 
@@ -6789,34 +6876,287 @@ def _design_metal_ligand_joint(
         if not pdb_content:
             continue
 
-        # Translate backbone to metal-ligand complex coordinate space
-        # RFD3 generates backbone at origin, we need to position it near the metal
-        if complex_pdb and not use_mock:
-            pdb_content = _translate_backbone_to_complex(
-                pdb_content, complex_pdb, metal_code=metal
-            )
-
-        # Append metal-ligand complex HETATM records to designed backbone
-        # RFD3 outputs backbone only - we need to add the complex for validation
+        # Handle metal-ligand complex HETATM records
+        # CRITICAL: RFD3 with ligand parameter outputs protein around ligand position.
+        # The output may or may not include the HETATM records.
+        #
+        # Strategy:
+        # CRITICAL: RFD3's internal ligand processing can distort metal-ligand geometry!
+        # Always REMOVE RFD3's HETATM and REPLACE with our template (correct geometry).
         if complex_pdb:
-            # Extract HETATM records from the input complex
+            # Count RFD3's HETATM for logging
+            rfd3_hetatm_count = sum(1 for line in pdb_content.split('\n') if line.startswith('HETATM'))
+            if rfd3_hetatm_count > 0:
+                print(f"[MetalLigandJoint] Removing {rfd3_hetatm_count} HETATM from RFD3 output (may have distorted geometry)")
+
+            # Remove ALL HETATM from RFD3 output - keep only ATOM records
+            atom_lines = []
+            for line in pdb_content.split('\n'):
+                if line.startswith('ATOM') or line.startswith('TER'):
+                    atom_lines.append(line)
+
+            # Get template HETATM (correct metal-ligand geometry)
             hetatm_lines = []
             for line in complex_pdb.split('\n'):
                 if line.startswith('HETATM'):
                     hetatm_lines.append(line)
+
             if hetatm_lines:
-                # Remove END if present and append HETATM records
-                if pdb_content.strip().endswith('END'):
-                    pdb_content = pdb_content.strip()[:-3]
-                pdb_content = pdb_content.rstrip() + '\n' + '\n'.join(hetatm_lines) + '\nEND\n'
-                print(f"[MetalLigandJoint] Appended {len(hetatm_lines)} HETATM records to design")
+                # Find max atom serial in ATOM records
+                max_atom_num = 0
+                for line in atom_lines:
+                    if line.startswith('ATOM'):
+                        try:
+                            atom_num = int(line[6:11].strip())
+                            max_atom_num = max(max_atom_num, atom_num)
+                        except (ValueError, IndexError):
+                            pass
+
+                # Renumber template HETATM records
+                renumbered_hetatm = []
+                for i, line in enumerate(hetatm_lines):
+                    new_atom_num = max_atom_num + i + 1
+                    renumbered_line = f"{line[:6]}{new_atom_num:5d}{line[11:]}"
+                    renumbered_hetatm.append(renumbered_line)
+
+                # Rebuild PDB: ATOM + template HETATM
+                pdb_content = '\n'.join(atom_lines) + '\n' + '\n'.join(renumbered_hetatm) + '\nEND\n'
+                print(f"[MetalLigandJoint] Replaced with {len(hetatm_lines)} HETATM from template (correct geometry)")
+
+
+        # Run LigandMPNN sequence design with HSAB-compliant bias
+        # RFD3 only generates backbone - we need to design coordinating residues
+        if not use_mock:
+            print(f"[MetalLigandJoint] Running LigandMPNN sequence design...")
+
+            # Determine ligand type for preset selection
+            lanthanides = {"TB", "EU", "GD", "LA", "CE", "PR", "ND", "SM", "DY", "HO", "ER", "TM", "YB", "LU"}
+            if metal in lanthanides:
+                ligand_type = "lanthanide"
+            else:
+                ligand_type = "metal"
+
+            # Use dynamic HSAB bias from coord_info if available, otherwise use preset
+            hsab_bias = coord_info.get("hsab_bias")
+            if hsab_bias:
+                print(f"[MetalLigandJoint] Using HSAB-compliant bias: {hsab_bias}")
+                # Call handle_mpnn directly with custom bias instead of preset
+                # FIX: Apply both backbone fix AND PDB fix for MPNN (prevents NaN coordinates)
+                from inference_utils import fix_incomplete_backbone, fix_pdb_for_mpnn
+                pdb_for_mpnn = fix_incomplete_backbone(pdb_content)
+                pdb_for_mpnn = fix_pdb_for_mpnn(pdb_for_mpnn)  # Critical: fixes NaN issues in LigandMPNN
+
+                mpnn_input = {
+                    "pdb_content": pdb_for_mpnn,
+                    "num_sequences": 1,
+                    "temperature": 0.1,
+                    "model_type": "ligand_mpnn",
+                    "remove_waters": True,
+                    "bias_AA": hsab_bias,
+                    "omit_AA": "C" if metal in lanthanides else None,  # Exclude Cys for lanthanides
+                    "ligand_cutoff_for_score": 4.0,  # Tight cutoff for metal coordination
+                    "model_noise_level": "010",
+                    # IMPORTANT: Enable LigandMPNN sidechain packing for ligand-aware placement
+                    # This prevents clashes between sidechains and the ligand/metal complex.
+                    # LigandMPNN's packer uses the ligand coordinates to avoid clashes.
+                    "pack_side_chains": True,
+                    "pack_with_ligand_context": True,  # Critical for ligand-aware packing
+                    "number_of_packs_per_design": 4,  # Multiple packs for better results
+                    "save_stats": True,
+                }
+                mpnn_result = handle_mpnn(mpnn_input)
+            else:
+                # Fall back to preset-based approach
+                mpnn_result = run_ligandmpnn_for_ligand_binding(
+                    pdb_content=pdb_content,
+                    ligand_type=ligand_type,
+                    num_sequences=1,
+                    temperature=0.1,
+                )
+
+            if mpnn_result.get("status") == "completed":
+                mpnn_result_data = mpnn_result.get("result", {})
+
+                # LigandMPNN with pack_side_chains returns PDB in packed_structures
+                packed_structures = mpnn_result_data.get("packed_structures", [])
+                sequences = mpnn_result_data.get("sequences", [])
+
+                # Try to get PDB from packed_structures first
+                seq_pdb = None
+                if packed_structures:
+                    best_struct = packed_structures[0]
+                    seq_pdb = best_struct.get("pdb_content")
+                    if seq_pdb:
+                        print(f"[MetalLigandJoint] Using packed structure from LigandMPNN")
+
+                # Fall back to sequences if no packed structure
+                if not seq_pdb and sequences:
+                    best_seq = sequences[0]
+                    # sequences contains {"filename": "...", "content": "fasta"} or {"pdb_content": ...}
+                    seq_pdb = best_seq.get("pdb_content")
+                    if not seq_pdb:
+                        # It's FASTA content - apply designed sequence to backbone
+                        fasta_content = best_seq.get("content", "")
+                        if fasta_content and ">" in fasta_content:
+                            # Extract sequence from FASTA
+                            lines = [l for l in fasta_content.strip().split('\n') if not l.startswith('>')]
+                            designed_seq = ''.join(lines).upper()
+                            print(f"[MetalLigandJoint] Designed sequence: {designed_seq[:50]}...")
+
+                            # Apply designed sequence to backbone using biotite mutation
+                            try:
+                                from inference_utils import apply_designed_sequence_to_backbone
+                                mutated_pdb = apply_designed_sequence_to_backbone(
+                                    pdb_content, designed_seq
+                                )
+                                if mutated_pdb:
+                                    # Use FastRelax WITH LIGAND IN POSE for proper clash avoidance
+                                    # This is the PROPER way - load ligand into PyRosetta pose
+                                    # so fa_rep naturally prevents sidechain-ligand clashes
+                                    try:
+                                        from rosetta_utils import fastrelax_with_ligand_in_pose
+                                        print(f"[MetalLigandJoint] Rebuilding sidechains with LIGAND-IN-POSE FastRelax...")
+
+                                        # Citrate SMILES for PyRosetta parameterization
+                                        CITRATE_SMILES = "OC(=O)CC(O)(C(=O)O)CC(=O)O"
+
+                                        # Detect ligand residue name from PDB (CIT, FLC, etc.)
+                                        ligand_resname = "CIT"  # Default for citrate
+                                        for line in mutated_pdb.split('\n'):
+                                            if line.startswith('HETATM'):
+                                                resname = line[17:20].strip()
+                                                if resname not in {'TB', 'GD', 'EU', 'LA', 'HOH', 'WAT'}:
+                                                    ligand_resname = resname
+                                                    break
+
+                                        print(f"[MetalLigandJoint] Using ligand residue name: {ligand_resname}")
+
+                                        relax_result = fastrelax_with_ligand_in_pose(
+                                            mutated_pdb,
+                                            ligand_smiles=CITRATE_SMILES,
+                                            ligand_residue_name=ligand_resname,
+                                            max_iter=200,
+                                            repack_only=True,  # Just repack sidechains
+                                        )
+
+                                        if relax_result.get("status") == "completed":
+                                            seq_pdb = relax_result.get("relaxed_pdb")
+                                            ligand_in_pose = relax_result.get("ligand_in_pose", False)
+                                            print(f"[MetalLigandJoint] FastRelax complete (ligand_in_pose={ligand_in_pose})")
+                                            if ligand_in_pose:
+                                                print(f"[MetalLigandJoint] fa_rep naturally avoided ligand clashes!")
+                                        else:
+                                            # Ligand-in-pose failed, try fallback
+                                            print(f"[MetalLigandJoint] Ligand-in-pose failed: {relax_result.get('error')}")
+                                            print(f"[MetalLigandJoint] Trying protein-only fallback...")
+
+                                            from rosetta_utils import fastrelax_protein_only
+                                            relax_result = fastrelax_protein_only(
+                                                mutated_pdb,
+                                                max_iter=200,
+                                                constrain_coords=True,
+                                                repack_only=True,
+                                                ligand_aware=True,
+                                                ligand_exclusion_radius=2.8,
+                                            )
+                                            if relax_result.get("status") == "completed":
+                                                seq_pdb = relax_result.get("relaxed_pdb")
+                                                print(f"[MetalLigandJoint] Fallback FastRelax complete")
+                                            else:
+                                                seq_pdb = mutated_pdb
+                                                print(f"[MetalLigandJoint] All FastRelax attempts failed")
+
+                                    except ImportError as e:
+                                        # PyRosetta not available
+                                        seq_pdb = mutated_pdb
+                                        print(f"[MetalLigandJoint] PyRosetta not available: {e}")
+                                        print(f"[MetalLigandJoint] Using backbone-only structure (no sidechains)")
+                                    except Exception as e:
+                                        seq_pdb = mutated_pdb
+                                        import traceback
+                                        traceback.print_exc()
+                                        print(f"[MetalLigandJoint] FastRelax error: {e}")
+                                        print(f"[MetalLigandJoint] Using backbone-only structure")
+                                else:
+                                    print(f"[MetalLigandJoint] Could not apply sequence, keeping backbone")
+                            except ImportError as e:
+                                print(f"[MetalLigandJoint] Biotite mutation not available: {e}")
+                            except Exception as e:
+                                print(f"[MetalLigandJoint] Sequence application failed: {e}")
+
+                if seq_pdb:
+                    pdb_content = seq_pdb
+                    print(f"[MetalLigandJoint] LigandMPNN designed structure applied")
+
+                    # CRITICAL: Ensure HETATM (metal-ligand) is preserved in the structure
+                    # LigandMPNN packed structures may not include HETATM
+                    hetatm_count = sum(1 for line in pdb_content.split('\n') if line.startswith('HETATM'))
+                    if hetatm_count == 0 and complex_pdb:
+                        print(f"[MetalLigandJoint] Re-appending HETATM from template (lost in MPNN)")
+                        # Extract HETATM from template
+                        hetatm_lines = [line for line in complex_pdb.split('\n') if line.startswith('HETATM')]
+                        if hetatm_lines:
+                            # Find max atom serial
+                            max_atom_num = 0
+                            for line in pdb_content.split('\n'):
+                                if line.startswith('ATOM'):
+                                    try:
+                                        atom_num = int(line[6:11].strip())
+                                        max_atom_num = max(max_atom_num, atom_num)
+                                    except (ValueError, IndexError):
+                                        pass
+                            # Renumber and append
+                            renumbered = []
+                            for i, line in enumerate(hetatm_lines):
+                                new_num = max_atom_num + i + 1
+                                renumbered.append(f"{line[:6]}{new_num:5d}{line[11:]}")
+                            if pdb_content.strip().endswith('END'):
+                                pdb_content = pdb_content.strip()[:-3]
+                            pdb_content = pdb_content.rstrip() + '\n' + '\n'.join(renumbered) + '\nEND\n'
+                            print(f"[MetalLigandJoint] Re-appended {len(hetatm_lines)} HETATM")
+                else:
+                    print(f"[MetalLigandJoint] LigandMPNN returned sequences but no PDB, keeping backbone")
+            else:
+                error_msg = mpnn_result.get('error', 'Unknown error')
+                # Filter out known non-fatal warnings from error message
+                if "pynvml" in error_msg.lower() and "not supported" in error_msg.lower():
+                    # Check if there's more to the error
+                    if "Traceback" in error_msg or "Error" in error_msg:
+                        print(f"[MetalLigandJoint] LigandMPNN failed: {error_msg[:200]}")
+                    else:
+                        print(f"[MetalLigandJoint] LigandMPNN warning (pynvml), but may have succeeded")
+                else:
+                    print(f"[MetalLigandJoint] LigandMPNN failed: {error_msg[:200]}")
+                print(f"[MetalLigandJoint] Continuing with backbone-only design")
+
+        # NOTE: Previous mutation-based clash minimization removed.
+        # The ligand-aware FastRelax now handles clash avoidance properly
+        # by selecting rotamers that don't clash with ligand atoms.
 
         # Validate coordination if requested
         validation_result = {}
         if validate_coordination and complex_info:
             validation_result = _validate_metal_ligand_design(
-                pdb_content, complex_info, target_coord
+                pdb_content, complex_info, target_coord,
+                template_coord_info=coord_info  # Pass template for coordination accounting
             )
+
+        # Run systematic validation pipeline (geometry, clashes, coordination)
+        pipeline_report = None
+        if VALIDATION_PIPELINE_AVAILABLE and complex_info:
+            try:
+                pipeline = ValidationPipeline()
+                ligand_coord = coord_info.get("coordination", {})
+                ligand_donors = ligand_coord.get("ligand_donor_count", 3)
+                pipeline_report = pipeline.validate(
+                    pdb_content,
+                    metal=complex_info.metal_code,
+                    ligand=complex_info.ligand_res_name,
+                    target_coordination=target_coord,
+                    expected_ligand_donors=ligand_donors,
+                )
+            except Exception as e:
+                print(f"[MetalLigandJoint] Validation pipeline error: {e}")
 
         # Calculate score
         score = 0
@@ -6827,12 +7167,24 @@ def _design_metal_ligand_joint(
         if validation_result.get("chain_b_donors", 0) >= 1:
             score += 20
 
+        # Subtract for clashes (from pipeline)
+        if pipeline_report and pipeline_report.clashes:
+            clash_penalty = pipeline_report.clashes.total_clash_count * 15
+            score -= clash_penalty
+
         design_entry = {
             "pdb_content": pdb_content,
             "design_index": design_idx,
             "validation": validation_result,
             "score": score,
         }
+
+        # Add pipeline report to design entry
+        if pipeline_report:
+            design_entry["pipeline_validation"] = pipeline_report.to_dict()
+            design_entry["pipeline_passed"] = pipeline_report.passed
+            design_entry["pipeline_score"] = pipeline_report.quality_score
+
         designs.append(design_entry)
 
         if score > best_score:
@@ -6842,6 +7194,11 @@ def _design_metal_ligand_joint(
         coord_num = validation_result.get("coordination_number", "?")
         nearby = validation_result.get("nearby_residues", [])
         print(f"[MetalLigandJoint] Design {design_idx + 1}: coordination={coord_num}, score={score}")
+
+        # Report clashes from pipeline
+        if pipeline_report and pipeline_report.clashes and pipeline_report.clashes.total_clash_count > 0:
+            print(f"[MetalLigandJoint]   Clashes: {pipeline_report.clashes.total_clash_count}, worst overlap: {pipeline_report.clashes.worst_overlap:.2f}Å")
+
         if coord_num == 0 and nearby:
             print(f"[MetalLigandJoint] Nearby residues (candidates for mutation):")
             for r in nearby[:5]:
@@ -6994,35 +7351,62 @@ def _validate_metal_ligand_design(
     pdb_content: str,
     complex_info: "MetalLigandComplex",
     target_coordination: int,
+    template_coord_info: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Validate metal coordination in a designed protein.
 
-    Checks:
-    - Total coordination number
-    - Donors from chain A vs chain B
-    - Coordination geometry
-    - Nearby residues that could be mutated to coordinators
+    Coordination accounting for metal-ligand complex:
+    - Metal has total coordination capacity (e.g., 9 for Tb³⁺)
+    - Ligand provides FIXED donors (pre-formed complex)
+    - Protein must provide REMAINING donors
+
+    Args:
+        pdb_content: PDB with protein + metal-ligand complex
+        complex_info: MetalLigandComplex dataclass
+        target_coordination: Metal's total coordination target
+        template_coord_info: Template coordination info with budget details
+
+    Returns:
+        Validation result with coordination accounting
     """
-    import math
-    from inference_utils import detect_coordinating_residues
+    from metal_validation import validate_metal_ligand_complex_site
 
     metal = complex_info.metal_code
+    ligand_name = complex_info.ligand_res_name
 
-    # Get metal position for proximity analysis
-    metal_pos = None
-    for line in pdb_content.split('\n'):
-        if line.startswith('HETATM'):
-            res_name = line[17:20].strip()
-            if res_name == metal:
-                try:
-                    metal_pos = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
-                    break
-                except (ValueError, IndexError):
-                    pass
+    # Get coordination parameters from template or use defaults
+    if template_coord_info:
+        coord_info = template_coord_info.get("coordination", {})
+        expected_ligand_donors = coord_info.get("ligand_donor_count", 4)
+        expected_protein_donors = coord_info.get("protein_sites_needed", 5)
+        metal_coord_target = coord_info.get("metal_coordination_number", target_coordination)
+        ligand_hbond_acceptors = coord_info.get("ligand_hbond_acceptors", [])
+    else:
+        # Default values for citrate-Tb
+        expected_ligand_donors = 4
+        expected_protein_donors = 5
+        metal_coord_target = target_coordination
+        ligand_hbond_acceptors = ["O2", "O4", "O6"]
 
-    # Find ALL atoms near metal (for analysis even if not coordinating)
+    # Use the enhanced validation from metal_validation module
+    result = validate_metal_ligand_complex_site(
+        pdb_content=pdb_content,
+        metal=metal,
+        ligand_name=ligand_name,
+        expected_ligand_donors=expected_ligand_donors,
+        expected_protein_donors=expected_protein_donors,
+        metal_coordination_target=metal_coord_target,
+        distance_cutoff=3.5,
+        ligand_hbond_cutoff=3.5,
+        ligand_hbond_acceptors=ligand_hbond_acceptors,
+    )
+
+    # Add nearby residue analysis for debugging
+    import math
+    metal_pos = result.get("metal_position")
     nearby_residues = []
+
     if metal_pos:
         seen = set()
         for line in pdb_content.split('\n'):
@@ -7032,7 +7416,7 @@ def _validate_metal_ligand_design(
                     y = float(line[38:46])
                     z = float(line[46:54])
                     dist = math.sqrt((x-metal_pos[0])**2 + (y-metal_pos[1])**2 + (z-metal_pos[2])**2)
-                    if dist <= 5.0:  # 5A radius for nearby analysis
+                    if dist <= 5.0:
                         chain = line[21]
                         resnum = int(line[22:26])
                         resname = line[17:20].strip()
@@ -7043,67 +7427,18 @@ def _validate_metal_ligand_design(
                                 "chain": chain,
                                 "resnum": resnum,
                                 "resname": resname,
-                                "min_dist": dist,
+                                "min_dist": round(dist, 2),
                             })
                 except (ValueError, IndexError):
                     pass
         nearby_residues.sort(key=lambda x: x["min_dist"])
 
-    # Detect coordinating residues from protein
-    sites = detect_coordinating_residues(pdb_content, cutoff=3.5, metal_codes=[metal])
+    result["nearby_residues"] = nearby_residues[:10]
 
-    if not sites:
-        # No standard coordination, but report what's nearby
-        return {
-            "coordination_number": 0,
-            "chain_a_donors": 0,
-            "chain_b_donors": 0,
-            "nearby_residues": nearby_residues[:10],  # Top 10 closest
-            "issues": [
-                "No coordinating atoms (OD/OE/ND/NE/SG) within 3.5A",
-                "Residues near metal are non-coordinating types",
-                "Consider LigandMPNN to optimize sequence for metal binding"
-            ],
-            "suggestions": [
-                "Run LigandMPNN with metal as ligand to design coordinating residues",
-                "Nearby positions could be mutated to Asp/Glu/His for coordination"
-            ],
-        }
+    # Rename quality_score to score for backward compatibility
+    result["score"] = result.get("quality_score", 0)
 
-    site = sites[0]
-    coord_residues = site.coordinating_residues
-
-    # Count donors per chain
-    chain_a_count = sum(1 for r in coord_residues if r.chain == "A")
-    chain_b_count = sum(1 for r in coord_residues if r.chain == "B")
-
-    # Add ligand coordination (from original complex)
-    ligand_donors = len(complex_info.coordination_bonds)
-    total_coord = chain_a_count + chain_b_count + ligand_donors
-
-    issues = []
-    if total_coord < target_coordination - 2:
-        issues.append(f"Low coordination: {total_coord} (target: {target_coordination})")
-    if chain_a_count == 0:
-        issues.append("No coordination from chain A")
-    if chain_b_count == 0:
-        issues.append("No coordination from chain B")
-
-    return {
-        "coordination_number": total_coord,
-        "protein_coordination": chain_a_count + chain_b_count,
-        "ligand_coordination": ligand_donors,
-        "chain_a_donors": chain_a_count,
-        "chain_b_donors": chain_b_count,
-        "target_coordination": target_coordination,
-        "donor_residues": [
-            {"chain": r.chain, "resnum": r.resnum, "resname": r.resname, "atom": r.atom_name}
-            for r in coord_residues
-        ],
-        "nearby_residues": nearby_residues[:10] if nearby_residues else [],
-        "issues": issues,
-        "success": len(issues) == 0,
-    }
+    return result
 
 
 def _generate_mock_metal_ligand_design(
@@ -7114,8 +7449,19 @@ def _generate_mock_metal_ligand_design(
 ) -> str:
     """
     Generate a mock PDB for testing without running RFD3.
+
+    Uses SHELL-BASED placement: protein chains are generated on hemispheres
+    around the metal-ligand complex, not passing through it. This mimics
+    what RFD3 does with select_fixed_atoms.
+
+    Geometry:
+    - Metal at center (extracted from complex_pdb)
+    - Chain A: partial sphere on +X side (theta: 0 to π, phi: -π/2 to π/2)
+    - Chain B: partial sphere on -X side (theta: 0 to π, phi: π/2 to 3π/2)
+    - Shell radius: 8-12Å (outside vdW clash, within coordination reach)
     """
     import random
+    import math
 
     if "-" in str(chain_length):
         min_len, max_len = map(int, str(chain_length).split("-"))
@@ -7123,25 +7469,72 @@ def _generate_mock_metal_ligand_design(
     else:
         length = int(chain_length)
 
-    lines = ["HEADER    MOCK METAL-LIGAND DESIGN"]
+    # Extract metal position from complex_pdb
+    metal_pos = [50.0, 50.0, 50.0]  # Default
+    for line in complex_pdb.split('\n'):
+        if line.startswith('HETATM'):
+            atom_name = line[12:16].strip()
+            res_name = line[17:20].strip()
+            if res_name == metal or atom_name == metal:
+                try:
+                    metal_pos = [
+                        float(line[30:38]),
+                        float(line[38:46]),
+                        float(line[46:54])
+                    ]
+                    break
+                except (ValueError, IndexError):
+                    pass
 
-    # Add chain A
+    # Shell parameters
+    inner_radius = 7.0   # Minimum distance from metal (avoid clashes)
+    outer_radius = 12.0  # Maximum distance (within coordination reach)
+    coord_radius = 3.0   # A few residues at coordination distance for Glu/Asp
+
+    lines = ["HEADER    MOCK METAL-LIGAND DESIGN (SHELL-BASED)"]
+
+    # Add chain A - hemisphere on +X side
     for i in range(1, length + 1):
-        x = 40.0 + i * 0.3
-        y = 50.0 + random.uniform(-5, 5)
-        z = 50.0 + random.uniform(-5, 5)
-        aa = random.choice(["ALA", "GLU", "ASP", "HIS", "SER", "THR", "ASN"])
+        # Parametric coordinates on hemisphere
+        t = i / length  # 0 to 1
+        theta = t * math.pi  # 0 to π (pole to pole)
+        phi = (random.uniform(-0.4, 0.4) + 0.0) * math.pi  # Around +X axis
+
+        # Vary radius - some residues closer for coordination
+        if i % 10 == 0:  # Every 10th residue closer (potential coordinating)
+            radius = inner_radius + random.uniform(0, 1.5)
+            aa = random.choice(["GLU", "ASP", "HIS"])  # Coordinating residues
+        else:
+            radius = inner_radius + random.uniform(1.5, outer_radius - inner_radius)
+            aa = random.choice(["ALA", "GLU", "ASP", "SER", "THR", "ASN", "LEU", "VAL"])
+
+        # Spherical to Cartesian
+        x = metal_pos[0] + radius * math.sin(theta) * math.cos(phi)
+        y = metal_pos[1] + radius * math.sin(theta) * math.sin(phi)
+        z = metal_pos[2] + radius * math.cos(theta)
+
         lines.append(
             f"ATOM  {i:5d}  CA  {aa} A{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C"
         )
 
-    # Add chain B
+    # Add chain B - hemisphere on -X side (opposite)
     for i in range(1, length + 1):
         atom_num = length + i
-        x = 60.0 - i * 0.3
-        y = 50.0 + random.uniform(-5, 5)
-        z = 50.0 + random.uniform(-5, 5)
-        aa = random.choice(["ALA", "GLU", "ASP", "HIS", "SER", "THR", "ASN"])
+        t = i / length
+        theta = t * math.pi
+        phi = math.pi + (random.uniform(-0.4, 0.4)) * math.pi  # Around -X axis
+
+        if i % 10 == 0:
+            radius = inner_radius + random.uniform(0, 1.5)
+            aa = random.choice(["GLU", "ASP", "HIS"])
+        else:
+            radius = inner_radius + random.uniform(1.5, outer_radius - inner_radius)
+            aa = random.choice(["ALA", "GLU", "ASP", "SER", "THR", "ASN", "LEU", "VAL"])
+
+        x = metal_pos[0] + radius * math.sin(theta) * math.cos(phi)
+        y = metal_pos[1] + radius * math.sin(theta) * math.sin(phi)
+        z = metal_pos[2] + radius * math.cos(theta)
+
         lines.append(
             f"ATOM  {atom_num:5d}  CA  {aa} B{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C"
         )

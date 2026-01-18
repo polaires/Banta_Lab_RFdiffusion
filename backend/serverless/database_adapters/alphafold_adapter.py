@@ -331,15 +331,25 @@ class AlphaFoldAdapter:
         """
         plddt_scores = []
         seen_residues = set()
+        skipped_lines = 0
 
         for line in pdb_content.split("\n"):
             # Only process ATOM records
             if not line.startswith("ATOM"):
                 continue
 
+            # Validate minimum line length for PDB ATOM records
+            if len(line) < 66:
+                skipped_lines += 1
+                logger.debug(f"Skipping PDB line: insufficient length ({len(line)} < 66)")
+                continue
+
             try:
-                # PDB format: columns 13-16 = atom name, 23-26 = residue number
-                # B-factor is in columns 61-66
+                # PDB format (1-indexed columns, converted to 0-indexed Python slices):
+                # Columns 13-16: atom name
+                # Column 22: chain identifier
+                # Columns 23-26: residue sequence number
+                # Columns 61-66: B-factor (pLDDT in AlphaFold)
                 atom_name = line[12:16].strip()
 
                 # Use CA atom for per-residue score
@@ -347,7 +357,8 @@ class AlphaFoldAdapter:
                     continue
 
                 # Get residue identifier (chain + residue number)
-                chain_id = line[21]
+                # Use slice notation for consistency and type safety
+                chain_id = line[21:22].strip()
                 res_num = line[22:26].strip()
                 res_key = f"{chain_id}_{res_num}"
 
@@ -363,7 +374,14 @@ class AlphaFoldAdapter:
 
             except (ValueError, IndexError) as e:
                 # Skip malformed lines
+                skipped_lines += 1
                 logger.debug(f"Skipping malformed PDB line: {e}")
                 continue
+
+        # Log warning if many lines were skipped
+        if skipped_lines > 0 and skipped_lines > len(plddt_scores) * 0.1:
+            logger.warning(
+                f"Skipped {skipped_lines} malformed PDB lines while extracting pLDDT scores"
+            )
 
         return plddt_scores

@@ -635,7 +635,9 @@ class StructureDiscovery:
         protein_type = None
 
         # Extract metal name
-        for name, code in METAL_NAMES.items():
+        # Sort by length descending for longest-match
+        sorted_metals = sorted(METAL_NAMES.items(), key=lambda x: len(x[0]), reverse=True)
+        for name, code in sorted_metals:
             if name in query_lower:
                 metal_code = code
                 break
@@ -644,13 +646,15 @@ class StructureDiscovery:
         if not metal_code:
             for code in get_all_metals():
                 # Match as whole word to avoid partial matches
-                pattern = rf'\b{code.lower()}\b'
+                pattern = rf'\b{re.escape(code.lower())}\b'
                 if re.search(pattern, query_lower):
                     metal_code = code
                     break
 
         # Extract ligand name
-        for name, code in LIGAND_NAMES.items():
+        # Sort by length descending for longest-match
+        sorted_ligands = sorted(LIGAND_NAMES.items(), key=lambda x: len(x[0]), reverse=True)
+        for name, code in sorted_ligands:
             if name in query_lower:
                 ligand_code = code
                 break
@@ -830,9 +834,12 @@ class StructureDiscovery:
 
             # Resolution score (lower is better, so invert)
             if result.resolution > 0:
-                score += max(0, 10 - result.resolution) * 5
+                # Clamp resolution to reasonable range (0-10 for scoring)
+                clamped_res = min(result.resolution, 10.0)
+                score += max(0, 10 - clamped_res) * 5
             else:
-                score += 10  # Default score if no resolution
+                # Unknown resolution gets modest bonus (less than 5Å)
+                score += 25
 
             # Source priority
             source_scores = {

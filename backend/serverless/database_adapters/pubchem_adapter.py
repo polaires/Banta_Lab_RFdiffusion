@@ -12,6 +12,7 @@ for protein design workflows.
 
 from typing import Dict, List, Optional, Any
 import logging
+from urllib.parse import quote
 
 # Graceful import of requests - may not be available in all environments
 try:
@@ -113,7 +114,8 @@ class PubChemAdapter:
 
         try:
             # First, search for CIDs by name
-            name_encoded = name.strip()
+            name_clean = name.strip()
+            name_encoded = quote(name_clean, safe='')
             url = f"{self.base_url}/compound/name/{name_encoded}/cids/JSON"
 
             response = requests.get(url, timeout=self.timeout)
@@ -160,6 +162,10 @@ class PubChemAdapter:
         """
         if not REQUESTS_AVAILABLE:
             logger.warning("requests library not available - returning None")
+            return None
+
+        if cid <= 0:
+            logger.warning(f"Invalid CID: {cid}")
             return None
 
         return self._get_compound_properties(cid)
@@ -226,7 +232,8 @@ class PubChemAdapter:
         try:
             # PubChem substructure search is asynchronous
             # First, submit the search and get a list key
-            smiles_encoded = smiles.strip()
+            smiles_clean = smiles.strip()
+            smiles_encoded = quote(smiles_clean, safe='')
             url = f"{self.base_url}/compound/substructure/smiles/{smiles_encoded}/cids/JSON"
 
             response = requests.get(url, timeout=self.timeout)
@@ -314,7 +321,7 @@ class PubChemAdapter:
         self,
         list_key: str,
         limit: int,
-        max_attempts: int = 10,
+        max_attempts: int = 5,
         poll_interval: float = 1.0,
     ) -> List[int]:
         """Poll for asynchronous substructure search results."""
@@ -331,6 +338,8 @@ class PubChemAdapter:
 
                 # Check if still waiting
                 if "Waiting" in data:
+                    # Exponential backoff: 1.0s, 1.5s, 2.25s, 3.375s, 5.0s
+                    poll_interval = min(1.0 * (1.5 ** attempt), 5.0)
                     time.sleep(poll_interval)
                     continue
 
@@ -341,6 +350,8 @@ class PubChemAdapter:
             except requests.RequestException as e:
                 logger.warning(f"PubChem poll attempt {attempt + 1} failed: {e}")
                 if attempt < max_attempts - 1:
+                    # Exponential backoff: 1.0s, 1.5s, 2.25s, 3.375s, 5.0s
+                    poll_interval = min(1.0 * (1.5 ** attempt), 5.0)
                     time.sleep(poll_interval)
                 continue
 

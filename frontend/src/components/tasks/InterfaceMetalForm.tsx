@@ -347,7 +347,6 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
       gamma_0: data.gamma0,
     };
 
-    // @ts-expect-error - extended fields for metal design
     request.metal_config = {
       coordination_split: [data.chainADonors, data.chainBDonors],
       geometry: data.targetGeometry === 'auto' ? metalProfile.geometry : data.targetGeometry,
@@ -359,31 +358,23 @@ export function InterfaceMetalForm({ onSubmit, isSubmitting, health }: TaskFormP
     // Lanthanide-specific
     if (isLanthanide) {
       if (data.useParametricMode) {
-        // @ts-expect-error - extended fields
         request.parametric = {
           coordination_number: data.paramCoordinationNumber,
           num_waters: data.paramNumWaters,
           bidentate_fraction: data.paramBidentateFraction,
         };
       } else if (data.useLegacyMode || data.templateName === 'legacy') {
-        // @ts-expect-error - extended fields
         request.template_type = data.templateType;
-        // @ts-expect-error - extended fields
         request.donor_residue = data.donorResidue;
-        // @ts-expect-error - extended fields
         request.use_motif_scaffolding = data.useMotifScaffolding;
       } else {
-        // @ts-expect-error - extended fields
         request.template_name = data.templateName;
       }
-      // @ts-expect-error - extended fields
       request.add_trp_antenna = data.addTrpAntenna;
-      // @ts-expect-error - extended fields
       request.validate_coordination = data.validateCoordination;
     }
 
     if (data.approach === 'bridging_metal' && data.secondMetal) {
-      // @ts-expect-error - extended fields
       request.metal_config.second_metal = data.secondMetal;
     }
 

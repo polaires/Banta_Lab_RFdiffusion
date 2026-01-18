@@ -15,7 +15,10 @@ References:
 - Holm RH et al. Structural and Functional Aspects of Metal Sites in Biology. Chem Rev 1996.
 """
 
+import logging
 from typing import Dict, List, Tuple, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -819,7 +822,7 @@ def _generate_ttp_positions() -> List[Tuple[float, float, float]]:
     # Trigonal prism: two triangular faces
     z_top = 0.5
     z_bot = -0.5
-    r_prism = math.sqrt(1 - z_top*z_top) * 0.866  # Scale for unit sphere
+    r_prism = math.sqrt(1 - z_top*z_top)  # Unit sphere radius at z_top
 
     # Top triangle
     for i in range(3):
@@ -1115,6 +1118,15 @@ def validate_coordination(
     metal = metal.upper()
     issues = []
 
+    if not positions:
+        return {
+            "valid": False,
+            "coordination_number": 0,
+            "issues": ["No coordinating positions provided"],
+            "distances": [],
+            "geometry_match": None,
+        }
+
     if metal not in METAL_DATABASE:
         return {
             "valid": False,
@@ -1147,6 +1159,9 @@ def validate_coordination(
     elif actual_cn > cn_range[1]:
         issues.append(f"coordination_number: {actual_cn} above maximum {cn_range[1]}")
 
+    if actual_cn > 9:
+        issues.append(f"Coordination number {actual_cn} exceeds common ranges (typical: 2-9)")
+
     # Check distances against expected ranges
     # Use O donor range as default (most common)
     bond_distances = metal_data.get("bond_distances", {}).get(default_ox, {})
@@ -1160,6 +1175,7 @@ def validate_coordination(
 
     # Default range if no specific data
     if min_dist == float('inf'):
+        logger.debug(f"Using default distance range for metal {metal}")
         min_dist = 1.8
         max_dist = 3.0
 

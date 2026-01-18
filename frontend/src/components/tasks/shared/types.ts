@@ -159,6 +159,13 @@ export interface RFD3Request extends BaseRFD3Request {
   ori_offset?: number[];  // Offset from ligand center [x, y, z]
   use_ori_token?: boolean;  // Whether to use ori_token positioning
 
+  // Interface metal ligand design
+  template_name?: string;  // Template name for predefined metal complexes
+  complex_pdb?: string;  // Custom PDB content for metal complex
+  ligand_name?: string;  // Custom ligand name
+  validate_coordination?: boolean;  // Validate coordination geometry
+  bias_AA?: string;  // HSAB bias amino acid string
+
   // Interface metal design (metal-coordinated dimer)
   metal?: string;  // Metal ion code (ZN, FE, CA, TB, etc.)
   coordination_split?: [number, number];  // [chain_a_donors, chain_b_donors]
@@ -168,6 +175,25 @@ export interface RFD3Request extends BaseRFD3Request {
   allow_waters?: boolean;  // Allow water molecules in coordination sphere
   bridging_metal?: string;  // Second metal for bridging designs
   enable_luminescence?: boolean;  // Enable luminescence for lanthanide designs
+
+  // Extended metal design fields
+  metal_config?: {
+    coordination_split: [number, number];
+    geometry: string;
+    chain_a_donors: string[];
+    chain_b_donors: string[];
+    include_waters: boolean;
+    second_metal?: string;
+  };
+  parametric?: {
+    coordination_number: number;
+    num_waters: number;
+    bidentate_fraction: number;
+  };
+  template_type?: string;  // Template type for legacy mode
+  donor_residue?: string;  // Donor residue for legacy mode
+  use_motif_scaffolding?: boolean;  // Use motif scaffolding
+  add_trp_antenna?: boolean;  // Add tryptophan antenna for lanthanides
 
   // Protein binder design specific fields
   target_pdb?: string;  // PDB content for target protein

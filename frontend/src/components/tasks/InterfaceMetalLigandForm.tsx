@@ -143,7 +143,7 @@ export function InterfaceMetalLigandForm({ onSubmit, isSubmitting, health }: Tas
     const request: RFD3Request = {
       task: 'interface_metal_ligand_design',
       approach: data.approach,
-      contig_str: data.chainLength + ',/0,' + data.chainLength,
+      contig: data.chainLength + ',/0,' + data.chainLength,
       num_designs: data.numDesigns,
       num_timesteps: data.numTimesteps,
       step_scale: data.stepScale,
@@ -165,8 +165,7 @@ export function InterfaceMetalLigandForm({ onSubmit, isSubmitting, health }: Tas
     }
 
     // Add coordination parameters
-    request.chain_a_donors = data.chainADonors;
-    request.chain_b_donors = data.chainBDonors;
+    request.coordination_split = [data.chainADonors, data.chainBDonors];
 
     // Add HSAB bias if enabled
     if (data.useHsabBias && data.customBiasAA) {

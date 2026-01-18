@@ -33,6 +33,10 @@ UNIPROT_ENTRY_ENDPOINT = "/uniprotkb"
 # Note: ft_binding includes metal binding sites; xref_pdb for PDB cross-references
 DEFAULT_QUERY_FIELDS = "accession,protein_name,organism_name,xref_pdb,sequence"
 
+# Default configuration
+DEFAULT_TIMEOUT = 30
+DEFAULT_RESULT_LIMIT = 20
+
 
 # =============================================================================
 # UNIPROT ADAPTER CLASS
@@ -59,7 +63,7 @@ class UniProtAdapter:
     def __init__(
         self,
         base_url: str = UNIPROT_BASE_URL,
-        timeout: int = 30,
+        timeout: int = DEFAULT_TIMEOUT,
     ):
         """
         Initialize the UniProt adapter.
@@ -76,7 +80,7 @@ class UniProtAdapter:
         function_query: str,
         organism: Optional[str] = None,
         reviewed_only: bool = True,
-        limit: int = 20,
+        limit: int = DEFAULT_RESULT_LIMIT,
     ) -> List[Dict[str, Any]]:
         """
         Search UniProt for proteins by function.
@@ -133,7 +137,7 @@ class UniProtAdapter:
         self,
         metal: str,
         organism: Optional[str] = None,
-        limit: int = 20,
+        limit: int = DEFAULT_RESULT_LIMIT,
     ) -> List[Dict[str, Any]]:
         """
         Search UniProt for proteins that bind a specific metal.
@@ -209,10 +213,10 @@ class UniProtAdapter:
             response = requests.get(url, params=params, timeout=self.timeout)
 
             if response.status_code == 404:
-                logger.warning(f"UniProt entry not found: {uniprot_id}")
+                logger.info(f"UniProt entry not found: {uniprot_id}")
                 return []
-
-            response.raise_for_status()
+            elif not response.ok:
+                response.raise_for_status()
 
             data = response.json()
             return self._parse_pdb_mappings(data)
@@ -253,10 +257,10 @@ class UniProtAdapter:
             response = requests.get(url, params=params, timeout=self.timeout)
 
             if response.status_code == 404:
-                logger.warning(f"UniProt entry not found: {uniprot_id}")
+                logger.info(f"UniProt entry not found: {uniprot_id}")
                 return []
-
-            response.raise_for_status()
+            elif not response.ok:
+                response.raise_for_status()
 
             data = response.json()
             return self._parse_metal_binding_sites(data)
@@ -296,10 +300,10 @@ class UniProtAdapter:
             response = requests.get(url, params=params, timeout=self.timeout)
 
             if response.status_code == 404:
-                logger.warning(f"UniProt entry not found: {uniprot_id}")
+                logger.info(f"UniProt entry not found: {uniprot_id}")
                 return None
-
-            response.raise_for_status()
+            elif not response.ok:
+                response.raise_for_status()
 
             data = response.json()
             return self._parse_sequence(data)

@@ -2,5 +2,6 @@
 from .metalpdb_adapter import MetalPDBAdapter
 from .uniprot_adapter import UniProtAdapter
 from .pubchem_adapter import PubChemAdapter
+from .alphafold_adapter import AlphaFoldAdapter
 
-__all__ = ["MetalPDBAdapter", "UniProtAdapter", "PubChemAdapter"]
+__all__ = ["MetalPDBAdapter", "UniProtAdapter", "PubChemAdapter", "AlphaFoldAdapter"]

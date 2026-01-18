@@ -6,8 +6,24 @@ import type { LigandData, PharmacophoreFeature } from '@/lib/ligandAnalysis';
 import { computeInteractionLines, type InteractionLine } from '@/lib/interactionGeometry';
 import { useStore } from '@/lib/store';
 
-// Types for Mol* that we'll import dynamically
-type PluginUIContext = any;
+// Import expression helpers from new modules
+import {
+  WATER_EXPRESSION,
+  POLYMER_EXPRESSION,
+  NON_POLYMER_EXPRESSION,
+  residueExpression,
+  surroundingsExpression,
+  exceptExpression,
+  intersectExpression,
+} from '@/lib/molstar-expressions';
+import { renderInteractionLinesBatched } from '@/lib/molstar-shapes';
+
+// Mol* imports - static imports for core utilities
+import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context';
+import { MolScriptBuilder as MS } from 'molstar/lib/mol-script/language/builder';
+import { Script } from 'molstar/lib/mol-script/script';
+import { StructureSelection } from 'molstar/lib/mol-model/structure';
+import { Color } from 'molstar/lib/mol-util/color';
 type StateObjectRef = any;
 
 interface ProteinViewerClientProps {
@@ -42,38 +58,13 @@ export interface ProteinViewerHandle {
 }
 
 // Global state for Molstar plugin - persists across component remounts
+// These are kept as globals to support the singleton plugin pattern
 let globalPlugin: PluginUIContext | null = null;
 let globalInitPromise: Promise<any> | null = null;
 let globalContainer: HTMLDivElement | null = null;
 let globalStructureRef: StateObjectRef | null = null;
 let globalErrorHandler: ((event: ErrorEvent) => void) | null = null;
 let globalUnhandledRejectionHandler: ((event: PromiseRejectionEvent) => void) | null = null;
-
-// Mol* imports (loaded dynamically)
-let MS: any = null;
-let Script: any = null;
-let StructureSelection: any = null;
-let Color: any = null;
-let Structure: any = null;
-
-// Load Mol* modules
-async function loadMolstarModules() {
-  if (MS) return; // Already loaded
-
-  const [msModule, scriptModule, selectionModule, colorModule, structureModule] = await Promise.all([
-    import('molstar/lib/mol-script/language/builder'),
-    import('molstar/lib/mol-script/script'),
-    import('molstar/lib/mol-model/structure'),
-    import('molstar/lib/mol-util/color'),
-    import('molstar/lib/mol-model/structure'),
-  ]);
-
-  MS = msModule.MolScriptBuilder;
-  Script = scriptModule.Script;
-  StructureSelection = selectionModule.StructureSelection;
-  Color = colorModule.Color;
-  Structure = structureModule.Structure;
-}
 
 export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewerClientProps>(
   function ProteinViewerClient(
@@ -108,7 +99,6 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
     const focusOnMetal = useCallback(async (index: number) => {
       if (!globalPlugin || !metalCoordination || !metalCoordination[index]) return;
 
-      await loadMolstarModules();
       const plugin = globalPlugin;
       const metal = metalCoordination[index];
 
@@ -132,29 +122,18 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         const structure = await plugin.builders.structure.createStructure(model);
         globalStructureRef = structure.ref;
 
-        // Build metal selection expression
-        const metalExpression = MS.struct.generator.atomGroups({
-          'residue-test': MS.core.logic.and([
-            MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), metal.resName]),
-            MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), metal.chainId]),
-            MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), metal.resSeq]),
-          ])
-        });
+        // Build metal selection expression using helper
+        const metalExpression = residueExpression(metal.resName, metal.chainId, metal.resSeq);
 
         // Coordination sphere (residues within radius + 2A margin)
-        const coordSphereExpression = MS.struct.modifier.includeSurroundings({
-          0: metalExpression,
-          radius: focusSettings.coordinationRadius + 2.0,
-          'as-whole-residues': true
-        });
+        const coordSphereExpression = surroundingsExpression(
+          metalExpression,
+          focusSettings.coordinationRadius + 2.0,
+          true
+        );
 
         // Rest of protein (excluding coordination sphere)
-        const proteinExpression = MS.struct.modifier.exceptBy({
-          0: MS.struct.generator.atomGroups({
-            'entity-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.entityType(), 'polymer'])
-          }),
-          by: coordSphereExpression
-        });
+        const proteinExpression = exceptExpression(POLYMER_EXPRESSION, coordSphereExpression);
 
         // 1. Metal ion - large purple spacefill
         const metalComp = await plugin.builders.structure.tryCreateComponentFromExpression(
@@ -172,21 +151,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         }
 
         // 2. Coordination sphere - ball-and-stick with element colors
-        const coordWithoutMetal = MS.struct.modifier.exceptBy({
-          0: coordSphereExpression,
-          by: metalExpression
-        });
+        const coordWithoutMetal = exceptExpression(coordSphereExpression, metalExpression);
 
         // Exclude waters for cleaner view
-        const coordProteinExpression = MS.struct.modifier.exceptBy({
-          0: coordWithoutMetal,
-          by: MS.struct.generator.atomGroups({
-            'residue-test': MS.core.logic.or([
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT'])
-            ])
-          })
-        });
+        const coordProteinExpression = exceptExpression(coordWithoutMetal, WATER_EXPRESSION);
 
         const coordComp = await plugin.builders.structure.tryCreateComponentFromExpression(
           structure.ref,
@@ -211,15 +179,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 3. Coordinating waters - conditionally rendered
         if (focusSettings.showWaters) {
-          const waterExpression = MS.struct.modifier.intersectBy({
-            0: coordWithoutMetal,
-            by: MS.struct.generator.atomGroups({
-              'residue-test': MS.core.logic.or([
-                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
-                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT'])
-              ])
-            })
-          });
+          const waterExpression = intersectExpression(coordWithoutMetal, WATER_EXPRESSION);
           const waterComp = await plugin.builders.structure.tryCreateComponentFromExpression(
             structure.ref,
             waterExpression,
@@ -268,84 +228,16 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       }
     }, [pdbContent, metalCoordination, focusSettings]);
 
-    // Render interaction lines as 3D cylinders
+    // Render interaction lines as 3D cylinders using batched renderer
     const renderInteractionLines = useCallback(async (lines: InteractionLine[]) => {
-      if (!globalPlugin || !globalStructureRef || lines.length === 0) return;
-
-      await loadMolstarModules();
-      const plugin = globalPlugin;
-
-      try {
-        // Clear existing interaction lines
-        const state = plugin.state.data;
-        const toRemove: string[] = [];
-        state.cells.forEach((cell: any, ref: string) => {
-          if (cell.obj?.label?.startsWith('interaction-line-')) {
-            toRemove.push(ref);
-          }
-        });
-        for (const ref of toRemove) {
-          await plugin.build().delete(ref).commit();
-        }
-
-        // Create shape provider for lines using Molstar's Shape API
-        const { Shape } = await import('molstar/lib/mol-model/shape');
-        const { MeshBuilder } = await import('molstar/lib/mol-geo/geometry/mesh/mesh-builder');
-        const { addCylinder } = await import('molstar/lib/mol-geo/geometry/mesh/builder/cylinder');
-        const { Vec3 } = await import('molstar/lib/mol-math/linear-algebra');
-        const { StateTransforms } = await import('molstar/lib/mol-plugin-state/transforms');
-
-        for (let i = 0; i < lines.length; i++) {
-          const line = lines[i];
-          const builderState = MeshBuilder.createState(256, 128);
-
-          // Convert array coordinates to Vec3
-          const startVec = Vec3.create(line.start[0], line.start[1], line.start[2]);
-          const endVec = Vec3.create(line.end[0], line.end[1], line.end[2]);
-
-          // Add cylinder from start to end
-          addCylinder(builderState, startVec, endVec, 0.08, {
-            radiusTop: 0.08,
-            radiusBottom: 0.08,
-          });
-
-          const mesh = MeshBuilder.getMesh(builderState);
-
-          // Create shape with color
-          const shape = Shape.create(
-            `interaction-line-${i}`,
-            {},
-            mesh,
-            () => Color(line.color),
-            () => 1,
-            () => `${line.label || line.type}`
-          );
-
-          // Add shape to scene using plugin's shape provider
-          const shapeData = await plugin.builders.data.rawData({
-            data: shape,
-            label: `interaction-line-${i}`,
-          });
-
-          await plugin.build()
-            .to(shapeData)
-            .apply(StateTransforms.Representation.ShapeRepresentation3D, {
-              alpha: 1,
-            })
-            .commit();
-        }
-
-        console.log(`[ProteinViewer] Rendered ${lines.length} interaction lines`);
-      } catch (err) {
-        console.error('[ProteinViewer] Failed to render interaction lines:', err);
-      }
+      if (!globalPlugin || lines.length === 0) return;
+      await renderInteractionLinesBatched(globalPlugin, lines, { radius: 0.08 });
     }, []);
 
     // Focus on a ligand site
     const focusOnLigand = useCallback(async (index: number) => {
       if (!globalPlugin || !ligandData || !ligandData.ligandDetails[index]) return;
 
-      await loadMolstarModules();
       const plugin = globalPlugin;
       const ligand = ligandData.ligandDetails[index];
 
@@ -369,29 +261,18 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         const structure = await plugin.builders.structure.createStructure(model);
         globalStructureRef = structure.ref;
 
-        // Build ligand selection expression
-        const ligandExpression = MS.struct.generator.atomGroups({
-          'residue-test': MS.core.logic.and([
-            MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), ligand.name]),
-            MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_asym_id(), ligand.chainId]),
-            MS.core.rel.eq([MS.struct.atomProperty.macromolecular.auth_seq_id(), ligand.resSeq]),
-          ])
-        });
+        // Build ligand selection expression using helper
+        const ligandExpression = residueExpression(ligand.name, ligand.chainId, ligand.resSeq);
 
         // Binding site (residues within configurable radius)
-        const bindingSiteExpression = MS.struct.modifier.includeSurroundings({
-          0: ligandExpression,
-          radius: focusSettings.bindingPocketRadius,
-          'as-whole-residues': true
-        });
+        const bindingSiteExpression = surroundingsExpression(
+          ligandExpression,
+          focusSettings.bindingPocketRadius,
+          true
+        );
 
         // Rest of protein
-        const proteinExpression = MS.struct.modifier.exceptBy({
-          0: MS.struct.generator.atomGroups({
-            'entity-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.entityType(), 'polymer'])
-          }),
-          by: bindingSiteExpression
-        });
+        const proteinExpression = exceptExpression(POLYMER_EXPRESSION, bindingSiteExpression);
 
         // 1. Ligand - ball-and-stick with green carbons for visibility
         const ligandComp = await plugin.builders.structure.tryCreateComponentFromExpression(
@@ -409,21 +290,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         }
 
         // 2. Binding site residues
-        const siteWithoutLigand = MS.struct.modifier.exceptBy({
-          0: bindingSiteExpression,
-          by: ligandExpression
-        });
+        const siteWithoutLigand = exceptExpression(bindingSiteExpression, ligandExpression);
 
         // Exclude waters
-        const siteProteinExpression = MS.struct.modifier.exceptBy({
-          0: siteWithoutLigand,
-          by: MS.struct.generator.atomGroups({
-            'residue-test': MS.core.logic.or([
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
-              MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT'])
-            ])
-          })
-        });
+        const siteProteinExpression = exceptExpression(siteWithoutLigand, WATER_EXPRESSION);
 
         const siteComp = await plugin.builders.structure.tryCreateComponentFromExpression(
           structure.ref,
@@ -446,15 +316,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 3. Binding site waters - conditionally rendered
         if (focusSettings.showWaters) {
-          const waterExpression = MS.struct.modifier.intersectBy({
-            0: siteWithoutLigand,
-            by: MS.struct.generator.atomGroups({
-              'residue-test': MS.core.logic.or([
-                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'HOH']),
-                MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_comp_id(), 'WAT'])
-              ])
-            })
-          });
+          const waterExpression = intersectExpression(siteWithoutLigand, WATER_EXPRESSION);
           const waterComp = await plugin.builders.structure.tryCreateComponentFromExpression(
             structure.ref,
             waterExpression,
@@ -556,7 +418,6 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         return;
       }
 
-      await loadMolstarModules();
       const plugin = globalPlugin;
 
       try {
@@ -819,9 +680,6 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             wrapInteractivityMethod(labels, 'markOnlyExtend', 'LabelExtend');
           }
 
-          // Load Mol* modules for focus functions
-          await loadMolstarModules();
-
           return plugin;
         } catch (err) {
           console.error('[ProteinViewer] Failed to initialize Molstar:', err);
@@ -857,9 +715,6 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           console.log('[ProteinViewer] Clearing existing structures...');
           await globalPlugin.clear();
 
-          // Load Mol* modules for custom representation
-          await loadMolstarModules();
-
           const isCif = pdbContent.trimStart().startsWith('data_');
           const format = isCif ? 'mmcif' : 'pdb';
           const extension = isCif ? 'cif' : 'pdb';
@@ -882,12 +737,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
           // Create polymer component and add cartoon representation
           try {
-            // Get polymer component
+            // Get polymer component using expression constant
             const polymerComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
               structure.ref,
-              MS.struct.generator.atomGroups({
-                'entity-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.entityType(), 'polymer'])
-              }),
+              POLYMER_EXPRESSION,
               'polymer'
             );
 
@@ -899,12 +752,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
               console.log('[ProteinViewer] Added cartoon representation with chain-id coloring');
             }
 
-            // Add ball-and-stick for ligands/heteroatoms
+            // Add ball-and-stick for ligands/heteroatoms using expression constant
             const hetComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
               structure.ref,
-              MS.struct.generator.atomGroups({
-                'entity-test': MS.core.rel.neq([MS.struct.atomProperty.macromolecular.entityType(), 'polymer'])
-              }),
+              NON_POLYMER_EXPRESSION,
               'ligand'
             );
 

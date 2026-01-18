@@ -4,6 +4,8 @@ import { RotateCcw, Maximize2, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { useStore } from '@/lib/store';
+import { FocusModeControls } from '@/components/viewer/FocusModeControls';
 
 interface StructureInfo {
   residues?: number;
@@ -30,10 +32,60 @@ export function ViewerPanel({
   onExpand,
   showControls = true,
 }: ViewerPanelProps) {
+  // Get focus state from store
+  const {
+    focusedMetalIndex,
+    setFocusedMetalIndex,
+    focusedLigandIndex,
+    setFocusedLigandIndex,
+    metalCoordination,
+    ligandData,
+    pharmacophoreFeatures,
+  } = useStore();
+
+  // Determine if we're in focus mode
+  const isInFocusMode = focusedMetalIndex !== null || focusedLigandIndex !== null;
+  const focusType = focusedMetalIndex !== null ? 'metal' : 'ligand';
+
+  // Calculate hasWaters based on focus type
+  const hasWaters = focusedMetalIndex !== null
+    ? (metalCoordination?.[focusedMetalIndex]?.hydrationAnalysis?.waterCount ?? 0) > 0
+    : (ligandData?.ligandDetails[focusedLigandIndex ?? 0]?.waterContactCount ?? 0) > 0;
+
+  // Calculate hasInteractions based on focus type
+  const hasInteractions = focusedLigandIndex !== null
+    ? (ligandData?.ligandDetails[focusedLigandIndex]?.contacts?.length ?? 0) > 0
+    : (metalCoordination?.[focusedMetalIndex ?? 0]?.coordinating?.length ?? 0) > 0;
+
+  // Pharmacophores only relevant for ligand focus
+  const hasPharmacophores = focusedLigandIndex !== null && (pharmacophoreFeatures?.length ?? 0) > 0;
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex-1 relative bg-muted/30">
         {children}
+
+        {/* Focus Mode Controls - appears when metal or ligand is focused */}
+        {isInFocusMode && (
+          <FocusModeControls
+            focusType={focusType}
+            hasWaters={hasWaters}
+            hasInteractions={hasInteractions}
+            hasPharmacophores={hasPharmacophores}
+            onRadiusChange={() => {
+              // Trigger re-render of focus view with new radius
+              if (focusedMetalIndex !== null) {
+                setFocusedMetalIndex(focusedMetalIndex);
+              } else if (focusedLigandIndex !== null) {
+                setFocusedLigandIndex(focusedLigandIndex);
+              }
+            }}
+            onReset={() => {
+              setFocusedMetalIndex(null);
+              setFocusedLigandIndex(null);
+            }}
+          />
+        )}
       </div>
 
       {showControls && (

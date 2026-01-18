@@ -555,27 +555,96 @@ def _generate_fallback_pdb(
     cx, cy, cz = center
 
     if "pqq" in template_name.lower():
-        # Simplified PQQ-Ca: quinone oxygens + carboxylates + Ca
+        # PQQ-Ca using REAL geometry from PDB 1W6S (methanol dehydrogenase)
+        # Resolution: 1.2 Angstrom - high quality experimental structure
         #
-        # Geometry: Metal at center, coordinating atoms at correct distances
-        # Ca-O bond: ~2.40Å, Ca-N bond: ~2.50Å (from PDB 1W6S)
+        # Reference: Williams et al. (2005) Acta Cryst D61:75-79
+        # "Methanol dehydrogenase, a PQQ-containing quinoprotein dehydrogenase"
         #
-        # Place coordinating atoms in a plane around Ca (distorted octahedral):
-        # - O5 (quinone C=O): 2.40Å from Ca
-        # - N6 (pyridine N): 2.50Å from Ca
-        # - O7A (carboxylate O): 2.40Å from Ca
+        # Original metal position in 1W6S chain A: (6.082, 22.564, -14.869)
         #
-        # Carbons placed further away (>3Å from metal for RFD3 compatibility)
+        # Coordination geometry (tridentate):
+        # - O5 (quinone C=O): 2.25 Angstrom from Ca
+        # - N6 (pyridine N): 2.31 Angstrom from Ca
+        # - O7A (carboxylate O): 2.44 Angstrom from Ca
+        #
+        # All carbon atoms are >3 Angstrom from metal (RFD3 compatible)
+        # Full tricyclic quinoline ring preserved for accurate geometry
+
+        # Translation offset from original metal pos to target center
+        # 1W6S metal: (6.082, 22.564, -14.869) -> target: (cx, cy, cz)
+        tx = cx - 6.082
+        ty = cy - 22.564
+        tz = cz - (-14.869)
+
+        # Real PQQ atom positions from PDB 1W6S chain A residue 1596
+        # These maintain correct bond lengths and ring geometry
+        atoms = {
+            # Pyrrole ring (ring A)
+            'N1':  (3.250 + tx, 16.518 + ty, -12.689 + tz),   # 7.02 Angstrom from metal
+            'C2':  (1.971 + tx, 16.709 + ty, -11.910 + tz),   # 7.74 Angstrom from metal
+            'C3':  (1.631 + tx, 18.117 + ty, -11.826 + tz),   # 6.99 Angstrom from metal
+            'C3A': (2.703 + tx, 18.759 + ty, -12.535 + tz),   # 5.60 Angstrom from metal
+            'C1A': (3.727 + tx, 17.794 + ty, -13.042 + tz),   # 5.62 Angstrom from metal
+            # C2 carboxylate (pendant)
+            'C2X': (1.280 + tx, 15.500 + ty, -11.390 + tz),   # 9.22 Angstrom from metal
+            'O2A': (1.645 + tx, 14.344 + ty, -11.761 + tz),   # 9.84 Angstrom from metal
+            'O2B': (0.280 + tx, 15.701 + ty, -10.558 + tz),   # 9.97 Angstrom from metal
+            # Quinone ring (ring B) - contains coordinating O5
+            'C4':  (2.818 + tx, 20.191 + ty, -12.853 + tz),   # 4.51 Angstrom from metal
+            'O4':  (1.839 + tx, 21.051 + ty, -12.585 + tz),   # 5.05 Angstrom from metal (ketone)
+            'C5':  (3.900 + tx, 20.662 + ty, -13.461 + tz),   # 3.22 Angstrom from metal
+            'O5':  (4.091 + tx, 21.938 + ty, -14.022 + tz),   # 2.25 Angstrom COORDINATING
+            'C6A': (4.948 + tx, 19.731 + ty, -13.992 + tz),   # 3.18 Angstrom from metal
+            # Pyridine ring (ring C) - contains coordinating N6
+            'N6':  (5.880 + tx, 20.261 + ty, -14.866 + tz),   # 2.31 Angstrom COORDINATING
+            'C7':  (6.890 + tx, 19.466 + ty, -15.499 + tz),   # 3.26 Angstrom from metal
+            'C8':  (6.875 + tx, 18.045 + ty, -15.256 + tz),   # 4.60 Angstrom from metal
+            'C9':  (5.881 + tx, 17.331 + ty, -14.460 + tz),   # 5.25 Angstrom from metal
+            'C9A': (4.853 + tx, 18.236 + ty, -13.817 + tz),   # 4.62 Angstrom from metal
+            # C7 carboxylate - contains coordinating O7A
+            'C7X': (7.810 + tx, 20.257 + ty, -16.402 + tz),   # 3.26 Angstrom from metal
+            'O7A': (7.678 + tx, 21.485 + ty, -16.371 + tz),   # 2.44 Angstrom COORDINATING
+            'O7B': (8.661 + tx, 19.640 + ty, -17.042 + tz),   # 4.46 Angstrom from metal
+            # C9 carboxylate (pendant)
+            'C9X': (5.926 + tx, 15.807 + ty, -14.467 + tz),   # 6.77 Angstrom from metal
+            'O9A': (6.904 + tx, 15.311 + ty, -15.202 + tz),   # 7.31 Angstrom from metal
+            'O9B': (5.157 + tx, 15.120 + ty, -13.748 + tz),   # 7.58 Angstrom from metal
+        }
+
         lines = [
-            # Coordinating atoms positioned at correct bond distances from metal
-            f"HETATM    1  O5  PQQ L   1    {cx-2.40:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           O",
-            f"HETATM    2  N6  PQQ L   1    {cx:8.3f}{cy+2.50:8.3f}{cz:8.3f}  1.00  0.00           N",
-            f"HETATM    3  O7A PQQ L   1    {cx+2.40:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           O",
-            # Carbon backbone atoms (>3Å from metal)
-            f"HETATM    4  C1  PQQ L   1    {cx-3.50:8.3f}{cy-1.0:8.3f}{cz:8.3f}  1.00  0.00           C",
-            f"HETATM    5  C2  PQQ L   1    {cx+3.50:8.3f}{cy-1.0:8.3f}{cz:8.3f}  1.00  0.00           C",
-            # Metal at center (same Z as ligand for proper coordination)
-            f"HETATM    6 CA   CA  M   2    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          CA",
+            # Ring A - Pyrrole
+            f"HETATM    1  N1  PQQ L   1    {atoms['N1'][0]:8.3f}{atoms['N1'][1]:8.3f}{atoms['N1'][2]:8.3f}  1.00  0.00           N",
+            f"HETATM    2  C2  PQQ L   1    {atoms['C2'][0]:8.3f}{atoms['C2'][1]:8.3f}{atoms['C2'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    3  C3  PQQ L   1    {atoms['C3'][0]:8.3f}{atoms['C3'][1]:8.3f}{atoms['C3'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    4  C3A PQQ L   1    {atoms['C3A'][0]:8.3f}{atoms['C3A'][1]:8.3f}{atoms['C3A'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    5  C1A PQQ L   1    {atoms['C1A'][0]:8.3f}{atoms['C1A'][1]:8.3f}{atoms['C1A'][2]:8.3f}  1.00  0.00           C",
+            # C2 carboxylate
+            f"HETATM    6  C2X PQQ L   1    {atoms['C2X'][0]:8.3f}{atoms['C2X'][1]:8.3f}{atoms['C2X'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM    7  O2A PQQ L   1    {atoms['O2A'][0]:8.3f}{atoms['O2A'][1]:8.3f}{atoms['O2A'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM    8  O2B PQQ L   1    {atoms['O2B'][0]:8.3f}{atoms['O2B'][1]:8.3f}{atoms['O2B'][2]:8.3f}  1.00  0.00           O",
+            # Ring B - Quinone
+            f"HETATM    9  C4  PQQ L   1    {atoms['C4'][0]:8.3f}{atoms['C4'][1]:8.3f}{atoms['C4'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   10  O4  PQQ L   1    {atoms['O4'][0]:8.3f}{atoms['O4'][1]:8.3f}{atoms['O4'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM   11  C5  PQQ L   1    {atoms['C5'][0]:8.3f}{atoms['C5'][1]:8.3f}{atoms['C5'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   12  O5  PQQ L   1    {atoms['O5'][0]:8.3f}{atoms['O5'][1]:8.3f}{atoms['O5'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM   13  C6A PQQ L   1    {atoms['C6A'][0]:8.3f}{atoms['C6A'][1]:8.3f}{atoms['C6A'][2]:8.3f}  1.00  0.00           C",
+            # Ring C - Pyridine
+            f"HETATM   14  N6  PQQ L   1    {atoms['N6'][0]:8.3f}{atoms['N6'][1]:8.3f}{atoms['N6'][2]:8.3f}  1.00  0.00           N",
+            f"HETATM   15  C7  PQQ L   1    {atoms['C7'][0]:8.3f}{atoms['C7'][1]:8.3f}{atoms['C7'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   16  C8  PQQ L   1    {atoms['C8'][0]:8.3f}{atoms['C8'][1]:8.3f}{atoms['C8'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   17  C9  PQQ L   1    {atoms['C9'][0]:8.3f}{atoms['C9'][1]:8.3f}{atoms['C9'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   18  C9A PQQ L   1    {atoms['C9A'][0]:8.3f}{atoms['C9A'][1]:8.3f}{atoms['C9A'][2]:8.3f}  1.00  0.00           C",
+            # C7 carboxylate
+            f"HETATM   19  C7X PQQ L   1    {atoms['C7X'][0]:8.3f}{atoms['C7X'][1]:8.3f}{atoms['C7X'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   20  O7A PQQ L   1    {atoms['O7A'][0]:8.3f}{atoms['O7A'][1]:8.3f}{atoms['O7A'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM   21  O7B PQQ L   1    {atoms['O7B'][0]:8.3f}{atoms['O7B'][1]:8.3f}{atoms['O7B'][2]:8.3f}  1.00  0.00           O",
+            # C9 carboxylate
+            f"HETATM   22  C9X PQQ L   1    {atoms['C9X'][0]:8.3f}{atoms['C9X'][1]:8.3f}{atoms['C9X'][2]:8.3f}  1.00  0.00           C",
+            f"HETATM   23  O9A PQQ L   1    {atoms['O9A'][0]:8.3f}{atoms['O9A'][1]:8.3f}{atoms['O9A'][2]:8.3f}  1.00  0.00           O",
+            f"HETATM   24  O9B PQQ L   1    {atoms['O9B'][0]:8.3f}{atoms['O9B'][1]:8.3f}{atoms['O9B'][2]:8.3f}  1.00  0.00           O",
+            # Metal at coordination center
+            f"HETATM   25 CA   CA  M   2    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          CA",
             "END",
         ]
     elif "citrate" in template_name.lower():

@@ -5,6 +5,7 @@ python-multipart>=0.0.6
 
 # AI Protein Engineering Dependencies
 requests>=2.31.0        # PDB fetching from RCSB
+httpx>=0.27.0           # Async HTTP client for M-CSA API
 numpy>=1.24.0           # Numerical calculations
 anthropic>=0.30.0       # Claude API for LLM integration (optional)
 

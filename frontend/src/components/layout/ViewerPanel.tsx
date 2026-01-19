@@ -26,6 +26,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useStore } from '@/lib/store';
 import { FocusModeControls } from '@/components/viewer/FocusModeControls';
+import { CatalyticSuggestionsPanel } from '@/components/CatalyticSuggestionsPanel';
 import { findMetalCoordinationFromPDB, type MetalCoordination } from '@/lib/metalAnalysis';
 import { findLigandContactsFromPDB, getInteractionLabel, type LigandData } from '@/lib/ligandAnalysis';
 
@@ -241,6 +242,12 @@ export function ViewerPanel({
     pharmacophoreFeatures,
     analysisLoading,
     setAnalysisLoading,
+    catalyticSuggestions,
+    suggestionsSource,
+    suggestionsLoading,
+    suggestionsError,
+    bottomPanelMode,
+    setBottomPanelMode,
   } = useStore();
 
   // Resizing state
@@ -270,6 +277,10 @@ export function ViewerPanel({
   const hasMetals = metalCoordination && metalCoordination.length > 0;
   const hasLigands = ligandData && ligandData.ligandCount > 0;
   const hasAnalysis = hasMetals || hasLigands;
+
+  // Panel priority: suggestions > metals > ligands > none
+  const showSuggestions = bottomPanelMode === 'suggestions' || suggestionsLoading;
+  const showAnalysis = !showSuggestions;
 
   // Run analysis
   const runAnalysis = useCallback(async () => {
@@ -367,7 +378,26 @@ export function ViewerPanel({
         <GripHorizontal className="h-3 w-3 text-muted-foreground/40 group-hover:text-muted-foreground" />
       </div>
 
+      {/* Catalytic Suggestions Panel */}
+      {showSuggestions && (
+        <CatalyticSuggestionsPanel
+          suggestions={catalyticSuggestions}
+          source={suggestionsSource}
+          loading={suggestionsLoading}
+          error={suggestionsError}
+          existingResidues={[]}
+          onAdd={(s, atomType) => {
+            console.log('Add residue:', s, atomType);
+          }}
+          onAddAll={(atomType) => {
+            console.log('Add all with:', atomType);
+          }}
+          onClose={() => setBottomPanelMode('none')}
+        />
+      )}
+
       {/* Analysis Panel */}
+      {showAnalysis && (
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-3 py-2 border-b border-border flex items-center justify-between shrink-0 bg-muted/30">
@@ -485,6 +515,7 @@ export function ViewerPanel({
           )}
         </div>
       </div>
+      )}
 
       {/* Bottom Controls */}
       {showControls && (

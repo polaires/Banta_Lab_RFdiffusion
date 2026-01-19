@@ -25,6 +25,19 @@ export type RepresentationStyle = 'cartoon' | 'ball-and-stick' | 'spacefill' | '
 // Viewer color schemes
 export type ColorScheme = 'default' | 'chain' | 'residue-type' | 'secondary-structure' | 'confidence' | 'hydrophobicity';
 
+// Catalytic residue suggestion from API
+export interface CatalyticSuggestion {
+  chain: string;
+  residue: number;
+  name: string;
+  role?: string;
+  confidence: number;
+  source: 'mcsa' | 'p2rank';
+}
+
+// Bottom panel mode
+export type BottomPanelMode = 'suggestions' | 'metal-analysis' | 'ligand-analysis' | 'none';
+
 interface ErrorContext {
   task?: string;
   input_keys?: string[];
@@ -240,6 +253,20 @@ interface AppState {
   // Manual mode toggle (sidebar)
   manualMode: boolean;
   setManualMode: (enabled: boolean) => void;
+
+  // Catalytic residue suggestions
+  catalyticSuggestions: CatalyticSuggestion[];
+  suggestionsSource: 'mcsa' | 'p2rank' | 'none';
+  suggestionsLoading: boolean;
+  suggestionsError: string | null;
+  bottomPanelMode: BottomPanelMode;
+
+  // Catalytic suggestions actions
+  setCatalyticSuggestions: (suggestions: CatalyticSuggestion[], source: 'mcsa' | 'p2rank' | 'none') => void;
+  setSuggestionsLoading: (loading: boolean) => void;
+  setSuggestionsError: (error: string | null) => void;
+  setBottomPanelMode: (mode: BottomPanelMode) => void;
+  clearSuggestions: () => void;
 }
 
 // Default backend URL from environment or fallback
@@ -447,6 +474,30 @@ export const useStore = create<AppState>()(
   // Manual mode toggle (sidebar)
   manualMode: false,
   setManualMode: (enabled) => set({ manualMode: enabled }),
+
+  // Catalytic residue suggestions
+  catalyticSuggestions: [],
+  suggestionsSource: 'none',
+  suggestionsLoading: false,
+  suggestionsError: null,
+  bottomPanelMode: 'none',
+
+  setCatalyticSuggestions: (suggestions, source) => set({
+    catalyticSuggestions: suggestions,
+    suggestionsSource: source,
+    suggestionsError: null,
+    // Auto-show panel if suggestions found
+    bottomPanelMode: suggestions.length > 0 ? 'suggestions' : 'none',
+  }),
+  setSuggestionsLoading: (loading) => set({ suggestionsLoading: loading }),
+  setSuggestionsError: (error) => set({ suggestionsError: error, suggestionsLoading: false }),
+  setBottomPanelMode: (mode) => set({ bottomPanelMode: mode }),
+  clearSuggestions: () => set({
+    catalyticSuggestions: [],
+    suggestionsSource: 'none',
+    suggestionsError: null,
+    bottomPanelMode: 'none',
+  }),
 }),
     {
       name: 'rfd3-design-history',

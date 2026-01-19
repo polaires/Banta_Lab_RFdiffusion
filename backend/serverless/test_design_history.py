@@ -22,7 +22,7 @@ class TestDesignHistoryManager:
         os.makedirs(os.path.join(temp_dir, "filter_presets"))
         # Create index.json
         with open(os.path.join(temp_dir, "index.json"), "w") as f:
-            json.dump({"version": "1.0.0", "designs": []}, f)
+            json.dump({"version": "1.0.0", "created": "", "designs": []}, f)
         yield temp_dir
         shutil.rmtree(temp_dir)
 
@@ -80,6 +80,7 @@ class TestDesignHistoryManager:
 
         stats = manager.get_session_stats(session)
         assert stats["total_designs"] == 3
+        assert stats["passing_designs"] == 2
         assert "acceptance_rate" in stats
 
     def test_export_metrics_csv(self, temp_history_dir):

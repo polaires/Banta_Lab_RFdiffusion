@@ -11,6 +11,9 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 
+# Default filter name used for filter evaluation
+DEFAULT_FILTER = "default"
+
 
 @dataclass
 class DesignSession:
@@ -60,8 +63,12 @@ class DesignHistoryManager:
     def load_index(self) -> Dict[str, Any]:
         """Load the design index."""
         index_path = os.path.join(self.history_dir, "index.json")
-        with open(index_path, "r") as f:
-            return json.load(f)
+        try:
+            with open(index_path, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError) as e:
+            # Return empty index if corrupted/missing
+            return {"version": "1.0.0", "created": "", "designs": []}
 
     def _save_index(self, index: Dict[str, Any]):
         """Save the design index."""
@@ -171,7 +178,7 @@ class DesignHistoryManager:
             "session_id": session.session_id,
             "design_type": metrics.get("design_type", "unknown"),
             "timestamp": meta["timestamp"],
-            "filter_pass": metrics.get("filter_results", {}).get("default", {}).get("pass"),
+            "filter_pass": metrics.get("filter_results", {}).get(DEFAULT_FILTER, {}).get("pass"),
         })
         self._save_index(index)
 
@@ -208,10 +215,14 @@ class DesignHistoryManager:
                 self.history_dir, "runs", run_id, "analysis", "metrics.json"
             )
             if os.path.exists(metrics_path):
-                with open(metrics_path, "r") as f:
-                    metrics = json.load(f)
-                    if metrics.get("filter_results", {}).get("default", {}).get("pass"):
-                        passing += 1
+                try:
+                    with open(metrics_path, "r") as f:
+                        metrics = json.load(f)
+                        if metrics.get("filter_results", {}).get(DEFAULT_FILTER, {}).get("pass"):
+                            passing += 1
+                except (json.JSONDecodeError, IOError) as e:
+                    # Skip corrupted metrics files
+                    pass
 
         return {
             "session_id": session.session_id,
@@ -245,23 +256,27 @@ class DesignHistoryManager:
             )
 
             if os.path.exists(metrics_path):
-                with open(metrics_path, "r") as f:
-                    metrics = json.load(f)
+                try:
+                    with open(metrics_path, "r") as f:
+                        metrics = json.load(f)
 
-                row = {
-                    "design_id": run_id,
-                    "design_type": metrics.get("design_type", ""),
-                    "timestamp": metrics.get("timestamp", ""),
-                }
+                    row = {
+                        "design_id": run_id,
+                        "design_type": metrics.get("design_type", ""),
+                        "timestamp": metrics.get("timestamp", ""),
+                    }
 
-                # Flatten analyses
-                for analysis_name, analysis_data in metrics.get("analyses", {}).items():
-                    if analysis_data.get("status") == "success":
-                        for metric_name, value in analysis_data.get("metrics", {}).items():
-                            if not isinstance(value, (list, dict)):
-                                row[f"{analysis_name}_{metric_name}"] = value
+                    # Flatten analyses
+                    for analysis_name, analysis_data in metrics.get("analyses", {}).items():
+                        if analysis_data.get("status") == "success":
+                            for metric_name, value in analysis_data.get("metrics", {}).items():
+                                if not isinstance(value, (list, dict)):
+                                    row[f"{analysis_name}_{metric_name}"] = value
 
-                rows.append(row)
+                    rows.append(row)
+                except (json.JSONDecodeError, IOError) as e:
+                    # Skip corrupted metrics files
+                    pass
 
         if rows:
             # Get all column names

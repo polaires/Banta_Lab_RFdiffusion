@@ -16,6 +16,11 @@ ATOM      6  CA  ALA B   1      11.458   0.000   0.000  1.00  0.00           C
 END
 """
 
+SAMPLE_MONOMER_PDB = """ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N
+ATOM      2  CA  ALA A   1       1.458   0.000   0.000  1.00  0.00           C
+END
+"""
+
 
 class TestUnifiedDesignAnalyzer:
     """Test suite for UnifiedDesignAnalyzer."""
@@ -29,6 +34,11 @@ class TestUnifiedDesignAnalyzer:
         analyzer = UnifiedDesignAnalyzer()
         dtype = analyzer._detect_design_type(SAMPLE_DIMER_PDB)
         assert dtype == DesignType.PROTEIN_DIMER
+
+    def test_detect_design_type_monomer(self):
+        analyzer = UnifiedDesignAnalyzer()
+        dtype = analyzer._detect_design_type(SAMPLE_MONOMER_PDB)
+        assert dtype == DesignType.MONOMER
 
     def test_analyze_returns_structured_json(self):
         analyzer = UnifiedDesignAnalyzer()

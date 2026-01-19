@@ -6,9 +6,9 @@ Auto-detects design type and runs appropriate analyses.
 """
 import os
 import json
+import shutil
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
 
 from analysis_types import AnalysisResult, AnalysisStatus, DesignType, detect_design_type
 
@@ -75,12 +75,8 @@ class UnifiedDesignAnalyzer:
         except ImportError:
             pass
 
-        # Check for GNINA binary
-        gnina_paths = ["/usr/local/bin/gnina", "/app/gnina", "gnina"]
-        for path in gnina_paths:
-            if os.path.exists(path) or os.system(f"which {path} > /dev/null 2>&1") == 0:
-                modules["gnina"] = True
-                break
+        # Check for GNINA binary (cross-platform)
+        modules["gnina"] = shutil.which("gnina") is not None
 
         return modules
 
@@ -333,8 +329,8 @@ class UnifiedDesignAnalyzer:
             return AnalysisResult.skipped(f"topology validation failed: {str(e)}")
 
     def _analyze_symmetry(self, pdb_content: str) -> AnalysisResult:
-        """Analyze C2 symmetry for dimers."""
-        # Basic symmetry analysis - calculate RMSD between chains
+        """Analyze chain similarity for dimers (basic check via length comparison)."""
+        # Basic symmetry analysis - compare chain lengths as a simple heuristic
         try:
             chain_coords = {}
             for line in pdb_content.split("\n"):

@@ -2,6 +2,8 @@
 
 import { useRef, useState } from 'react';
 import { Check, Upload } from 'lucide-react';
+import { useStore } from '@/lib/store';
+import { fetchCatalyticSuggestions, extractPdbId } from '@/lib/catalyticDetection';
 
 interface PdbUploaderProps {
   label: string;
@@ -27,12 +29,40 @@ export function PdbUploader({
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const {
+    backendUrl,
+    setCatalyticSuggestions,
+    setSuggestionsLoading,
+    setSuggestionsError,
+    clearSuggestions,
+    setSelectedPdb,
+  } = useStore();
+
+  // Fetch catalytic suggestions when structure is loaded
+  const fetchSuggestions = async (content: string) => {
+    setSuggestionsLoading(true);
+    try {
+      const pdbId = extractPdbId(content);
+      const result = await fetchCatalyticSuggestions(content, pdbId, backendUrl);
+      setCatalyticSuggestions(result.residues, result.source);
+    } catch (error) {
+      console.error('Failed to fetch catalytic suggestions:', error);
+      setSuggestionsError(error instanceof Error ? error.message : 'Unknown error');
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        onChange(e.target?.result as string, file.name);
+        const content = e.target?.result as string;
+        onChange(content, file.name);
+        setSelectedPdb(content);
+        // Auto-fetch catalytic suggestions
+        fetchSuggestions(content);
       };
       reader.readAsText(file);
     }
@@ -45,7 +75,11 @@ export function PdbUploader({
     if (file) {
       const reader = new FileReader();
       reader.onload = (ev) => {
-        onChange(ev.target?.result as string, file.name);
+        const content = ev.target?.result as string;
+        onChange(content, file.name);
+        setSelectedPdb(content);
+        // Auto-fetch catalytic suggestions
+        fetchSuggestions(content);
       };
       reader.readAsText(file);
     }
@@ -54,6 +88,7 @@ export function PdbUploader({
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
     onChange(null, null);
+    clearSuggestions();
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }

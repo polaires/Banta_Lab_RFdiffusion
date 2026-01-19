@@ -14,6 +14,7 @@ Detailed instructions are in Claude skills - invoke these instead of reading inl
 | `rfd3-reference` | RFdiffusion3 contig syntax, parameters |
 | `ligandmpnn-reference` | Sequence design parameters |
 | `bindcraft-reference` | Binder design pipeline |
+| `analyze-design` | Analyze design results, save to history, check quality |
 
 ## Infrastructure
 
@@ -118,6 +119,20 @@ scripts/              # Utility scripts
 Local design experiments are tracked in `experiments/design_history/`.
 
 **Current lessons learned:** See `experiments/design_history/lessons/current_summary.md`
+
+### Auto-Analysis Workflow
+
+**IMPORTANT:** After receiving design results from Docker API, always run analysis:
+
+1. Extract PDB content from API response
+2. Run `UnifiedDesignAnalyzer` on each design
+3. Evaluate against filter presets
+4. Save to design history
+5. Check for lesson triggers
+
+Use the `analyze-design` skill for detailed instructions.
+
+### Manual Analysis
 
 When running local design tests:
 1. Use `UnifiedDesignAnalyzer` for comprehensive metrics

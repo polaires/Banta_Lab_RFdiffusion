@@ -7626,6 +7626,19 @@ def _design_metal_ligand_sequential(
             print("[MetalLigandSequential] Chain B: No PDB content")
             continue
 
+        # CRITICAL: RFD3 output only includes protein chains, not HETATM records
+        # Add metal and ligand atoms back from the original complex_pdb
+        hetatm_lines = []
+        for line in complex_pdb.split('\n'):
+            if line.startswith('HETATM'):
+                hetatm_lines.append(line)
+
+        if hetatm_lines:
+            # Remove END from dimer_pdb and add HETATM records
+            dimer_pdb = dimer_pdb.replace("END\n", "").replace("END", "").rstrip()
+            dimer_pdb = dimer_pdb + "\n" + "\n".join(hetatm_lines) + "\nEND\n"
+            print(f"[MetalLigandSequential] Added {len(hetatm_lines)} HETATM records (metal + ligand)")
+
         # Count total backbone clashes
         total_clashes = _count_backbone_metal_clashes(dimer_pdb, metal)
         print(f"[MetalLigandSequential] Total dimer clashes: {total_clashes}")

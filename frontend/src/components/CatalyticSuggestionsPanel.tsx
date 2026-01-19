@@ -16,6 +16,7 @@ interface CatalyticSuggestionsPanelProps {
   onAddAll: (atomType: string) => void;
   onClose: () => void;
   onHoverResidue?: (suggestion: CatalyticSuggestion | null) => void;
+  onRetry?: () => void;
 }
 
 export function CatalyticSuggestionsPanel({
@@ -28,6 +29,7 @@ export function CatalyticSuggestionsPanel({
   onAddAll,
   onClose,
   onHoverResidue,
+  onRetry,
 }: CatalyticSuggestionsPanelProps) {
   const isAdded = (s: CatalyticSuggestion) =>
     existingResidues.some((r) => r.chain === s.chain && r.residue === s.residue);
@@ -48,7 +50,14 @@ export function CatalyticSuggestionsPanel({
   if (error) {
     return (
       <div className="border-t bg-card p-4">
-        <div className="text-sm text-destructive text-center">{error}</div>
+        <div className="flex items-center justify-center gap-3">
+          <span className="text-sm text-destructive">{error}</span>
+          {onRetry && (
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          )}
+        </div>
       </div>
     );
   }

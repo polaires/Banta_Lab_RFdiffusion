@@ -53,6 +53,7 @@ from binding_analysis import (
 try:
     from esmfold_utils import (
         validate_structure_esmfold,
+        predict_structure_esmfold,
         is_esmfold_available,
         ESMFOLD_THRESHOLDS,
     )
@@ -60,6 +61,7 @@ try:
 except ImportError:
     ESMFOLD_AVAILABLE = False
     validate_structure_esmfold = None
+    predict_structure_esmfold = None
     ESMFOLD_THRESHOLDS = {}
 
 # Import cleavage utilities for cleavable monomer algorithm
@@ -7660,11 +7662,57 @@ def _design_metal_ligand_sequential(
                 dimer_pdb = mpnn_designs[0].get("pdb_content", dimer_pdb)
                 print(f"[MetalLigandSequential] LigandMPNN sequence applied")
 
+        # Run ESMFold to get proper sidechain positions for coordination analysis
+        # Extract sequences for each chain and predict structure
+        esmfold_pdb = None
+        esmfold_plddt = None
+        if ESMFOLD_AVAILABLE and predict_structure_esmfold:
+            print("[MetalLigandSequential] Running ESMFold for sidechain prediction...")
+            try:
+                # Extract sequences from designed PDB
+                seq_a = _extract_sequence_from_pdb(dimer_pdb, "A")
+                seq_b = _extract_sequence_from_pdb(dimer_pdb, "B")
+
+                if seq_a and seq_b:
+                    # For dimer, concatenate sequences with linker for ESMFold
+                    # Use short GGG linker that ESMFold can handle
+                    combined_seq = seq_a + "GGG" + seq_b
+                    print(f"[MetalLigandSequential] Predicting structure for {len(seq_a)}+{len(seq_b)} residue dimer...")
+
+                    esmfold_result = predict_structure_esmfold(combined_seq, return_pdb=True)
+
+                    if esmfold_result.get("status") == "completed":
+                        esmfold_pdb = esmfold_result.get("pdb_content")
+                        esmfold_plddt = esmfold_result.get("mean_plddt", 0)
+                        print(f"[MetalLigandSequential] ESMFold pLDDT: {esmfold_plddt:.2f}")
+
+                        # Re-assign chain IDs: first len(seq_a) residues = A, rest = B
+                        if esmfold_pdb:
+                            esmfold_pdb = _relabel_esmfold_chains(
+                                esmfold_pdb, len(seq_a), len(seq_b)
+                            )
+                            # Add HETATM records to ESMFold prediction
+                            esmfold_pdb = esmfold_pdb.replace("END\n", "").replace("END", "").rstrip()
+                            esmfold_pdb = esmfold_pdb + "\n" + "\n".join(hetatm_lines) + "\nEND\n"
+                            print(f"[MetalLigandSequential] ESMFold structure with HETATM records ready")
+                    else:
+                        print(f"[MetalLigandSequential] ESMFold failed: {esmfold_result.get('error')}")
+                else:
+                    print(f"[MetalLigandSequential] Could not extract sequences for ESMFold")
+            except Exception as e:
+                print(f"[MetalLigandSequential] ESMFold error: {e}")
+        else:
+            print("[MetalLigandSequential] ESMFold not available, using backbone-only coordination estimate")
+
         # Calculate coordination score
-        coord_count = _count_metal_coordination(dimer_pdb, metal)
+        # Use ESMFold structure if available (has sidechains), otherwise use backbone estimate
+        analysis_pdb = esmfold_pdb if esmfold_pdb else dimer_pdb
+        coord_count, coord_details = _count_metal_coordination_detailed(analysis_pdb, metal)
+        print(f"[MetalLigandSequential] Coordination analysis: {coord_details}")
         score = coord_count * 100 - total_clashes
 
-        print(f"[MetalLigandSequential] Design {design_idx + 1}: coordination={coord_count}, clashes={total_clashes}, score={score}")
+        plddt_str = f", pLDDT={esmfold_plddt:.2f}" if esmfold_plddt else ""
+        print(f"[MetalLigandSequential] Design {design_idx + 1}: coordination={coord_count}, clashes={total_clashes}, score={score}{plddt_str}")
 
         design_entry = {
             "pdb_content": dimer_pdb,
@@ -7673,8 +7721,13 @@ def _design_metal_ligand_sequential(
                 "coordination": coord_count,
                 "clashes": total_clashes,
                 "chain_a_clashes": chain_a_clashes,
+                "esmfold_plddt": esmfold_plddt,
             }
         }
+        # Include ESMFold predicted structure if available (has sidechains)
+        if esmfold_pdb:
+            design_entry["esmfold_pdb"] = esmfold_pdb
+
         designs.append(design_entry)
 
         if score > best_score:
@@ -7803,8 +7856,130 @@ def _relabel_chain_atoms(pdb_content: str, new_chain: str) -> str:
     return '\n'.join(lines)
 
 
+def _relabel_esmfold_chains(pdb_content: str, chain_a_len: int, chain_b_len: int) -> str:
+    """
+    Relabel ESMFold output chains for dimer prediction.
+
+    ESMFold outputs single chain with residues 1 to N.
+    We split into Chain A (1 to chain_a_len) and Chain B (chain_a_len+4 to end).
+    The +4 accounts for the GGG linker.
+    """
+    lines = []
+    linker_start = chain_a_len + 1
+    linker_end = chain_a_len + 3  # GGG is 3 residues
+    chain_b_start = linker_end + 1
+
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            try:
+                resnum = int(line[22:26].strip())
+                # Skip linker residues
+                if linker_start <= resnum <= linker_end:
+                    continue
+                # Assign chain ID based on residue number
+                if resnum <= chain_a_len:
+                    new_chain = 'A'
+                    new_resnum = resnum
+                else:
+                    new_chain = 'B'
+                    new_resnum = resnum - linker_end  # Renumber from 1
+
+                # Format residue number with proper padding
+                resnum_str = f"{new_resnum:4d}"
+                line = line[:21] + new_chain + resnum_str + line[26:]
+            except (ValueError, IndexError):
+                pass
+        lines.append(line)
+
+    return '\n'.join(lines)
+
+
+def _count_metal_coordination_detailed(pdb_content: str, metal: str, threshold: float = 3.0) -> tuple:
+    """
+    Detailed coordination analysis with debug info.
+
+    Returns (count, details_dict) where details_dict contains:
+    - metal_pos: Metal position
+    - nearby_residues: List of coordinating residues within range
+    - closest_cb: Closest CB distance
+    """
+    metal_pos = None
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name == metal:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_pos = (x, y, z)
+                    break
+                except:
+                    pass
+
+    if not metal_pos:
+        return 0, {"error": "No metal found"}
+
+    coord_residues = {
+        'GLU': 3.8, 'ASP': 2.5, 'HIS': 3.5, 'CYS': 1.8,
+        'ASN': 2.5, 'TYR': 5.0, 'MET': 2.8,
+    }
+
+    nearby = []
+    closest_cb = float('inf')
+    all_cb_distances = []
+
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            atom = line[12:16].strip()
+            if atom == 'CB':
+                res_name = line[17:20].strip()
+                chain = line[21]
+                resnum = line[22:26].strip()
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    cb_dist = ((x-metal_pos[0])**2 + (y-metal_pos[1])**2 + (z-metal_pos[2])**2)**0.5
+                    all_cb_distances.append((f"{chain}{resnum}:{res_name}", cb_dist))
+                    closest_cb = min(closest_cb, cb_dist)
+
+                    if res_name in coord_residues:
+                        sidechain_reach = coord_residues[res_name]
+                        if cb_dist <= threshold + sidechain_reach:
+                            nearby.append(f"{chain}{resnum}:{res_name}@{cb_dist:.1f}Å")
+                except:
+                    pass
+
+    # Sort all CB distances for debug - separate by chain
+    all_cb_distances.sort(key=lambda x: x[1])
+    closest_5 = all_cb_distances[:5] if all_cb_distances else []
+
+    chain_a_cb = [(r, d) for r, d in all_cb_distances if r.startswith('A')]
+    chain_b_cb = [(r, d) for r, d in all_cb_distances if r.startswith('B')]
+
+    details = {
+        "metal_pos": f"({metal_pos[0]:.1f},{metal_pos[1]:.1f},{metal_pos[2]:.1f})",
+        "coordinating": nearby,
+        "closest_cb": f"{closest_cb:.1f}Å" if closest_cb != float('inf') else "N/A",
+        "closest_5_cb": [f"{r}@{d:.1f}Å" for r, d in closest_5],
+        "chain_a_closest": f"{chain_a_cb[0][0]}@{chain_a_cb[0][1]:.1f}Å" if chain_a_cb else "N/A",
+        "chain_b_closest": f"{chain_b_cb[0][0]}@{chain_b_cb[0][1]:.1f}Å" if chain_b_cb else "N/A",
+    }
+    return len(nearby), details
+
+
 def _count_metal_coordination(pdb_content: str, metal: str, threshold: float = 3.0) -> int:
-    """Count atoms coordinating the metal (within threshold)."""
+    """
+    Count atoms coordinating the metal (within threshold).
+
+    This function supports both:
+    1. Full-atom structures: counts actual sidechain coordinating atoms
+    2. Backbone-only structures: estimates coordination potential from CB positions
+
+    For backbone-only, uses CB distance + sidechain reach to estimate if
+    a coordinating residue could reach the metal.
+    """
     metal_pos = None
     for line in pdb_content.split('\n'):
         if line.startswith('HETATM'):
@@ -7824,11 +7999,28 @@ def _count_metal_coordination(pdb_content: str, metal: str, threshold: float = 3
 
     # Coordinating atoms: carboxylate oxygens (OE1, OE2, OD1, OD2), imidazole N (NE2, ND1)
     coord_atoms = {'OE1', 'OE2', 'OD1', 'OD2', 'NE2', 'ND1', 'SG'}
+
+    # Coordinating residues and their sidechain reach from CB
+    # These are approximate distances from CB to coordinating atom
+    coord_residues = {
+        'GLU': 3.8,  # CB to OE1/OE2
+        'ASP': 2.5,  # CB to OD1/OD2
+        'HIS': 3.5,  # CB to NE2/ND1
+        'CYS': 1.8,  # CB to SG
+        'ASN': 2.5,  # CB to OD1/ND2
+        'TYR': 5.0,  # CB to OH
+        'MET': 2.8,  # CB to SD
+    }
+
     count = 0
+    has_sidechains = False
+
+    # First pass: check for actual sidechain atoms
     for line in pdb_content.split('\n'):
         if line.startswith('ATOM'):
             atom = line[12:16].strip()
             if atom in coord_atoms:
+                has_sidechains = True
                 try:
                     x = float(line[30:38])
                     y = float(line[38:46])
@@ -7838,6 +8030,32 @@ def _count_metal_coordination(pdb_content: str, metal: str, threshold: float = 3
                         count += 1
                 except:
                     pass
+
+    # If no sidechains found (backbone-only), estimate from CB positions
+    if not has_sidechains:
+        seen_residues = set()  # Avoid double-counting residues
+        for line in pdb_content.split('\n'):
+            if line.startswith('ATOM'):
+                atom = line[12:16].strip()
+                if atom == 'CB':
+                    res_name = line[17:20].strip()
+                    chain = line[21]
+                    resnum = line[22:26].strip()
+                    res_key = f"{chain}{resnum}"
+
+                    if res_name in coord_residues and res_key not in seen_residues:
+                        try:
+                            x = float(line[30:38])
+                            y = float(line[38:46])
+                            z = float(line[46:54])
+                            cb_dist = ((x-metal_pos[0])**2 + (y-metal_pos[1])**2 + (z-metal_pos[2])**2)**0.5
+                            # CB distance + sidechain reach should reach metal
+                            sidechain_reach = coord_residues[res_name]
+                            if cb_dist <= threshold + sidechain_reach:
+                                count += 1
+                                seen_residues.add(res_key)
+                        except:
+                            pass
     return count
 
 

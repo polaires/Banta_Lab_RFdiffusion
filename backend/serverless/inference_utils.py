@@ -2114,7 +2114,7 @@ def run_rfd3_inference(
 
         # Hotspots -> select_hotspots in SPEC
         if hotspots:
-            # Convert list to dict format: ["A15", "A20"] -> {"A15": "ALL", "A20": "ALL"}
+            # Convert list to dict format: ["A15", "M2"] -> {"A15": "ALL", "M2": "ALL"}
             spec["select_hotspots"] = {h: "ALL" for h in hotspots}
 
         # Origin and strategy go in SPEC

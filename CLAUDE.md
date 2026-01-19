@@ -112,3 +112,25 @@ scripts/              # Utility scripts
 - `.env*.local` - Environment secrets
 
 **Skills:** Use Claude skills for detailed references (docker-wsl, rfd3-reference, etc.)
+
+## Design History & Lessons
+
+Local design experiments are tracked in `experiments/design_history/`.
+
+**Current lessons learned:** See `experiments/design_history/lessons/current_summary.md`
+
+When running local design tests:
+1. Use `UnifiedDesignAnalyzer` for comprehensive metrics
+2. Results auto-save to design_history with full provenance
+3. Lessons auto-update when significant patterns detected
+
+**Quick reference:**
+- Recent runs: `experiments/design_history/index.json`
+- Filter presets: `experiments/design_history/filter_presets/`
+- Lesson triggers: failure patterns (3+ similar), breakthroughs, significant improvements
+
+**CLI usage:**
+```bash
+cd backend/serverless
+python analyze_design_cli.py output.pdb --metal TB --session my_exploration
+```

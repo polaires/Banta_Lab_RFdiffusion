@@ -5,6 +5,7 @@ import type { MetalCoordination } from '@/lib/metalAnalysis';
 import type { LigandData, PharmacophoreFeature } from '@/lib/ligandAnalysis';
 import { computeInteractionLines, type InteractionLine } from '@/lib/interactionGeometry';
 import { useStore } from '@/lib/store';
+import { useMolstarContextMenu } from '@/components/MolstarContextMenu';
 
 // Import expression helpers from new modules
 import {
@@ -39,6 +40,10 @@ interface ProteinViewerClientProps {
   showPharmacophores?: boolean;
   // Callbacks
   onReady?: () => void;
+  // Context menu callbacks for catalytic residue selection
+  onAddCatalyticResidue?: (chain: string, residue: number, name: string, atomType: string) => void;
+  onRemoveCatalyticResidue?: (chain: string, residue: number) => void;
+  isCatalyticResidue?: (chain: string, residue: number) => boolean;
 }
 
 // Pharmacophore feature colors
@@ -78,6 +83,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       pharmacophoreFeatures,
       showPharmacophores,
       onReady,
+      onAddCatalyticResidue,
+      onRemoveCatalyticResidue,
+      isCatalyticResidue,
     },
     ref
   ) {
@@ -94,6 +102,18 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
     // Get focus settings from store
     const { focusSettings } = useStore();
+
+    // Context menu for right-click residue selection
+    const { showMenu, hideMenu, MenuComponent } = useMolstarContextMenu({
+      onAddResidue: (residue, atomType) => {
+        onAddCatalyticResidue?.(residue.chain, residue.residue, residue.name, atomType);
+      },
+      onRemoveResidue: (residue) => {
+        onRemoveCatalyticResidue?.(residue.chain, residue.residue);
+      },
+      isResidueSelected: (residue) =>
+        isCatalyticResidue?.(residue.chain, residue.residue) ?? false,
+    });
 
     // Focus on a metal site
     const focusOnMetal = useCallback(async (index: number) => {
@@ -836,8 +856,84 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       }
     }, [showPharmacophores, pharmacophoreFeatures, renderPharmacophores, clearPharmacophores]);
 
+    // Subscribe to right-click events for context menu (catalytic residue selection)
+    useEffect(() => {
+      if (!isReady || !globalPlugin) return;
+
+      const plugin = globalPlugin;
+      const container = containerRef.current;
+      if (!container) return;
+
+      const handleContextMenu = (e: MouseEvent) => {
+        // Prevent default browser context menu
+        e.preventDefault();
+
+        // Only show menu if callbacks are provided
+        if (!onAddCatalyticResidue) return;
+
+        try {
+          // Get canvas3d for picking
+          const canvas3d = plugin.canvas3d;
+          if (!canvas3d) return;
+
+          // Get the target element (the canvas)
+          const target = e.target as HTMLElement;
+          const rect = target.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          // Use Molstar's picking mechanism via identify
+          const { Vec2 } = require('molstar/lib/mol-math/linear-algebra');
+          const pickData = canvas3d.identify(Vec2.create(x, y));
+          if (!pickData?.id) return;
+
+          // Get loci from picking data
+          const repr = canvas3d.getLoci(pickData.id);
+          if (!repr || repr.loci.kind !== 'element-loci') return;
+
+          const loci = repr.loci as any;
+          if (!loci.elements || loci.elements.length === 0) return;
+
+          // Import Molstar structure utilities
+          const { StructureElement, StructureProperties } = require('molstar/lib/mol-model/structure');
+
+          // Create location from loci
+          const loc = StructureElement.Location.create(loci.structure);
+          const firstElement = loci.elements[0];
+          if (!firstElement || !firstElement.indices || firstElement.indices.length === 0) return;
+
+          StructureElement.Location.set(
+            loc,
+            loci.structure,
+            firstElement.unit,
+            firstElement.unit.elements[firstElement.indices[0]]
+          );
+
+          // Extract residue information
+          const chain = StructureProperties.chain.auth_asym_id(loc);
+          const residue = StructureProperties.residue.auth_seq_id(loc);
+          const name = StructureProperties.atom.label_comp_id(loc);
+
+          // Show context menu at click position
+          showMenu(e.clientX, e.clientY, { chain, residue, name });
+        } catch (error) {
+          console.error('[ProteinViewer] Failed to get residue info for context menu:', error);
+        }
+      };
+
+      container.addEventListener('contextmenu', handleContextMenu);
+
+      return () => {
+        container.removeEventListener('contextmenu', handleContextMenu);
+      };
+    }, [isReady, showMenu, onAddCatalyticResidue]);
+
     return (
-      <div className={`relative overflow-hidden ${className}`} style={{ minHeight: '200px' }}>
+      <div
+        className={`relative overflow-hidden ${className}`}
+        style={{ minHeight: '200px' }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
         <div ref={containerRef} className="absolute inset-0" />
 
         {!pdbContent && !error && !isReady && (
@@ -888,6 +984,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             {focusMode === 'metal' ? 'Metal Focus' : 'Ligand Focus'}
           </div>
         )}
+
+        {/* Context menu for catalytic residue selection */}
+        {MenuComponent}
       </div>
     );
   }

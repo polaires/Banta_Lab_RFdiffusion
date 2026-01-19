@@ -7428,19 +7428,25 @@ def _design_metal_ligand_sequential(
     use_mock: bool,
 ) -> Dict[str, Any]:
     """
-    Design chains sequentially: first chain A, then chain B.
+    Design chains with sequential refinement strategy.
 
-    Sequential approach advantages:
-    1. Each chain designed independently → more freedom for backbone positioning
-    2. Chain A coordinates first → establishes geometry
-    3. Chain B fills remaining sites → constrained by Chain A's geometry
-    4. Less crowding around metal → potentially better backbone distances
+    RFD3 API LIMITATION DISCOVERED:
+    - The API does NOT support designing a single de novo chain around just HETATM
+    - Single-chain contigs like "60-80" with select_fixed_atoms on HETATM fail with:
+      "Input provided but unused in composition specification"
+    - The API requires either existing protein residues in contig or multiple chains
 
-    Strategy:
-    - Chain A: Design around metal-ligand, expose metal for Chain B
-    - Chain B: Design around Chain A + metal-ligand, fill remaining coordination
+    WORKAROUND STRATEGY:
+    Phase 1: Design both chains simultaneously (like joint design)
+    Phase 2: Take Chain A + metal-ligand, redesign Chain B around it
+
+    This gives Chain B more optimization freedom while maintaining Chain A's geometry.
     """
-    print("[MetalLigandSequential] Starting sequential design approach")
+    from inference_utils import run_rfd3_inference
+    # run_ligandmpnn_for_ligand_binding is defined in handler.py
+
+    print("[MetalLigandSequential] Starting sequential refinement approach")
+    print("[MetalLigandSequential] NOTE: Using two-phase strategy due to RFD3 API limitations")
 
     # Get metal and ligand info from complex_info
     metal = complex_info.metal_code if complex_info else "CA"
@@ -7461,6 +7467,18 @@ def _design_metal_ligand_sequential(
     print(f"[MetalLigandSequential] Metal: {metal} at {metal_chain_resnum}")
     print(f"[MetalLigandSequential] Ligand: {ligand_name} at {ligand_chain_resnum}")
 
+    # Extract actual oxygen atom names from the ligand for H-bond conditioning
+    ligand_oxygens = []
+    for line in complex_pdb.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            atom_name = line[12:16].strip()
+            if res_name == ligand_name and atom_name.startswith('O'):
+                ligand_oxygens.append(atom_name)
+
+    hbond_acceptor_atoms = ",".join(sorted(set(ligand_oxygens))) if ligand_oxygens else None
+    print(f"[MetalLigandSequential] Ligand oxygen atoms for H-bonds: {hbond_acceptor_atoms}")
+
     designs = []
     best_design_idx = 0
     best_score = float('-inf')
@@ -7469,83 +7487,116 @@ def _design_metal_ligand_sequential(
         design_seed = (seed + design_idx) if seed is not None else None
         print(f"\n[MetalLigandSequential] === Design {design_idx + 1}/{num_designs} ===")
 
-        # ============ STEP 1: Design Chain A ============
-        # Design Chain A around metal-ligand complex
-        # Use select_exposed on METAL to keep coordination sites open for Chain B
-        print("[MetalLigandSequential] Step 1: Designing Chain A...")
+        # ============ PHASE 1: Joint design of both chains ============
+        # RFD3 API requires multiple chains for de novo design around HETATM
+        print("[MetalLigandSequential] Phase 1: Joint design of both chains...")
 
-        # ============ Chain A: Simple single chain design ============
-        # SIMPLEST approach: just design a chain with the ligand as small molecule
-        # RFD3's ligand binding mode will naturally position the protein around the ligand
-        print(f"[MetalLigandSequential] Chain A: Simple ligand binding design")
+        joint_contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+        print(f"[MetalLigandSequential] Contig: {joint_contig}")
 
         if use_mock:
-            chain_a_result = {"status": "completed", "result": {"designs": [{"content": complex_pdb}]}}
+            phase1_result = {"status": "completed", "result": {"designs": [{"content": complex_pdb}]}}
         else:
-            # Design single chain with ligand present
-            # Use ligand parameter to enable small molecule binding mode
-            chain_a_result = run_rfd3_inference(
-                length=f"{min_len}-{max_len}",  # Just chain length
+            phase1_result = run_rfd3_inference(
+                contig=joint_contig,
                 pdb_content=complex_pdb,
                 num_designs=1,
                 seed=design_seed,
-                ligand=ligand_name,  # Tell RFD3 this is the ligand
+                select_fixed_atoms={
+                    metal_chain_resnum: "ALL",
+                    ligand_chain_resnum: "ALL"
+                },
+                hotspots=[metal_chain_resnum, ligand_chain_resnum],
+                select_hbond_acceptor={ligand_chain_resnum: hbond_acceptor_atoms} if hbond_acceptor_atoms else None,
             )
 
-        if chain_a_result.get("status") != "completed":
-            print(f"[MetalLigandSequential] Chain A failed: {chain_a_result.get('error')}")
+        if phase1_result.get("status") != "completed":
+            print(f"[MetalLigandSequential] Phase 1 failed: {phase1_result.get('error')}")
             continue
 
-        chain_a_designs = chain_a_result.get("result", {}).get("designs", [])
-        if not chain_a_designs:
-            print("[MetalLigandSequential] Chain A produced no designs")
+        phase1_designs = phase1_result.get("result", {}).get("designs", [])
+        if not phase1_designs:
+            print("[MetalLigandSequential] Phase 1 produced no designs")
             continue
 
-        chain_a_pdb = chain_a_designs[0].get("content") or chain_a_designs[0].get("pdb_content")
+        phase1_pdb = phase1_designs[0].get("content") or phase1_designs[0].get("pdb_content")
+        if not phase1_pdb:
+            print("[MetalLigandSequential] Phase 1: No PDB content")
+            continue
+
+        # Extract Chain A from Phase 1 result
+        chain_a_pdb = _extract_chain(phase1_pdb, "A")
         if not chain_a_pdb:
-            print("[MetalLigandSequential] Chain A: No PDB content")
+            print("[MetalLigandSequential] Could not extract Chain A from Phase 1")
             continue
 
-        # Count Chain A backbone clashes with metal
         chain_a_clashes = _count_backbone_metal_clashes(chain_a_pdb, metal)
-        print(f"[MetalLigandSequential] Chain A clashes: {chain_a_clashes}")
+        print(f"[MetalLigandSequential] Phase 1 Chain A clashes: {chain_a_clashes}")
 
-        # ============ STEP 2: Design Chain B ============
-        # Design Chain B around Chain A + metal-ligand
-        # Chain B fills remaining coordination sites
-        print("[MetalLigandSequential] Step 2: Designing Chain B...")
+        # ============ PHASE 2: Redesign Chain B with Chain A as context ============
+        # This gives Chain B more optimization freedom
+        print("[MetalLigandSequential] Phase 2: Redesigning Chain B...")
 
-        # Relabel Chain A as chain A (ensure proper labeling)
+        # Ensure Chain A has proper chain label
         chain_a_relabeled = _relabel_chain_atoms(chain_a_pdb, "A")
 
-        # Build combined PDB: Chain A + metal-ligand complex
-        combined_pdb = chain_a_relabeled
+        # Extract metal+ligand atoms from original complex PDB
+        # (they may have been modified by Chain A design)
+        metal_ligand_lines = []
+        for line in complex_pdb.split('\n'):
+            if line.startswith('HETATM'):
+                metal_ligand_lines.append(line)
 
+        # Build combined PDB: Chain A protein + metal + ligand
+        # Remove END and combine all components
+        chain_a_cleaned = chain_a_relabeled.replace("END\n", "").replace("END", "").rstrip()
+        raw_combined = chain_a_cleaned + "\n" + "\n".join(metal_ligand_lines) + "\nEND\n"
+
+        # CRITICAL: Renumber all atoms sequentially to avoid "Atom IDs not strictly increasing" error
+        combined_pdb = _renumber_atoms(raw_combined)
+        print(f"[MetalLigandSequential] Combined PDB renumbered for Chain B design")
+
+        chain_a_res_count = _count_residues(chain_a_relabeled)
+        print(f"[MetalLigandSequential] Chain A has {chain_a_res_count} residues")
+
+        # Use contig to keep Chain A fixed and add new Chain B
+        # Format: "A1-N,/0,60-80" keeps A1-N, adds new chain of 60-80 residues
         chain_b_config = {
-            "contig": f"A1-{_count_residues(chain_a_relabeled)},/0,{min_len}-{max_len}",
+            "contig": f"A1-{chain_a_res_count},/0,{min_len}-{max_len}",
             "pdb_content": combined_pdb,
             "num_designs": 1,
             "seed": (design_seed + 1000) if design_seed else None,
         }
 
-        # Fix Chain A + metal + ligand
-        chain_a_residues = _get_residue_range(chain_a_relabeled, "A")
+        # Fix metal + ligand atoms (Chain A is already fixed via contig)
+        # NOTE: We DON'T fix Chain A via select_fixed_atoms because contig handles it
         chain_b_config["select_fixed_atoms"] = {
-            f"A{chain_a_residues}": "ALL",  # Fix all of Chain A
             metal_chain_resnum: "ALL",
             ligand_chain_resnum: "ALL"
         }
 
-        # Bury metal for Chain B (it needs to coordinate the metal)
-        chain_b_config["select_buried"] = {metal_chain_resnum: "ALL"}
+        # AVOID select_buried - it causes backbone clashes
+        # Instead use hotspots to encourage contact with metal AND ligand
+        chain_b_config["hotspots"] = [metal_chain_resnum, ligand_chain_resnum]
 
-        # Hotspots: Chain B contacts metal
-        chain_b_config["hotspots"] = [metal_chain_resnum]
+        # H-bond conditioning: Chain B donates to actual ligand oxygens
+        # Extract from original complex_pdb (ligand_oxygens extracted earlier)
+        chain_b_ligand_oxygens = []
+        for line in complex_pdb.split('\n'):
+            if line.startswith('HETATM'):
+                res_name = line[17:20].strip()
+                atom_name = line[12:16].strip()
+                if res_name == ligand_name and atom_name.startswith('O'):
+                    chain_b_ligand_oxygens.append(atom_name)
 
-        # H-bond conditioning for metal coordination
-        chain_b_config["select_hbond_acceptor"] = {metal_chain_resnum: "ALL"}
+        if chain_b_ligand_oxygens:
+            hbond_atoms_b = ",".join(sorted(set(chain_b_ligand_oxygens)))
+            chain_b_config["select_hbond_acceptor"] = {ligand_chain_resnum: hbond_atoms_b}
+            print(f"[MetalLigandSequential] Chain B H-bond acceptors: {hbond_atoms_b}")
 
-        print(f"[MetalLigandSequential] Chain B config: bury metal, fix Chain A")
+        # Do NOT pass ligand parameter (CCD lookup issues per joint design)
+
+        print(f"[MetalLigandSequential] Chain B config: hotspots={chain_b_config['hotspots']}, no burial")
 
         if use_mock:
             chain_b_result = {"status": "completed", "result": {"designs": [{"content": combined_pdb}]}}
@@ -7555,8 +7606,8 @@ def _design_metal_ligand_sequential(
                 pdb_content=chain_b_config["pdb_content"],
                 num_designs=1,
                 seed=chain_b_config.get("seed"),
+                # Do NOT pass ligand= (CCD lookup issues per joint design)
                 select_fixed_atoms=chain_b_config.get("select_fixed_atoms"),
-                select_buried=chain_b_config.get("select_buried"),
                 hotspots=chain_b_config.get("hotspots"),
                 select_hbond_acceptor=chain_b_config.get("select_hbond_acceptor"),
             )
@@ -7580,17 +7631,12 @@ def _design_metal_ligand_sequential(
         print(f"[MetalLigandSequential] Total dimer clashes: {total_clashes}")
 
         # Run LigandMPNN for sequence design
-        # (Similar to joint approach)
-        print("[MetalLigandSequential] Running LigandMPNN...")
+        # Use "metal" preset which includes H:3.0,C:3.0,D:2.0,E:2.0 bias
+        print("[MetalLigandSequential] Running LigandMPNN with metal preset...")
 
-        # Get HSAB bias for the metal
-        from metal_chemistry import get_hsab_bias
-        hsab_bias = get_hsab_bias(metal)
-        print(f"[MetalLigandSequential] HSAB bias: {hsab_bias}")
-
-        mpnn_result = run_ligandmpnn(
+        mpnn_result = run_ligandmpnn_for_ligand_binding(
             pdb_content=dimer_pdb,
-            bias_AA=hsab_bias,
+            ligand_type="metal",  # Uses preset bias for metal coordination
             num_sequences=1,
             temperature=0.2,
         )
@@ -7632,6 +7678,43 @@ def _design_metal_ligand_sequential(
             "best_design_index": best_design_idx,
         }
     }
+
+
+def _extract_chain(pdb_content: str, chain_id: str) -> Optional[str]:
+    """Extract a single chain from PDB content."""
+    lines = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            line_chain = line[21:22]
+            if line_chain == chain_id:
+                lines.append(line)
+        elif line.startswith('TER'):
+            # Include TER if it's for our chain
+            if lines:  # Only if we have atoms
+                lines.append(line)
+                break  # TER marks end of chain
+    if not lines:
+        return None
+    return '\n'.join(lines) + '\nEND\n'
+
+
+def _renumber_atoms(pdb_content: str) -> str:
+    """Renumber all atoms sequentially to ensure strictly increasing IDs."""
+    lines = []
+    atom_serial = 1
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM') or line.startswith('HETATM'):
+            # Replace atom serial number (columns 7-11, 1-indexed = chars 6-11)
+            new_line = f"{line[:6]}{atom_serial:5d}{line[11:]}"
+            lines.append(new_line)
+            atom_serial += 1
+        elif line.startswith('TER'):
+            # TER record - use next serial number
+            lines.append(f"TER   {atom_serial:5d}{line[11:] if len(line) > 11 else ''}")
+            atom_serial += 1
+        else:
+            lines.append(line)
+    return '\n'.join(lines)
 
 
 def _count_backbone_metal_clashes(pdb_content: str, metal: str, threshold: float = 3.5) -> int:

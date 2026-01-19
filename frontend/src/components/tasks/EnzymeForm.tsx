@@ -10,12 +10,6 @@ import { QualityPresetSelector, QualityPreset, QualityParams } from './shared/Qu
 import { AdvancedOptionsWrapper } from './shared/AdvancedOptionsWrapper';
 import { QUALITY_PRESETS, RFD3Request, TaskFormProps } from './shared/types';
 
-interface CatalyticResidue {
-  chain: string;
-  residue: number;
-  name: string;
-}
-
 interface CovalentBond {
   // Protein side: chain/resName/resId/atomName
   proteinChain: string;
@@ -30,10 +24,14 @@ interface CovalentBond {
 }
 
 export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
-  // Store hooks for catalytic suggestions
+  // Store hooks for catalytic suggestions and shared residue state
   const {
     catalyticSuggestions,
     setBottomPanelMode,
+    enzymeCatalyticResidues,
+    enzymeFixedAtomTypes,
+    addEnzymeCatalyticResidue,
+    removeEnzymeCatalyticResidue,
   } = useStore();
 
   // Required
@@ -42,8 +40,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   const [ligandCodes, setLigandCodes] = useState('');
   const [proteinLength, setProteinLength] = useState('150');
 
-  // Catalytic residues (unindex)
-  const [catalyticResidues, setCatalyticResidues] = useState<CatalyticResidue[]>([]);
+  // Catalytic residues input state (actual residues are in store: enzymeCatalyticResidues)
   const [newCatChain, setNewCatChain] = useState('A');
   const [newCatResidue, setNewCatResidue] = useState('');
   const [newCatName, setNewCatName] = useState('');
@@ -82,23 +79,15 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
     if (newCatResidue) {
       const residueNum = parseInt(newCatResidue, 10);
       if (!isNaN(residueNum)) {
-        const exists = catalyticResidues.some(
-          (r) => r.chain === newCatChain && r.residue === residueNum
-        );
-        if (!exists) {
-          setCatalyticResidues([
-            ...catalyticResidues,
-            { chain: newCatChain, residue: residueNum, name: newCatName },
-          ]);
-          setNewCatResidue('');
-          setNewCatName('');
-        }
+        addEnzymeCatalyticResidue(newCatChain, residueNum, newCatName, fixedAtomType);
+        setNewCatResidue('');
+        setNewCatName('');
       }
     }
   };
 
-  const removeCatalyticResidue = (index: number) => {
-    setCatalyticResidues(catalyticResidues.filter((_, i) => i !== index));
+  const removeCatalyticResidue = (chain: string, residue: number) => {
+    removeEnzymeCatalyticResidue(chain, residue);
   };
 
   // Covalent bond management
@@ -139,15 +128,11 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   const handleSubmit = async () => {
     // Build unindex string: comma-separated residue positions
     // Format: Chain:Residue[ResName] -> simplified to just "chain residue"
-    const unindexParts = catalyticResidues.map((r) => `${r.chain}${r.residue}`);
+    const unindexParts = enzymeCatalyticResidues.map((r) => `${r.chain}${r.residue}`);
     const unindex = unindexParts.join(',');
 
-    // Build fixed atoms selection for catalytic residues
-    const selectFixedAtoms: Record<string, string> = {};
-    for (const res of catalyticResidues) {
-      const key = `${res.chain}${res.residue}`;
-      selectFixedAtoms[key] = fixedAtomType;
-    }
+    // Build fixed atoms selection for catalytic residues (use store's atom types)
+    const selectFixedAtoms: Record<string, string> = { ...enzymeFixedAtomTypes };
 
     const request: RFD3Request = {
       pdb_content: pdbContent || undefined,
@@ -193,7 +178,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   const isValid =
     pdbContent !== null &&
     ligandCodes.trim() !== '' &&
-    catalyticResidues.length > 0 &&
+    enzymeCatalyticResidues.length > 0 &&
     proteinLength.trim() !== '';
 
   return (
@@ -265,9 +250,9 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
       >
         <div className="space-y-4">
           {/* Current residues */}
-          {catalyticResidues.length > 0 && (
+          {enzymeCatalyticResidues.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">
-              {catalyticResidues.map((res, i) => (
+              {enzymeCatalyticResidues.map((res) => (
                 <div
                   key={`${res.chain}-${res.residue}`}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-muted text-foreground text-sm font-medium"
@@ -277,7 +262,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                     {res.name && <span className="text-muted-foreground ml-1">({res.name})</span>}
                   </span>
                   <button
-                    onClick={() => removeCatalyticResidue(i)}
+                    onClick={() => removeCatalyticResidue(res.chain, res.residue)}
                     className="ml-1 hover:text-red-600 transition-colors"
                   >
                     <X className="w-4 h-4" />
@@ -345,7 +330,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
             </button>
           </div>
 
-          {catalyticResidues.length === 0 && (
+          {enzymeCatalyticResidues.length === 0 && (
             <p className="text-xs text-amber-600 flex items-center gap-1">
               <AlertTriangle className="w-4 h-4" />
               Add at least one catalytic residue for enzyme scaffolding

@@ -267,6 +267,13 @@ interface AppState {
   setSuggestionsError: (error: string | null) => void;
   setBottomPanelMode: (mode: BottomPanelMode) => void;
   clearSuggestions: () => void;
+
+  // Enzyme form shared state (for cross-component communication)
+  enzymeCatalyticResidues: Array<{ chain: string; residue: number; name: string }>;
+  enzymeFixedAtomTypes: Record<string, string>;
+  addEnzymeCatalyticResidue: (chain: string, residue: number, name: string, atomType: string) => void;
+  removeEnzymeCatalyticResidue: (chain: string, residue: number) => void;
+  clearEnzymeCatalyticResidues: () => void;
 }
 
 // Default backend URL from environment or fallback
@@ -497,6 +504,34 @@ export const useStore = create<AppState>()(
     suggestionsSource: 'none',
     suggestionsError: null,
     bottomPanelMode: 'none',
+  }),
+
+  // Enzyme form shared state
+  enzymeCatalyticResidues: [],
+  enzymeFixedAtomTypes: {},
+  addEnzymeCatalyticResidue: (chain, residue, name, atomType) => set((state) => {
+    const key = `${chain}${residue}`;
+    if (state.enzymeCatalyticResidues.some((r) => r.chain === chain && r.residue === residue)) {
+      return state;
+    }
+    return {
+      enzymeCatalyticResidues: [...state.enzymeCatalyticResidues, { chain, residue, name }],
+      enzymeFixedAtomTypes: { ...state.enzymeFixedAtomTypes, [key]: atomType },
+    };
+  }),
+  removeEnzymeCatalyticResidue: (chain, residue) => set((state) => {
+    const key = `${chain}${residue}`;
+    const { [key]: _, ...restAtomTypes } = state.enzymeFixedAtomTypes;
+    return {
+      enzymeCatalyticResidues: state.enzymeCatalyticResidues.filter(
+        (r) => !(r.chain === chain && r.residue === residue)
+      ),
+      enzymeFixedAtomTypes: restAtomTypes,
+    };
+  }),
+  clearEnzymeCatalyticResidues: () => set({
+    enzymeCatalyticResidues: [],
+    enzymeFixedAtomTypes: {},
   }),
 }),
     {

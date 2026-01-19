@@ -53,6 +53,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Import and register catalytic suggestions router
+from app.routers.catalytic_suggestions import router as catalytic_router
+app.include_router(catalytic_router)
+
 # In-memory job storage (use Redis in production)
 jobs: Dict[str, Dict[str, Any]] = {}
 

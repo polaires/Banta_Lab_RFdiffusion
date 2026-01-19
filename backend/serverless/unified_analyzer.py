@@ -10,7 +10,18 @@ import shutil
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
-from analysis_types import AnalysisResult, AnalysisStatus, DesignType, detect_design_type
+from analysis_types import (
+    AnalysisResult,
+    AnalysisStatus,
+    DesignType,
+    detect_design_type,
+    detect_metal_from_pdb,
+    detect_ligand_from_pdb,
+    DetectedMetal,
+    DetectedLigand,
+    METAL_CODES,
+    SOLVENT_RESIDUES,
+)
 
 
 class UnifiedDesignAnalyzer:
@@ -85,29 +96,40 @@ class UnifiedDesignAnalyzer:
         pdb_content: str,
         metal_type: Optional[str] = None,
         ligand_sdf: Optional[str] = None,
-    ) -> DesignType:
-        """Detect design type from PDB content and provided metadata."""
-        # Count chains
-        chains = set()
-        has_hetatm = False
+    ) -> tuple:
+        """
+        Detect design type from PDB content with auto-detection of metal/ligand.
 
+        Returns:
+            Tuple of (DesignType, DetectedMetal or None, DetectedLigand or None)
+        """
+        # Count protein chains
+        chains = set()
         for line in pdb_content.split("\n"):
             if line.startswith("ATOM"):
                 chain_id = line[21] if len(line) > 21 else ""
                 if chain_id.strip():
                     chains.add(chain_id)
-            elif line.startswith("HETATM"):
-                has_hetatm = True
 
         chain_count = len(chains)
-        has_ligand = ligand_sdf is not None or has_hetatm
-        has_metal = metal_type is not None
 
-        return detect_design_type(
+        # Auto-detect metal from PDB
+        detected_metal = detect_metal_from_pdb(pdb_content)
+
+        # Auto-detect ligand from PDB
+        detected_ligand = detect_ligand_from_pdb(pdb_content)
+
+        # Determine presence based on explicit params OR auto-detection
+        has_metal = metal_type is not None or detected_metal is not None
+        has_ligand = ligand_sdf is not None or detected_ligand is not None
+
+        design_type = detect_design_type(
             has_ligand=has_ligand,
             has_metal=has_metal,
             chain_count=chain_count,
         )
+
+        return design_type, detected_metal, detected_ligand
 
     def _generate_design_id(self, design_type: DesignType) -> str:
         """Generate unique design ID."""
@@ -122,8 +144,8 @@ class UnifiedDesignAnalyzer:
         pdb_path: Optional[str] = None,
         ligand_sdf: Optional[str] = None,
         metal_type: Optional[str] = None,
-        metal_chain: str = "L",
-        metal_resnum: int = 1,
+        metal_chain: Optional[str] = None,
+        metal_resnum: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Run comprehensive analysis on a design.
@@ -133,16 +155,35 @@ class UnifiedDesignAnalyzer:
             design_params: Parameters used to generate the design
             pdb_path: Optional path to PDB file (for tools that need file path)
             ligand_sdf: Optional SDF content for ligand
-            metal_type: Optional metal type code (e.g., "TB", "ZN")
-            metal_chain: Chain ID of metal (default "L")
-            metal_resnum: Residue number of metal (default 1)
+            metal_type: Optional metal type code (e.g., "TB", "ZN"). Auto-detected if None.
+            metal_chain: Chain ID of metal. Auto-detected if None.
+            metal_resnum: Residue number of metal. Auto-detected if None.
 
         Returns:
             Structured metrics JSON with all analysis results
         """
-        # Detect design type
-        design_type = self._detect_design_type(pdb_content, metal_type, ligand_sdf)
+        # Detect design type and auto-detect metal/ligand
+        design_type, detected_metal, detected_ligand = self._detect_design_type(
+            pdb_content, metal_type, ligand_sdf
+        )
         design_id = self._generate_design_id(design_type)
+
+        # Use auto-detected values if explicit values not provided
+        effective_metal_type = metal_type
+        effective_metal_chain = metal_chain
+        effective_metal_resnum = metal_resnum
+        metal_auto_detected = False
+
+        if detected_metal:
+            if effective_metal_type is None:
+                effective_metal_type = detected_metal.metal_type
+                metal_auto_detected = True
+            if effective_metal_chain is None:
+                effective_metal_chain = detected_metal.chain
+                metal_auto_detected = True
+            if effective_metal_resnum is None:
+                effective_metal_resnum = detected_metal.resnum
+                metal_auto_detected = True
 
         # Initialize result structure
         result = {
@@ -153,13 +194,36 @@ class UnifiedDesignAnalyzer:
             "analyses": {},
         }
 
+        # Add auto-detected information
+        auto_detected = {}
+        if detected_metal:
+            auto_detected["metal"] = {
+                "type": detected_metal.metal_type,
+                "chain": detected_metal.chain,
+                "resnum": detected_metal.resnum,
+                "coords": [detected_metal.x, detected_metal.y, detected_metal.z],
+            }
+        if detected_ligand:
+            auto_detected["ligand"] = {
+                "name": detected_ligand.ligand_name,
+                "chain": detected_ligand.chain,
+                "resnum": detected_ligand.resnum,
+                "atom_count": detected_ligand.atom_count,
+            }
+        if auto_detected:
+            result["auto_detected"] = auto_detected
+
         # Run structure confidence analysis
         result["analyses"]["structure_confidence"] = self._analyze_structure_confidence(
             pdb_content
         ).to_dict()
 
-        # Run interface analysis (for dimers)
-        if design_type != DesignType.MONOMER:
+        # Run interface analysis (for dimers only)
+        monomer_types = {
+            DesignType.MONOMER, DesignType.METAL_MONOMER,
+            DesignType.LIGAND_MONOMER, DesignType.METAL_LIGAND_MONOMER
+        }
+        if design_type not in monomer_types:
             result["analyses"]["interface_quality"] = self._analyze_interface(
                 pdb_content
             ).to_dict()
@@ -168,14 +232,14 @@ class UnifiedDesignAnalyzer:
                 "monomer design - no interface"
             ).to_dict()
 
-        # Run metal coordination analysis
-        if metal_type:
+        # Run metal coordination analysis (uses effective values from auto-detection)
+        if effective_metal_type:
             result["analyses"]["metal_coordination"] = self._analyze_metal_coordination(
-                pdb_content, metal_type, metal_chain, metal_resnum
+                pdb_content, effective_metal_type, effective_metal_chain, effective_metal_resnum
             ).to_dict()
         else:
             result["analyses"]["metal_coordination"] = AnalysisResult.not_applicable(
-                "no metal type specified"
+                "no metal detected or specified"
             ).to_dict()
 
         # Run ligand binding analysis
@@ -191,8 +255,8 @@ class UnifiedDesignAnalyzer:
         # Run topology validation
         result["analyses"]["topology"] = self._analyze_topology(pdb_content).to_dict()
 
-        # Run symmetry analysis (for dimers)
-        if design_type != DesignType.MONOMER:
+        # Run symmetry analysis (for dimers only)
+        if design_type not in monomer_types:
             result["analyses"]["symmetry"] = self._analyze_symmetry(pdb_content).to_dict()
         else:
             result["analyses"]["symmetry"] = AnalysisResult.not_applicable(

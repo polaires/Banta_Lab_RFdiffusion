@@ -24,9 +24,9 @@ def main():
     parser.add_argument("pdb_file", help="Path to PDB file to analyze")
     parser.add_argument("--params", help="Path to design parameters JSON")
     parser.add_argument("--ligand", help="Path to ligand SDF file")
-    parser.add_argument("--metal", help="Metal type code (e.g., TB, ZN)")
-    parser.add_argument("--metal-chain", default="L", help="Metal chain ID")
-    parser.add_argument("--metal-resnum", type=int, default=1, help="Metal residue number")
+    parser.add_argument("--metal", help="Metal type code (e.g., TB, ZN). Auto-detected if not specified.")
+    parser.add_argument("--metal-chain", default=None, help="Metal chain ID (auto-detected if not specified)")
+    parser.add_argument("--metal-resnum", type=int, default=None, help="Metal residue number (auto-detected if not specified)")
     parser.add_argument("--session", help="Session name (creates new if not exists)")
     parser.add_argument(
         "--history-dir",
@@ -119,6 +119,18 @@ def main():
     else:
         print(f"\nDesign Analysis: {metrics['design_id']}")
         print(f"Type: {metrics['design_type']}")
+
+        # Show auto-detected information
+        if "auto_detected" in metrics:
+            print("\nAuto-detected:")
+            auto = metrics["auto_detected"]
+            if "metal" in auto:
+                m = auto["metal"]
+                print(f"  Metal: {m['type']} (chain {m['chain']}, resnum {m['resnum']})")
+            if "ligand" in auto:
+                lig = auto["ligand"]
+                print(f"  Ligand: {lig['name']} (chain {lig['chain']}, resnum {lig['resnum']}, {lig['atom_count']} atoms)")
+
         print("\nAnalyses:")
         for name, data in metrics["analyses"].items():
             status = data["status"]

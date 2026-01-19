@@ -8,7 +8,7 @@ import type { CatalyticSuggestion } from '@/lib/store';
 
 interface CatalyticSuggestionsPanelProps {
   suggestions: CatalyticSuggestion[];
-  source: 'mcsa' | 'p2rank' | 'none';
+  source: 'mcsa' | 'local' | 'none';
   loading: boolean;
   error: string | null;
   existingResidues: Array<{ chain: string; residue: number }>;
@@ -147,14 +147,14 @@ export function CatalyticSuggestionsPanel({
       {/* Footer */}
       <div className="px-4 py-2 border-t text-xs text-muted-foreground flex justify-between">
         <span>
-          Source: {source === 'mcsa' ? 'M-CSA (curated)' : source === 'p2rank' ? 'P2Rank (predicted)' : 'None'}
+          Source: {source === 'mcsa' ? 'M-CSA (curated)' : source === 'local' ? 'Binding Pocket (local)' : 'None'}
         </span>
         <span className="flex items-center gap-3">
           <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-blue-500" /> Curated
+            <div className="w-2 h-2 rounded-full bg-blue-500" /> M-CSA
           </span>
           <span className="flex items-center gap-1">
-            <div className="w-2 h-2 rounded-full bg-orange-500" /> Predicted
+            <div className="w-2 h-2 rounded-full bg-orange-500" /> Local
           </span>
         </span>
       </div>

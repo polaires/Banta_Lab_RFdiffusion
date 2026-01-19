@@ -1,9 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { Check, Upload } from 'lucide-react';
+import { Check, Upload, Download, Loader2 } from 'lucide-react';
 import { useStore } from '@/lib/store';
-import { fetchCatalyticSuggestions, extractPdbId } from '@/lib/catalyticDetection';
+import { fetchCatalyticSuggestions, extractPdbId, filterPdbToSingleAssembly } from '@/lib/catalyticDetection';
 
 interface PdbUploaderProps {
   label: string;
@@ -27,6 +27,9 @@ export function PdbUploader({
   className = '',
 }: PdbUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [pdbIdInput, setPdbIdInput] = useState('');
+  const [isLoadingFromRcsb, setIsLoadingFromRcsb] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -58,7 +61,9 @@ export function PdbUploader({
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const content = e.target?.result as string;
+        const rawContent = e.target?.result as string;
+        // Filter to single biological assembly to avoid duplicate ligands
+        const content = filterPdbToSingleAssembly(rawContent);
         onChange(content, file.name);
         setSelectedPdb(content);
         // Auto-fetch catalytic suggestions
@@ -75,7 +80,9 @@ export function PdbUploader({
     if (file) {
       const reader = new FileReader();
       reader.onload = (ev) => {
-        const content = ev.target?.result as string;
+        const rawContent = ev.target?.result as string;
+        // Filter to single biological assembly to avoid duplicate ligands
+        const content = filterPdbToSingleAssembly(rawContent);
         onChange(content, file.name);
         setSelectedPdb(content);
         // Auto-fetch catalytic suggestions
@@ -89,8 +96,58 @@ export function PdbUploader({
     e.stopPropagation();
     onChange(null, null);
     clearSuggestions();
+    setSelectedPdb(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
+    }
+  };
+
+  // Load PDB from RCSB by ID
+  const handleLoadFromRcsb = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const pdbId = pdbIdInput.trim().toUpperCase();
+
+    if (!pdbId || pdbId.length !== 4) {
+      setLoadError('Please enter a valid 4-character PDB ID');
+      return;
+    }
+
+    setIsLoadingFromRcsb(true);
+    setLoadError(null);
+
+    try {
+      const rcsbUrl = `https://files.rcsb.org/download/${pdbId}.pdb`;
+      const response = await fetch(rcsbUrl);
+
+      if (!response.ok) {
+        throw new Error(`PDB ID "${pdbId}" not found`);
+      }
+
+      const rawContent = await response.text();
+      // Filter to single biological assembly to avoid duplicate ligands
+      const content = filterPdbToSingleAssembly(rawContent);
+      const generatedFileName = `${pdbId}.pdb`;
+
+      onChange(content, generatedFileName);
+      setSelectedPdb(content);
+      setPdbIdInput('');
+
+      // Fetch catalytic suggestions with the known PDB ID
+      setSuggestionsLoading(true);
+      try {
+        const result = await fetchCatalyticSuggestions(content, pdbId, backendUrl);
+        setCatalyticSuggestions(result.residues, result.source);
+      } catch (error) {
+        console.error('Failed to fetch catalytic suggestions:', error);
+        setSuggestionsError(error instanceof Error ? error.message : 'Unknown error');
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    } catch (error) {
+      console.error('Failed to load PDB from RCSB:', error);
+      setLoadError(error instanceof Error ? error.message : 'Failed to load PDB');
+    } finally {
+      setIsLoadingFromRcsb(false);
     }
   };
 
@@ -152,6 +209,51 @@ export function PdbUploader({
           </>
         )}
       </div>
+
+      {/* PDB ID Input Section */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={pdbIdInput}
+            onChange={(e) => {
+              setPdbIdInput(e.target.value.toUpperCase());
+              setLoadError(null);
+            }}
+            placeholder="Enter PDB ID (e.g., 1TIM)"
+            maxLength={4}
+            className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background
+                       focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary
+                       placeholder:text-muted-foreground"
+            disabled={isLoadingFromRcsb}
+          />
+        </div>
+        <button
+          onClick={handleLoadFromRcsb}
+          disabled={isLoadingFromRcsb || !pdbIdInput.trim()}
+          className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md
+                     bg-primary text-primary-foreground hover:bg-primary/90
+                     disabled:opacity-50 disabled:cursor-not-allowed
+                     transition-colors"
+        >
+          {isLoadingFromRcsb ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading...
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4" />
+              Load from RCSB
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Error message */}
+      {loadError && (
+        <p className="text-xs text-red-500">{loadError}</p>
+      )}
     </div>
   );
 }

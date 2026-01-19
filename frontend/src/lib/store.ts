@@ -32,7 +32,7 @@ export interface CatalyticSuggestion {
   name: string;
   role?: string;
   confidence: number;
-  source: 'mcsa' | 'p2rank';
+  source: 'mcsa' | 'local';
 }
 
 // Bottom panel mode
@@ -256,13 +256,13 @@ interface AppState {
 
   // Catalytic residue suggestions
   catalyticSuggestions: CatalyticSuggestion[];
-  suggestionsSource: 'mcsa' | 'p2rank' | 'none';
+  suggestionsSource: 'mcsa' | 'local' | 'none';
   suggestionsLoading: boolean;
   suggestionsError: string | null;
   bottomPanelMode: BottomPanelMode;
 
   // Catalytic suggestions actions
-  setCatalyticSuggestions: (suggestions: CatalyticSuggestion[], source: 'mcsa' | 'p2rank' | 'none') => void;
+  setCatalyticSuggestions: (suggestions: CatalyticSuggestion[], source: 'mcsa' | 'local' | 'none') => void;
   setSuggestionsLoading: (loading: boolean) => void;
   setSuggestionsError: (error: string | null) => void;
   setBottomPanelMode: (mode: BottomPanelMode) => void;

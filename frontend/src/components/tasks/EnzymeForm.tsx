@@ -284,7 +284,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                 {catalyticSuggestions.some(s => s.source === 'mcsa') && (
                   <span className="w-2 h-2 rounded-full bg-blue-500" />
                 )}
-                {catalyticSuggestions.some(s => s.source === 'p2rank') && (
+                {catalyticSuggestions.some(s => s.source === 'local') && (
                   <span className="w-2 h-2 rounded-full bg-orange-500" />
                 )}
               </span>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Beaker, Info, X, AlertTriangle, Plus, Loader2, Rocket } from 'lucide-react';
+import { Beaker, Info, X, AlertTriangle, Plus, Loader2, Rocket, Sparkles } from 'lucide-react';
+import { useStore } from '@/lib/store';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { LengthRangeInput } from './shared/LengthRangeInput';
@@ -29,6 +30,12 @@ interface CovalentBond {
 }
 
 export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
+  // Store hooks for catalytic suggestions
+  const {
+    catalyticSuggestions,
+    setBottomPanelMode,
+  } = useStore();
+
   // Required
   const [pdbContent, setPdbContent] = useState<string | null>(null);
   const [pdbFileName, setPdbFileName] = useState<string | null>(null);
@@ -278,6 +285,25 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                 </div>
               ))}
             </div>
+          )}
+
+          {/* Show Suggestions button */}
+          {catalyticSuggestions.length > 0 && (
+            <button
+              onClick={() => setBottomPanelMode('suggestions')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors"
+            >
+              <Sparkles className="w-4 h-4" />
+              Show {catalyticSuggestions.length} Suggestions
+              <span className="flex gap-0.5 ml-1">
+                {catalyticSuggestions.some(s => s.source === 'mcsa') && (
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                )}
+                {catalyticSuggestions.some(s => s.source === 'p2rank') && (
+                  <span className="w-2 h-2 rounded-full bg-orange-500" />
+                )}
+              </span>
+            </button>
           )}
 
           {/* Add new residue */}

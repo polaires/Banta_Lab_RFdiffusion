@@ -13,6 +13,7 @@ import { AdvancedOptionsWrapper } from './shared/AdvancedOptionsWrapper';
 import { MetalReplacementSection } from './shared/MetalReplacementSection';
 import { RASAConditioningSection } from './shared/RASAConditioningSection';
 import { HBondConditioningSection } from './shared/HBondConditioningSection';
+import { FixedAtomsCustomizeDialog } from './shared/FixedAtomsCustomizeDialog';
 import { QUALITY_PRESETS, RFD3Request, TaskFormProps } from './shared/types';
 import {
   analyzeEnzymeStructure,
@@ -46,6 +47,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
     addEnzymeCatalyticResidue,
     removeEnzymeCatalyticResidue,
     setEnzymeCatalyticResidues,
+    setEnzymeFixedAtomTypes,
     // Ligand codes (in store for cross-component filtering)
     enzymeLigandCodes: ligandCodes,
     setEnzymeLigandCodes: setLigandCodes,
@@ -128,6 +130,9 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   const [rasaEnabled, setRasaEnabled] = useState(false);
   const [hbondEnabled, setHbondEnabled] = useState(false);
 
+  // Fixed atoms customize dialog
+  const [customizeDialogOpen, setCustomizeDialogOpen] = useState(false);
+
   // Auto-enable RASA when metal replacement is enabled (metal must be buried)
   useEffect(() => {
     if (metalReplacementEnabled && targetMetal && !rasaEnabled) {
@@ -148,16 +153,21 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
           setSourceMetal(analysis.metals[0].element);
         }
 
-        // Auto-fill ligand codes from detected ligands ONLY (not metals)
-        // Metals are tracked separately via enzymeAnalysis.metals and handled
-        // by the metal replacement workflow
+        // Auto-fill ligand codes from detected ligands AND metals
+        // RFD3 needs all non-polymer residues in ligand_codes
         const detectedLigandCodes: string[] = [];
         for (const ligand of analysis.ligands) {
           if (!detectedLigandCodes.includes(ligand.name)) {
             detectedLigandCodes.push(ligand.name);
           }
         }
-        // DO NOT add metals here - they're handled by metal replacement workflow
+        // Also add metals - they're non-polymer residues that RFD3 needs to know about
+        // Metal replacement workflow handles which metal element to use, but the code still needs to be in ligand_codes
+        for (const metal of analysis.metals) {
+          if (!detectedLigandCodes.includes(metal.element)) {
+            detectedLigandCodes.push(metal.element);
+          }
+        }
         if (detectedLigandCodes.length > 0) {
           setLigandCodes(detectedLigandCodes.join(','));
         }
@@ -291,11 +301,24 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
     // Build fixed atoms selection for catalytic residues (use store's atom types)
     // Also filter out excluded residues from fixed atoms
+    // Create a map of key -> residue name for validation
+    const residueNameMap = new Map<string, string>();
+    for (const res of enzymeCatalyticResidues) {
+      residueNameMap.set(`${res.chain}${res.residue}`, res.name);
+    }
+
     const selectFixedAtoms: Record<string, string> = {};
     for (const [key, value] of Object.entries(enzymeFixedAtomTypes)) {
       // Check if this residue is excluded (format: "A123")
       if (!excludedCatalyticResidues.has(key)) {
-        selectFixedAtoms[key] = value;
+        // GLY doesn't have sidechain atoms, so 'TIP' is invalid
+        // Convert 'TIP' to 'BKBN' for GLY residues
+        const resName = residueNameMap.get(key);
+        if (resName === 'GLY' && value === 'TIP') {
+          selectFixedAtoms[key] = 'BKBN';
+        } else {
+          selectFixedAtoms[key] = value;
+        }
       }
     }
 
@@ -663,20 +686,67 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
             { value: 'ALL', label: 'All' },
             { value: 'TIP', label: 'Tips' },
             { value: '', label: 'None' },
-          ].map((opt, i, arr) => (
-            <button
-              key={opt.value}
-              onClick={() => setFixedAtomType(opt.value)}
-              className={`px-4 py-1.5 text-sm font-medium transition-all ${
-                fixedAtomType === opt.value
-                  ? 'bg-primary text-primary-foreground rounded-md shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              } ${i === 0 ? 'rounded-l-md' : ''} ${i === arr.length - 1 ? 'rounded-r-md' : ''}`}
-            >
-              {opt.label}
-            </button>
-          ))}
+            { value: 'CUSTOM', label: 'Customize' },
+          ].map((opt, i, arr) => {
+            // Check if custom mode is active (residues have mixed/different atom types)
+            const hasCustomValues = Object.keys(enzymeFixedAtomTypes).length > 0 &&
+              Object.entries(enzymeFixedAtomTypes).some(([, v]) => v !== fixedAtomType);
+            const isCustomActive = hasCustomValues;
+
+            // Determine if this button should be highlighted
+            let isActive = false;
+            if (opt.value === 'CUSTOM') {
+              // Customize is active when there are mixed values
+              isActive = isCustomActive;
+            } else if (!isCustomActive) {
+              // Preset buttons only active when NOT in custom mode
+              isActive = fixedAtomType === opt.value;
+            }
+
+            return (
+              <button
+                key={opt.value || 'NONE'}
+                onClick={() => {
+                  if (opt.value === 'CUSTOM') {
+                    setCustomizeDialogOpen(true);
+                  } else {
+                    setFixedAtomType(opt.value);
+                    // When selecting a preset, update all residues to that value
+                    const newTypes: Record<string, string> = {};
+                    for (const res of enzymeCatalyticResidues) {
+                      newTypes[`${res.chain}${res.residue}`] = opt.value;
+                    }
+                    setEnzymeFixedAtomTypes(newTypes);
+                  }
+                }}
+                className={`px-4 py-1.5 text-sm font-medium transition-all ${
+                  isActive
+                    ? 'bg-primary text-primary-foreground rounded-md shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                } ${i === 0 ? 'rounded-l-md' : ''} ${i === arr.length - 1 ? 'rounded-r-md' : ''}`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
+
+        {/* Fixed Atoms Customize Dialog */}
+        <FixedAtomsCustomizeDialog
+          open={customizeDialogOpen}
+          onOpenChange={setCustomizeDialogOpen}
+          catalyticResidues={enzymeCatalyticResidues}
+          fixedAtomTypes={enzymeFixedAtomTypes}
+          onAtomTypeChange={(key, atomType) => {
+            const newTypes = { ...enzymeFixedAtomTypes, [key]: atomType };
+            setEnzymeFixedAtomTypes(newTypes);
+          }}
+          onBatchAtomTypeChange={(types) => {
+            setEnzymeFixedAtomTypes(types);
+          }}
+          excludedResidues={excludedCatalyticResidues}
+          metalCoordinators={enzymeAnalysis?.metals[0]?.coordinatingAtoms || []}
+        />
       </FormSection>
 
       {/* Scaffold Length - Required */}

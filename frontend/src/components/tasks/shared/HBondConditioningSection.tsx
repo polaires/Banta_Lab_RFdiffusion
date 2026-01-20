@@ -1,11 +1,15 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import { AlertTriangle, Plus, X } from 'lucide-react';
+import { AlertTriangle, Plus, X, Check } from 'lucide-react';
 import { FormSection } from './FormSection';
 import { AtomCheckboxGrid } from './AtomCheckboxGrid';
-import { suggestProteinDonors } from '../../../lib/enzymeAnalysis';
+import { suggestProteinDonors, type DetectedDonor } from '../../../lib/enzymeAnalysis';
 import type { EnzymeAnalysisResult } from '../../../lib/store';
+import { cn } from '../../../lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface HBondConditioningSectionProps {
   /** Whether H-bond conditioning is enabled */
@@ -207,19 +211,22 @@ export function HBondConditioningSection({
             {donorEntries.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {donorEntries.map(({ key, atoms }) => (
-                  <span
+                  <Badge
                     key={key}
-                    className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300 text-xs font-medium rounded-full border border-blue-200 dark:border-blue-800"
+                    variant="secondary"
+                    className="pr-1"
                   >
                     {key}:{atoms}
-                    <button
+                    <Button
                       type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-4 w-4 ml-1 hover:bg-secondary"
                       onClick={() => onRemoveDonor(key)}
-                      className="hover:text-blue-500 transition-colors"
                     >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </Badge>
                 ))}
               </div>
             )}
@@ -228,6 +235,16 @@ export function HBondConditioningSection({
               <p className="text-xs text-muted-foreground italic">
                 No protein donors specified. RFD3 will auto-design appropriate donors.
               </p>
+            )}
+
+            {/* Auto-detected donors suggestion */}
+            {enzymeAnalysis?.ligands[0]?.suggestedProteinDonors &&
+             enzymeAnalysis.ligands[0].suggestedProteinDonors.length > 0 && (
+              <AutoDetectedDonors
+                donors={enzymeAnalysis.ligands[0].suggestedProteinDonors}
+                donorAtoms={donorAtoms}
+                onDonorAtomsChange={onDonorAtomsChange}
+              />
             )}
 
             {/* Add new donor */}
@@ -255,7 +272,7 @@ export function HBondConditioningSection({
                   className="w-full px-2 py-1.5 border border-border rounded text-sm bg-card focus:ring-2 focus:ring-ring"
                 />
               </div>
-              <div className="w-24">
+              <div className="w-36">
                 <label className="block text-xs text-muted-foreground mb-1">Atom</label>
                 <select
                   value={newDonorAtom}
@@ -275,14 +292,14 @@ export function HBondConditioningSection({
                   <option value="NZ">NZ (Lys)</option>
                 </select>
               </div>
-              <button
-                type="button"
+              <Button
+                size="sm"
                 onClick={handleAddDonor}
                 disabled={!newDonorResidue}
-                className="px-3 py-1.5 bg-primary text-primary-foreground text-sm font-medium rounded hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed transition-colors"
+                className="h-8"
               >
                 <Plus className="h-4 w-4" />
-              </button>
+              </Button>
             </div>
 
             {addError && (
@@ -294,16 +311,17 @@ export function HBondConditioningSection({
               <p className="text-xs text-muted-foreground mb-2">Quick add:</p>
               <div className="flex flex-wrap gap-1">
                 {QUICK_ADD_PRESETS.slice(0, 6).map((preset) => (
-                  <button
+                  <Button
                     key={preset.label}
-                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => {
                       setNewDonorAtom(preset.atom);
                     }}
-                    className="px-2 py-1 text-[10px] bg-muted text-muted-foreground rounded hover:bg-muted/80 transition-colors"
+                    className="h-6 px-2 text-[10px]"
                   >
                     {preset.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -325,6 +343,131 @@ export function HBondConditioningSection({
         </div>
       )}
     </FormSection>
+  );
+}
+
+/**
+ * Sub-component for displaying auto-detected protein donors
+ */
+interface AutoDetectedDonorsProps {
+  donors: DetectedDonor[];
+  donorAtoms: Record<string, string>;
+  onDonorAtomsChange: (key: string, atoms: string) => void;
+}
+
+function AutoDetectedDonors({
+  donors,
+  donorAtoms,
+  onDonorAtomsChange,
+}: AutoDetectedDonorsProps) {
+  // Parse comma-separated string to array
+  const parseAtomString = (str: string): string[] => {
+    return str ? str.split(',').map(s => s.trim()).filter(Boolean) : [];
+  };
+
+  // Convert array to comma-separated string
+  const toAtomString = (atoms: string[]): string => {
+    return atoms.join(',');
+  };
+
+  // Check if a donor is already added
+  const isDonorAdded = useCallback((donor: DetectedDonor): boolean => {
+    const key = `${donor.chain}${donor.residue}`;
+    const existing = donorAtoms[key];
+    if (!existing) return false;
+    const atoms = parseAtomString(existing);
+    return atoms.includes(donor.atom);
+  }, [donorAtoms]);
+
+  // Add a single suggested donor
+  const addSuggestedDonor = useCallback((donor: DetectedDonor) => {
+    const key = `${donor.chain}${donor.residue}`;
+    const existing = donorAtoms[key];
+    if (existing) {
+      const atoms = parseAtomString(existing);
+      if (!atoms.includes(donor.atom)) {
+        onDonorAtomsChange(key, toAtomString([...atoms, donor.atom]));
+      }
+    } else {
+      onDonorAtomsChange(key, donor.atom);
+    }
+  }, [donorAtoms, onDonorAtomsChange]);
+
+  // Apply all donor suggestions
+  const applyAllDonorSuggestions = useCallback(() => {
+    for (const donor of donors) {
+      const key = `${donor.chain}${donor.residue}`;
+      const existing = donorAtoms[key];
+      if (existing) {
+        const atoms = parseAtomString(existing);
+        if (!atoms.includes(donor.atom)) {
+          onDonorAtomsChange(key, toAtomString([...atoms, donor.atom]));
+        }
+      } else {
+        onDonorAtomsChange(key, donor.atom);
+      }
+    }
+  }, [donors, donorAtoms, onDonorAtomsChange]);
+
+  // Check if all donors are already added
+  const allDonorsAdded = useMemo(() => {
+    return donors.every(isDonorAdded);
+  }, [donors, isDonorAdded]);
+
+  return (
+    <Card className="border-border bg-muted/30 py-3 shadow-none">
+      <CardContent className="px-3 py-0">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-foreground">
+            Detected potential donors ({donors.length})
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={applyAllDonorSuggestions}
+            disabled={allDonorsAdded}
+            className="h-6 px-2 text-xs"
+          >
+            {allDonorsAdded ? (
+              <>
+                <Check className="w-3 h-3 mr-1" />
+                All Added
+              </>
+            ) : (
+              'Apply All'
+            )}
+          </Button>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {donors.map((donor) => {
+            const isAdded = isDonorAdded(donor);
+            return (
+              <Badge
+                key={`${donor.chain}${donor.residue}:${donor.atom}`}
+                variant={isAdded ? 'default' : 'outline'}
+                className={cn(
+                  "cursor-pointer transition-colors text-[10px] font-normal",
+                  isAdded
+                    ? "bg-primary hover:bg-primary text-primary-foreground"
+                    : "bg-card hover:bg-accent border-border hover:border-primary/50"
+                )}
+                onClick={() => !isAdded && addSuggestedDonor(donor)}
+              >
+                {donor.chain}{donor.residue}:{donor.atom}
+                <span className={cn(
+                  "ml-1",
+                  isAdded ? "text-primary-foreground/70" : "text-muted-foreground"
+                )}>
+                  {donor.distance.toFixed(1)}Å
+                </span>
+                {isAdded && <Check className="w-2.5 h-2.5 ml-0.5" />}
+              </Badge>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

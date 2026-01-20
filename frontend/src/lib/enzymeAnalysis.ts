@@ -47,6 +47,18 @@ export const METAL_COORDINATION_INFO: Record<string, { typicalCN: number; range:
 // Common ligand atoms that can accept H-bonds (O and N atoms)
 const HBOND_ACCEPTOR_ELEMENTS = new Set(['O', 'N', 'S']);
 
+/**
+ * Detected protein donor atom for H-bond conditioning
+ */
+export interface DetectedDonor {
+  chain: string;
+  residue: number;
+  residueName: string;
+  atom: string;
+  distance: number;
+  donorType: 'backbone' | 'sidechain';
+}
+
 // Common organic ligands that should be analyzed
 const KNOWN_LIGANDS = new Set([
   // Carboxylic acids
@@ -331,6 +343,9 @@ export function analyzeEnzymeStructure(pdbContent: string): EnzymeAnalysisResult
     element: mc.element
   }));
 
+  // Get protein atoms for donor detection
+  const proteinAtoms = atoms.filter(a => !a.isHETATM);
+
   // Analyze each ligand
   const ligands: EnzymeAnalysisResult['ligands'] = [];
 
@@ -352,6 +367,13 @@ export function analyzeEnzymeStructure(pdbContent: string): EnzymeAnalysisResult
     // Classify atoms
     const classification = classifyLigandAtoms(ligandAtoms, metalPositions);
 
+    // Detect protein donors near this ligand
+    const suggestedProteinDonors = detectProteinDonorsNearLigand(
+      proteinAtoms,
+      ligandAtoms,
+      4.0  // 4 Angstrom cutoff for H-bonds
+    );
+
     ligands.push({
       name: resName,
       chain: chainId,
@@ -359,7 +381,8 @@ export function analyzeEnzymeStructure(pdbContent: string): EnzymeAnalysisResult
       atoms: uniqueAtoms,
       suggestedBuried: classification.buried,
       suggestedExposed: classification.exposed,
-      suggestedHBondAcceptors: classification.hbondAcceptors
+      suggestedHBondAcceptors: classification.hbondAcceptors,
+      suggestedProteinDonors
     });
   }
 
@@ -550,6 +573,95 @@ export function suggestProteinDonors(
   }
 
   return donors;
+}
+
+/**
+ * Detect protein atoms that could donate H-bonds to ligand acceptor atoms.
+ * Looks for protein N/O atoms (with H attached) within cutoff of ligand O/N atoms.
+ */
+export function detectProteinDonorsNearLigand(
+  proteinAtoms: PDBAtom[],
+  ligandAtoms: PDBAtom[],
+  cutoffDistance: number = 4.0
+): DetectedDonor[] {
+  // Known donor atoms by residue type
+  const SIDECHAIN_DONORS: Record<string, string[]> = {
+    'ARG': ['NH1', 'NH2', 'NE'],
+    'ASN': ['ND2'],
+    'GLN': ['NE2'],
+    'HIS': ['ND1', 'NE2'],
+    'LYS': ['NZ'],
+    'SER': ['OG'],
+    'THR': ['OG1'],
+    'TRP': ['NE1'],
+    'TYR': ['OH'],
+  };
+
+  const donors: DetectedDonor[] = [];
+  const addedKeys = new Set<string>();
+
+  // Find ligand acceptor atoms (O, N)
+  const ligandAcceptors = ligandAtoms.filter(a =>
+    a.element === 'O' || a.element === 'N'
+  );
+
+  if (ligandAcceptors.length === 0) {
+    return donors;
+  }
+
+  // For each protein atom, check if it's a potential donor near ligand
+  for (const pAtom of proteinAtoms) {
+    // Skip non-protein atoms (HETATM)
+    if (pAtom.isHETATM) continue;
+
+    // Check backbone N (all residues have this)
+    if (pAtom.name === 'N') {
+      for (const lAtom of ligandAcceptors) {
+        const dist = atomDistance(pAtom, lAtom);
+        if (dist <= cutoffDistance) {
+          const key = `${pAtom.chainId}${pAtom.resSeq}:N`;
+          if (!addedKeys.has(key)) {
+            donors.push({
+              chain: pAtom.chainId,
+              residue: pAtom.resSeq,
+              residueName: pAtom.resName,
+              atom: 'N',
+              distance: dist,
+              donorType: 'backbone',
+            });
+            addedKeys.add(key);
+          }
+          break; // Only add once per residue backbone
+        }
+      }
+    }
+
+    // Check sidechain donors
+    const sidechainDonors = SIDECHAIN_DONORS[pAtom.resName];
+    if (sidechainDonors && sidechainDonors.includes(pAtom.name)) {
+      for (const lAtom of ligandAcceptors) {
+        const dist = atomDistance(pAtom, lAtom);
+        if (dist <= cutoffDistance) {
+          const key = `${pAtom.chainId}${pAtom.resSeq}:${pAtom.name}`;
+          if (!addedKeys.has(key)) {
+            donors.push({
+              chain: pAtom.chainId,
+              residue: pAtom.resSeq,
+              residueName: pAtom.resName,
+              atom: pAtom.name,
+              distance: dist,
+              donorType: 'sidechain',
+            });
+            addedKeys.add(key);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // Sort by distance
+  return donors.sort((a, b) => a.distance - b.distance);
 }
 
 // ============================================================================

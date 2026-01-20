@@ -15,7 +15,7 @@ const MAX_JOB_HISTORY = 100;
 import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult, MetalBindingAnalysis, UserPreferences, DesignEvaluation } from './api';
 import type { MetalCoordination } from './metalAnalysis';
 import type { LigandAnalysisResult, PharmacophoreFeature } from './ligandAnalysis';
-import type { MetalReplacementPreset } from './enzymeAnalysis';
+import type { MetalReplacementPreset, DetectedDonor } from './enzymeAnalysis';
 
 // Viewer mode for different visualization states
 export type ViewerMode = 'default' | 'metal' | 'ligand' | 'confidence' | 'comparison';
@@ -57,6 +57,7 @@ export interface EnzymeAnalysisResult {
     suggestedBuried: string[];      // Coordination atoms (near metal)
     suggestedExposed: string[];     // Entry/exit atoms (terminal)
     suggestedHBondAcceptors: string[];  // O/N atoms that can accept H-bonds
+    suggestedProteinDonors: DetectedDonor[];  // Auto-detected protein donors near ligand
   }>;
 }
 
@@ -308,6 +309,8 @@ interface AppState {
   setEnzymeCatalyticResidues: (residues: Array<{ chain: string; residue: number; name: string; atomType: string }>) => void;
   /** Set ligand codes for filtering catalytic suggestions */
   setEnzymeLigandCodes: (codes: string) => void;
+  /** Set fixed atom types for all residues */
+  setEnzymeFixedAtomTypes: (types: Record<string, string>) => void;
 
   // Enzyme analysis state (auto-detection results)
   enzymeAnalysis: EnzymeAnalysisResult | null;
@@ -637,6 +640,7 @@ export const useStore = create<AppState>()(
     };
   }),
   setEnzymeLigandCodes: (codes) => set({ enzymeLigandCodes: codes }),
+  setEnzymeFixedAtomTypes: (types) => set({ enzymeFixedAtomTypes: types }),
 
   // Enzyme analysis state
   enzymeAnalysis: null,

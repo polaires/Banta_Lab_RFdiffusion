@@ -4,7 +4,27 @@ import { FlaskConical, Plus, Check, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { AtomTypeDropdown } from '@/components/AtomTypeDropdown';
+import { cn } from '@/lib/utils';
 import type { CatalyticSuggestion } from '@/lib/store';
+
+// Color mapping for ligand/metal codes
+const LIGAND_COLORS: Record<string, { bg: string; text: string }> = {
+  // Metals - warm colors
+  MG: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400' },
+  ZN: { bg: 'bg-slate-100 dark:bg-slate-800/50', text: 'text-slate-700 dark:text-slate-300' },
+  CA: { bg: 'bg-stone-100 dark:bg-stone-800/50', text: 'text-stone-700 dark:text-stone-300' },
+  FE: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400' },
+  MN: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400' },
+  CU: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400' },
+  TB: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-700 dark:text-indigo-400' },
+};
+
+const DEFAULT_LIGAND_COLOR = { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-700 dark:text-emerald-400' };
+
+function getLigandColor(code: string | undefined) {
+  if (!code) return { bg: 'bg-muted', text: 'text-muted-foreground' };
+  return LIGAND_COLORS[code.toUpperCase()] || DEFAULT_LIGAND_COLOR;
+}
 
 interface CatalyticSuggestionsPanelProps {
   suggestions: CatalyticSuggestion[];
@@ -134,8 +154,19 @@ export function CatalyticSuggestionsPanel({
                     }`}
                   />
                   <div className="min-w-0">
-                    <div className="text-xs font-medium truncate">
-                      {s.name} {s.chain}{s.residue}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-medium truncate">
+                        {s.name} {s.chain}{s.residue}
+                      </span>
+                      {s.ligandCode && (
+                        <span className={cn(
+                          "text-[9px] px-1 py-0.5 rounded font-medium",
+                          getLigandColor(s.ligandCode).bg,
+                          getLigandColor(s.ligandCode).text
+                        )}>
+                          {s.ligandCode}
+                        </span>
+                      )}
                     </div>
                     {s.role && (
                       <div className="text-[10px] text-muted-foreground truncate">

@@ -18,6 +18,7 @@ interface CatalyticResidue {
   role: string | null;
   confidence: number;
   source: 'mcsa' | 'local';
+  ligandCode?: string;  // The ligand/metal this residue is associated with
 }
 
 interface SuggestionResponse {
@@ -103,6 +104,7 @@ function distance(a1: Atom, a2: Atom): number {
 /**
  * Find binding pocket residues near ligands and metals.
  * Only analyzes the first protein chain to avoid duplicates from multiple biological assemblies.
+ * Tracks which ligand/metal each residue is associated with for filtering.
  */
 function findBindingPocketResidues(pdbContent: string): CatalyticResidue[] {
   const { proteinAtoms, ligandAtoms, metalAtoms } = parsePdbAtoms(pdbContent);
@@ -158,7 +160,14 @@ function findBindingPocketResidues(pdbContent: string): CatalyticResidue[] {
   console.log(`[Local] Chain ${targetChain} ligands/metals: ${ligandNames.join(', ')}`);
 
   // Find unique residues within cutoff distance of chain-associated targets
-  const residueMap = new Map<string, { chain: string; residue: number; name: string; minDist: number }>();
+  // Track which ligand/metal each residue is closest to
+  const residueMap = new Map<string, {
+    chain: string;
+    residue: number;
+    name: string;
+    minDist: number;
+    ligandCode: string;  // The ligand/metal this residue is associated with
+  }>();
 
   for (const proteinAtom of chainProteinAtoms) {
     for (const targetAtom of chainTargets) {
@@ -166,12 +175,14 @@ function findBindingPocketResidues(pdbContent: string): CatalyticResidue[] {
       if (dist <= BINDING_POCKET_CUTOFF) {
         const key = `${proteinAtom.chainId}:${proteinAtom.resSeq}`;
         const existing = residueMap.get(key);
+        // Track the closest ligand for this residue
         if (!existing || dist < existing.minDist) {
           residueMap.set(key, {
             chain: proteinAtom.chainId,
             residue: proteinAtom.resSeq,
             name: proteinAtom.resName,
             minDist: dist,
+            ligandCode: targetAtom.resName,  // Track associated ligand/metal
           });
         }
       }
@@ -189,6 +200,7 @@ function findBindingPocketResidues(pdbContent: string): CatalyticResidue[] {
       role: 'binding pocket',
       confidence: Math.max(0.5, 1.0 - (r.minDist / BINDING_POCKET_CUTOFF)),
       source: 'local' as const,
+      ligandCode: r.ligandCode,  // Include the associated ligand/metal code
     }));
 
   console.log(`[Local] Found ${residues.length} binding pocket residues for chain ${targetChain}`);

@@ -34,6 +34,7 @@ export interface CatalyticSuggestion {
   role?: string;
   confidence: number;
   source: 'mcsa' | 'local';
+  ligandCode?: string;  // The ligand/metal this residue is associated with (for filtering)
 }
 
 // Bottom panel mode
@@ -298,11 +299,15 @@ interface AppState {
   // Enzyme form shared state (for cross-component communication)
   enzymeCatalyticResidues: Array<{ chain: string; residue: number; name: string }>;
   enzymeFixedAtomTypes: Record<string, string>;
+  /** Current ligand codes for filtering catalytic suggestions */
+  enzymeLigandCodes: string;
   addEnzymeCatalyticResidue: (chain: string, residue: number, name: string, atomType: string) => void;
   removeEnzymeCatalyticResidue: (chain: string, residue: number) => void;
   clearEnzymeCatalyticResidues: () => void;
   /** Batch set catalytic residues with their atom types */
   setEnzymeCatalyticResidues: (residues: Array<{ chain: string; residue: number; name: string; atomType: string }>) => void;
+  /** Set ligand codes for filtering catalytic suggestions */
+  setEnzymeLigandCodes: (codes: string) => void;
 
   // Enzyme analysis state (auto-detection results)
   enzymeAnalysis: EnzymeAnalysisResult | null;
@@ -589,6 +594,7 @@ export const useStore = create<AppState>()(
   // Enzyme form shared state
   enzymeCatalyticResidues: [],
   enzymeFixedAtomTypes: {},
+  enzymeLigandCodes: '',
   addEnzymeCatalyticResidue: (chain, residue, name, atomType) => set((state) => {
     const key = `${chain}${residue}`;
     if (state.enzymeCatalyticResidues.some((r) => r.chain === chain && r.residue === residue)) {
@@ -630,6 +636,7 @@ export const useStore = create<AppState>()(
       enzymeFixedAtomTypes: newAtomTypes,
     };
   }),
+  setEnzymeLigandCodes: (codes) => set({ enzymeLigandCodes: codes }),
 
   // Enzyme analysis state
   enzymeAnalysis: null,

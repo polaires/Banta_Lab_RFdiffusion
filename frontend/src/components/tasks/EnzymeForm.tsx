@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Beaker, Info, X, AlertTriangle, Plus, Loader2, Rocket, Sparkles } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { FormSection, FormField, FormRow } from './shared/FormSection';
 import { PdbUploader } from './shared/PdbUploader';
 import { LengthRangeInput } from './shared/LengthRangeInput';
@@ -44,6 +46,9 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
     addEnzymeCatalyticResidue,
     removeEnzymeCatalyticResidue,
     setEnzymeCatalyticResidues,
+    // Ligand codes (in store for cross-component filtering)
+    enzymeLigandCodes: ligandCodes,
+    setEnzymeLigandCodes: setLigandCodes,
     // Enzyme analysis state
     enzymeAnalysis,
     enzymeAnalysisLoading,
@@ -87,7 +92,6 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   // Required
   const [pdbContent, setPdbContent] = useState<string | null>(null);
   const [pdbFileName, setPdbFileName] = useState<string | null>(null);
-  const [ligandCodes, setLigandCodes] = useState('');
   const [proteinLength, setProteinLength] = useState('150');
 
   // Catalytic residues input state (actual residues are in store: enzymeCatalyticResidues)
@@ -124,6 +128,13 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   const [rasaEnabled, setRasaEnabled] = useState(false);
   const [hbondEnabled, setHbondEnabled] = useState(false);
 
+  // Auto-enable RASA when metal replacement is enabled (metal must be buried)
+  useEffect(() => {
+    if (metalReplacementEnabled && targetMetal && !rasaEnabled) {
+      setRasaEnabled(true);
+    }
+  }, [metalReplacementEnabled, targetMetal, rasaEnabled]);
+
   // Run enzyme analysis when PDB content changes
   useEffect(() => {
     if (pdbContent) {
@@ -137,20 +148,18 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
           setSourceMetal(analysis.metals[0].element);
         }
 
-        // Auto-fill ligand codes from detected ligands and metals
-        const detectedCodes: string[] = [];
+        // Auto-fill ligand codes from detected ligands ONLY (not metals)
+        // Metals are tracked separately via enzymeAnalysis.metals and handled
+        // by the metal replacement workflow
+        const detectedLigandCodes: string[] = [];
         for (const ligand of analysis.ligands) {
-          if (!detectedCodes.includes(ligand.name)) {
-            detectedCodes.push(ligand.name);
+          if (!detectedLigandCodes.includes(ligand.name)) {
+            detectedLigandCodes.push(ligand.name);
           }
         }
-        for (const metal of analysis.metals) {
-          if (!detectedCodes.includes(metal.element)) {
-            detectedCodes.push(metal.element);
-          }
-        }
-        if (detectedCodes.length > 0) {
-          setLigandCodes(detectedCodes.join(','));
+        // DO NOT add metals here - they're handled by metal replacement workflow
+        if (detectedLigandCodes.length > 0) {
+          setLigandCodes(detectedLigandCodes.join(','));
         }
       } catch (error) {
         console.error('Enzyme analysis failed:', error);
@@ -166,6 +175,40 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
 
   // Get first detected ligand name for display
   const detectedLigandName = enzymeAnalysis?.ligands[0]?.name || null;
+
+  // Filter catalytic suggestions based on current ligand codes and metal replacement state
+  // By default loads all suggestions, filters when user edits ligand codes
+  const filteredCatalyticSuggestions = useMemo(() => {
+    if (catalyticSuggestions.length === 0) return [];
+
+    // Parse ligand codes into array (uppercase, trimmed)
+    const codes = ligandCodes
+      .split(',')
+      .map(c => c.trim().toUpperCase())
+      .filter(c => c.length > 0);
+
+    // If no ligand codes specified, show all suggestions
+    if (codes.length === 0) return catalyticSuggestions;
+
+    // Filter suggestions based on ligand codes and metal replacement state
+    return catalyticSuggestions.filter(s => {
+      // If suggestion has no ligandCode, include it (legacy/M-CSA data)
+      if (!s.ligandCode) return true;
+
+      const code = s.ligandCode.toUpperCase();
+
+      // Include if matches a ligand code
+      if (codes.includes(code)) return true;
+
+      // When metal replacement enabled, exclude source metal residues
+      // (they'll be redesigned, not fixed)
+      if (metalReplacementEnabled && sourceMetal && code === sourceMetal.toUpperCase()) {
+        return false;
+      }
+
+      return false;
+    });
+  }, [catalyticSuggestions, ligandCodes, metalReplacementEnabled, sourceMetal]);
 
   const handleQualityChange = (preset: QualityPreset, params: QualityParams) => {
     setQualityPreset(preset);
@@ -187,18 +230,18 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
     removeEnzymeCatalyticResidue(chain, residue);
   };
 
-  // Apply all catalytic suggestions
+  // Apply all catalytic suggestions (filtered by current ligand codes)
   const applyCatalyticSuggestions = useCallback(() => {
-    if (catalyticSuggestions.length === 0) return;
+    if (filteredCatalyticSuggestions.length === 0) return;
 
-    const newResidues = catalyticSuggestions.map((s) => ({
+    const newResidues = filteredCatalyticSuggestions.map((s) => ({
       chain: s.chain,
       residue: s.residue,
       name: s.name || '',
       atomType: fixedAtomType,
     }));
     setEnzymeCatalyticResidues(newResidues);
-  }, [catalyticSuggestions, fixedAtomType, setEnzymeCatalyticResidues]);
+  }, [filteredCatalyticSuggestions, fixedAtomType, setEnzymeCatalyticResidues]);
 
   // Covalent bond management
   const addCovalentBond = () => {
@@ -489,26 +532,63 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
         required
       >
         <div className="space-y-3">
-          {/* Current residues as inline chips */}
-          <div className="flex flex-wrap gap-1.5">
-            {enzymeCatalyticResidues.map((res) => (
-              <span
-                key={`${res.chain}-${res.residue}`}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium"
-              >
-                {res.chain}{res.residue}{res.name ? `:${res.name}` : ''}
-                <button
-                  onClick={() => removeCatalyticResidue(res.chain, res.residue)}
-                  className="hover:text-red-600 transition-colors"
-                >
-                  <X className="w-3 h-3" />
-                </button>
+          {/* Current residues as inline chips - excluded residues shown differently */}
+          <TooltipProvider>
+            <div className="flex flex-wrap gap-1.5">
+              {enzymeCatalyticResidues.map((res) => {
+                const key = `${res.chain}${res.residue}`;
+                const isExcluded = excludedCatalyticResidues.has(key);
+
+                return (
+                  <Tooltip key={key}>
+                    <TooltipTrigger asChild>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all",
+                          isExcluded
+                            ? "bg-orange-100 dark:bg-orange-950/30 text-orange-600 dark:text-orange-400 line-through opacity-70"
+                            : "bg-primary/10 text-primary"
+                        )}
+                      >
+                        {res.chain}{res.residue}{res.name ? `:${res.name}` : ''}
+                        {isExcluded && (
+                          <span className="text-[9px] font-normal">(redesign)</span>
+                        )}
+                        {!isExcluded && (
+                          <button
+                            onClick={() => removeCatalyticResidue(res.chain, res.residue)}
+                            className="hover:text-red-600 transition-colors"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </span>
+                    </TooltipTrigger>
+                    {isExcluded && (
+                      <TooltipContent>
+                        <p className="text-xs">Metal coordinator - will be redesigned for {targetMetal}&apos;s coordination sphere</p>
+                      </TooltipContent>
+                    )}
+                  </Tooltip>
+                );
+              })}
+              {enzymeCatalyticResidues.length === 0 && (
+                <span className="text-xs text-muted-foreground italic">No residues added</span>
+              )}
+            </div>
+          </TooltipProvider>
+
+          {/* Excluded count summary */}
+          {excludedCatalyticResidues.size > 0 && enzymeCatalyticResidues.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <AlertTriangle className="w-3.5 h-3.5 text-orange-500" />
+              <span>
+                {enzymeCatalyticResidues.filter(r => !excludedCatalyticResidues.has(`${r.chain}${r.residue}`)).length} active,{' '}
+                <span className="text-orange-500">{excludedCatalyticResidues.size} excluded</span>
+                {targetMetal && ` (metal coordinators for ${targetMetal})`}
               </span>
-            ))}
-            {enzymeCatalyticResidues.length === 0 && (
-              <span className="text-xs text-muted-foreground italic">No residues added</span>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Smart input + suggestions */}
           <div className="flex gap-2 items-center">
@@ -542,7 +622,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
             >
               <Plus className="w-4 h-4" />
             </button>
-            {catalyticSuggestions.length > 0 && (
+            {filteredCatalyticSuggestions.length > 0 && (
               <>
                 <button
                   onClick={applyCatalyticSuggestions}
@@ -557,7 +637,7 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                   className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-muted text-muted-foreground text-xs font-medium hover:bg-muted/80 transition-colors"
                   title="View suggestions"
                 >
-                  {catalyticSuggestions.length}
+                  {filteredCatalyticSuggestions.length}
                 </button>
               </>
             )}

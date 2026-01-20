@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   RotateCcw,
   Maximize2,
@@ -249,10 +249,33 @@ export function ViewerPanel({
     bottomPanelMode,
     setBottomPanelMode,
     enzymeCatalyticResidues,
+    enzymeLigandCodes,
     addEnzymeCatalyticResidue,
     removeEnzymeCatalyticResidue,
     setHoveredCatalyticSuggestion,
   } = useStore();
+
+  // Filter catalytic suggestions based on current ligand codes
+  const filteredCatalyticSuggestions = useMemo(() => {
+    if (catalyticSuggestions.length === 0) return [];
+
+    // Parse ligand codes into array (uppercase, trimmed)
+    const codes = enzymeLigandCodes
+      .split(',')
+      .map(c => c.trim().toUpperCase())
+      .filter(c => c.length > 0);
+
+    // If no ligand codes specified, show all suggestions
+    if (codes.length === 0) return catalyticSuggestions;
+
+    // Filter suggestions to only those matching current ligand codes
+    return catalyticSuggestions.filter(s => {
+      // If suggestion has no ligandCode, include it (legacy/M-CSA data)
+      if (!s.ligandCode) return true;
+      // Include if suggestion's ligandCode matches any of the user's codes
+      return codes.includes(s.ligandCode.toUpperCase());
+    });
+  }, [catalyticSuggestions, enzymeLigandCodes]);
 
   // Resizing state
   const [viewerHeight, setViewerHeight] = useState(65);
@@ -385,7 +408,7 @@ export function ViewerPanel({
       {/* Catalytic Suggestions Panel */}
       {showSuggestions && (
         <CatalyticSuggestionsPanel
-          suggestions={catalyticSuggestions}
+          suggestions={filteredCatalyticSuggestions}
           source={suggestionsSource}
           loading={suggestionsLoading}
           error={suggestionsError}
@@ -393,7 +416,7 @@ export function ViewerPanel({
           onAdd={(s, atomType) => addEnzymeCatalyticResidue(s.chain, s.residue, s.name, atomType)}
           onRemove={(s) => removeEnzymeCatalyticResidue(s.chain, s.residue)}
           onAddAll={(atomType) => {
-            catalyticSuggestions
+            filteredCatalyticSuggestions
               .filter((s) => !enzymeCatalyticResidues.some((r) => r.chain === s.chain && r.residue === s.residue))
               .forEach((s) => addEnzymeCatalyticResidue(s.chain, s.residue, s.name, atomType));
           }}

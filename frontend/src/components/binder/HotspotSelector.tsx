@@ -7,6 +7,12 @@ import api, { HotspotResidue } from '@/lib/api';
 // Import Molstar CSS
 import 'molstar/lib/mol-plugin-ui/skin/light.scss';
 
+// Force-include Molstar modules to prevent tree-shaking in production builds
+import 'molstar/lib/mol-model-formats/structure/pdb';
+import 'molstar/lib/mol-model-formats/structure/mmcif';
+import 'molstar/lib/mol-io/reader/cif';
+import 'molstar/lib/mol-io/reader/pdb';
+
 // Types
 type PluginUIContext = any;
 
@@ -227,15 +233,23 @@ export function HotspotSelector({
       if (!trajectory) {
         throw new Error('Failed to parse trajectory - PDB data may be malformed');
       }
-      const model = await plugin.builders.structure.createModel(trajectory);
-      if (!model) {
-        throw new Error('Failed to create model from trajectory');
+
+      // Use applyPreset with empty representation - this is bundler-safe
+      await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+        representationPreset: 'empty',
+      });
+
+      // Get the structure reference from the hierarchy
+      const structures = plugin.managers.structure.hierarchy.current.structures;
+      if (!structures || structures.length === 0) {
+        throw new Error('No structure found after preset application');
       }
-      const structure = await plugin.builders.structure.createStructure(model);
-      if (!structure || !structure.ref) {
-        throw new Error('Failed to create structure from model - this may be a WebGL or Molstar initialization issue');
+      const structureCell = structures[0]?.cell;
+      if (!structureCell?.transform?.ref) {
+        throw new Error('Structure reference not available');
       }
-      structureRef.current = structure;
+      const structureRefValue = structureCell.transform.ref;
+      structureRef.current = { ref: structureRefValue };
 
       // All residues as gray base
       const allExpr = MS.struct.generator.atomGroups({
@@ -243,7 +257,7 @@ export function HotspotSelector({
       });
 
       const allComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-        structure.ref,
+        structureRefValue,
         allExpr,
         'all-residues'
       );

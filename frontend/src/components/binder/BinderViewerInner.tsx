@@ -6,6 +6,12 @@ import { Box, AlertCircle } from 'lucide-react';
 // Import Molstar CSS
 import 'molstar/lib/mol-plugin-ui/skin/light.scss';
 
+// Force-include Molstar modules to prevent tree-shaking in production builds
+import 'molstar/lib/mol-model-formats/structure/pdb';
+import 'molstar/lib/mol-model-formats/structure/mmcif';
+import 'molstar/lib/mol-io/reader/cif';
+import 'molstar/lib/mol-io/reader/pdb';
+
 // Types
 type PluginUIContext = any;
 
@@ -172,14 +178,23 @@ export function BinderViewerInner({
       if (!trajectory) {
         throw new Error('Failed to parse trajectory - PDB data may be malformed');
       }
-      const model = await globalPlugin.builders.structure.createModel(trajectory);
-      if (!model) {
-        throw new Error('Failed to create model from trajectory');
+
+      // Use applyPreset with empty representation - this is bundler-safe
+      // Then we'll add our custom representations
+      await globalPlugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+        representationPreset: 'empty',
+      });
+
+      // Get the structure reference from the hierarchy
+      const structures = globalPlugin.managers.structure.hierarchy.current.structures;
+      if (!structures || structures.length === 0) {
+        throw new Error('No structure found after preset application');
       }
-      const structure = await globalPlugin.builders.structure.createStructure(model);
-      if (!structure || !structure.ref) {
-        throw new Error('Failed to create structure from model - this may be a WebGL or Molstar initialization issue');
+      const structureCell = structures[0]?.cell;
+      if (!structureCell?.transform?.ref) {
+        throw new Error('Structure reference not available');
       }
+      const structureRef = structureCell.transform.ref;
 
       // Target chain expression
       const targetExpression = MS.struct.generator.atomGroups({
@@ -193,7 +208,7 @@ export function BinderViewerInner({
 
       // 1. Target chain - gray cartoon
       const targetComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
-        structure.ref,
+        structureRef,
         targetExpression,
         'target-chain'
       );
@@ -218,7 +233,7 @@ export function BinderViewerInner({
 
       // 2. Binder chain - violet with spectrum coloring
       const binderComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
-        structure.ref,
+        structureRef,
         binderExpression,
         'binder-chain'
       );
@@ -254,7 +269,7 @@ export function BinderViewerInner({
           });
 
           const targetIntComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
-            structure.ref,
+            structureRef,
             targetInterfaceExpr,
             'target-interface'
           );
@@ -280,7 +295,7 @@ export function BinderViewerInner({
           });
 
           const binderIntComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
-            structure.ref,
+            structureRef,
             binderInterfaceExpr,
             'binder-interface'
           );
@@ -305,7 +320,7 @@ export function BinderViewerInner({
           });
 
           const highlightComp = await globalPlugin.builders.structure.tryCreateComponentFromExpression(
-            structure.ref,
+            structureRef,
             highlightExpr,
             `highlight-${hr.chain}-${hr.residue}`
           );

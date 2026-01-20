@@ -12,6 +12,12 @@ import {
 import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context';
 import type { StateObjectRef } from 'molstar/lib/mol-state';
 
+// Force-include Molstar modules to prevent tree-shaking in production builds
+import 'molstar/lib/mol-model-formats/structure/pdb';
+import 'molstar/lib/mol-model-formats/structure/mmcif';
+import 'molstar/lib/mol-io/reader/cif';
+import 'molstar/lib/mol-io/reader/pdb';
+
 interface MolstarState {
   plugin: PluginUIContext | null;
   structureRef: StateObjectRef | null;
@@ -141,23 +147,31 @@ export function MolstarProvider({ children }: MolstarProviderProps) {
       if (!trajectory) {
         throw new Error('Failed to parse trajectory - PDB data may be malformed');
       }
-      const model = await plugin.builders.structure.createModel(trajectory);
-      if (!model) {
-        throw new Error('Failed to create model from trajectory');
-      }
-      const structure = await plugin.builders.structure.createStructure(model);
-      if (!structure || !structure.ref) {
-        throw new Error('Failed to create structure from model - this may be a WebGL or Molstar initialization issue');
-      }
 
-      structureRefRef.current = structure.ref;
+      // Use applyPreset - this is the bundler-safe approach
+      await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+        representationPreset: 'auto',
+      });
+
+      // Get the structure reference from the hierarchy
+      const structures = plugin.managers.structure.hierarchy.current.structures;
+      if (!structures || structures.length === 0) {
+        throw new Error('No structure found after preset application');
+      }
+      const structureCell = structures[0]?.cell;
+      if (!structureCell?.transform?.ref) {
+        throw new Error('Structure reference not available');
+      }
+      const structRef = structureCell.transform.ref;
+
+      structureRefRef.current = structRef;
       setState(s => ({
         ...s,
-        structureRef: structure.ref,
+        structureRef: structRef,
         isLoading: false,
       }));
 
-      return structure.ref;
+      return structRef;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load structure';
       setState(s => ({ ...s, error: message, isLoading: false }));

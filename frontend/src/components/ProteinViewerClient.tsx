@@ -26,6 +26,18 @@ import { MolScriptBuilder as MS } from 'molstar/lib/mol-script/language/builder'
 import { Script } from 'molstar/lib/mol-script/script';
 import { StructureSelection } from 'molstar/lib/mol-model/structure';
 import { Color } from 'molstar/lib/mol-util/color';
+
+// Force-include Molstar modules to prevent tree-shaking in production builds
+// These side-effect imports ensure the parsing pipeline is bundled correctly
+import 'molstar/lib/mol-model-formats/structure/pdb';
+import 'molstar/lib/mol-model-formats/structure/mmcif';
+import 'molstar/lib/mol-io/reader/cif';
+import 'molstar/lib/mol-io/reader/pdb';
+import 'molstar/lib/mol-model/structure';
+import 'molstar/lib/mol-plugin-state/transforms/model';
+import 'molstar/lib/mol-plugin-state/transforms/data';
+import 'molstar/lib/mol-plugin-state/builder/structure';
+
 type StateObjectRef = any;
 
 interface ProteinViewerClientProps {
@@ -146,15 +158,18 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         if (!trajectory) {
           throw new Error('Failed to parse trajectory from PDB data');
         }
-        const model = await plugin.builders.structure.createModel(trajectory);
-        if (!model) {
-          throw new Error('Failed to create model from trajectory');
-        }
-        const structure = await plugin.builders.structure.createStructure(model);
-        if (!structure || !structure.ref) {
-          throw new Error('Failed to create structure from model');
-        }
-        globalStructureRef = structure.ref;
+
+        // Use applyPreset with empty representation for custom focus view
+        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+          representationPreset: 'empty',
+        });
+
+        // Get structure reference from hierarchy
+        const structures = plugin.managers.structure.hierarchy.current.structures;
+        if (!structures?.length) throw new Error('No structure found');
+        const structureRef = structures[0]?.cell?.transform?.ref;
+        if (!structureRef) throw new Error('Structure reference not available');
+        globalStructureRef = structureRef;
 
         // Build metal selection expression using helper
         const metalExpression = residueExpression(metal.resName, metal.chainId, metal.resSeq);
@@ -171,7 +186,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 1. Metal ion - large purple spacefill
         const metalComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-          structure.ref,
+          structureRef,
           metalExpression,
           `metal-${metal.element}`
         );
@@ -191,7 +206,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         const coordProteinExpression = exceptExpression(coordWithoutMetal, WATER_EXPRESSION);
 
         const coordComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-          structure.ref,
+          structureRef,
           coordProteinExpression,
           'coordination-sphere'
         );
@@ -215,7 +230,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         if (focusSettings.showWaters) {
           const waterExpression = intersectExpression(coordWithoutMetal, WATER_EXPRESSION);
           const waterComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-            structure.ref,
+            structureRef,
             waterExpression,
             'coord-water'
           );
@@ -230,7 +245,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 4. Rest of protein - semi-transparent cartoon
         const proteinComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-          structure.ref,
+          structureRef,
           proteinExpression,
           'protein-background'
         );
@@ -244,7 +259,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 5. Focus camera on coordination sphere
         const state = plugin.state.data;
-        const cell = state.cells.get(structure.ref);
+        const cell = state.cells.get(structureRef);
         if (cell?.obj?.data) {
           const focusStructure = cell.obj.data;
           const focusSelection = Script.getStructureSelection(coordSphereExpression, focusStructure);
@@ -294,15 +309,18 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         if (!trajectory) {
           throw new Error('Failed to parse trajectory from PDB data');
         }
-        const model = await plugin.builders.structure.createModel(trajectory);
-        if (!model) {
-          throw new Error('Failed to create model from trajectory');
-        }
-        const structure = await plugin.builders.structure.createStructure(model);
-        if (!structure || !structure.ref) {
-          throw new Error('Failed to create structure from model');
-        }
-        globalStructureRef = structure.ref;
+
+        // Use applyPreset with empty representation for custom focus view
+        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+          representationPreset: 'empty',
+        });
+
+        // Get structure reference from hierarchy
+        const structures = plugin.managers.structure.hierarchy.current.structures;
+        if (!structures?.length) throw new Error('No structure found');
+        const structureRef = structures[0]?.cell?.transform?.ref;
+        if (!structureRef) throw new Error('Structure reference not available');
+        globalStructureRef = structureRef;
 
         // Build ligand selection expression using helper
         const ligandExpression = residueExpression(ligand.name, ligand.chainId, ligand.resSeq);
@@ -319,7 +337,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 1. Ligand - ball-and-stick with green carbons for visibility
         const ligandComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-          structure.ref,
+          structureRef,
           ligandExpression,
           `ligand-${ligand.name}`
         );
@@ -339,7 +357,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         const siteProteinExpression = exceptExpression(siteWithoutLigand, WATER_EXPRESSION);
 
         const siteComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-          structure.ref,
+          structureRef,
           siteProteinExpression,
           'binding-site'
         );
@@ -361,7 +379,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         if (focusSettings.showWaters) {
           const waterExpression = intersectExpression(siteWithoutLigand, WATER_EXPRESSION);
           const waterComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-            structure.ref,
+            structureRef,
             waterExpression,
             'binding-water'
           );
@@ -376,7 +394,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 4. Rest of protein - semi-transparent cartoon
         const proteinComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-          structure.ref,
+          structureRef,
           proteinExpression,
           'protein-background'
         );
@@ -407,7 +425,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
         // 6. Focus camera
         const state = plugin.state.data;
-        const cell = state.cells.get(structure.ref);
+        const cell = state.cells.get(structureRef);
         if (cell?.obj?.data) {
           const focusStructure = cell.obj.data;
           const focusSelection = Script.getStructureSelection(bindingSiteExpression, focusStructure);
@@ -806,60 +824,25 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           }
           console.log('[ProteinViewer] Trajectory parsed successfully');
 
-          const model = await plugin.builders.structure.createModel(trajectory);
-          if (!model) {
-            throw new Error('Failed to create model from trajectory');
+          // Use applyPreset - this is the recommended bundler-safe approach
+          // It handles model and structure creation internally
+          console.log('[ProteinViewer] Applying structure preset...');
+          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+            representationPreset: 'auto',
+          });
+
+          // Get the structure reference from the hierarchy
+          const structures = plugin.managers.structure.hierarchy.current.structures;
+          if (!structures || structures.length === 0) {
+            throw new Error('No structure found after preset application');
           }
-          console.log('[ProteinViewer] Model created successfully');
-
-          const structure = await plugin.builders.structure.createStructure(model);
-          if (!structure || !structure.ref) {
-            throw new Error('Failed to create structure from model - this may be a WebGL or Molstar initialization issue');
+          const structureCell = structures[0]?.cell;
+          if (!structureCell?.transform?.ref) {
+            throw new Error('Structure reference not available');
           }
+          globalStructureRef = structureCell.transform.ref;
 
-          // Store structure reference
-          globalStructureRef = structure.ref;
-
-          console.log('[ProteinViewer] Structure created, adding cartoon representation...');
-
-          // Create polymer component and add cartoon representation
-          try {
-            // Get polymer component using expression constant
-            const polymerComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-              structure.ref,
-              POLYMER_EXPRESSION,
-              'polymer'
-            );
-
-            if (polymerComp) {
-              await plugin.builders.structure.representation.addRepresentation(polymerComp, {
-                type: 'cartoon',
-                color: 'chain-id',
-              });
-              console.log('[ProteinViewer] Added cartoon representation with chain-id coloring');
-            }
-
-            // Add ball-and-stick for ligands/heteroatoms using expression constant
-            const hetComp = await plugin.builders.structure.tryCreateComponentFromExpression(
-              structure.ref,
-              NON_POLYMER_EXPRESSION,
-              'ligand'
-            );
-
-            if (hetComp) {
-              await plugin.builders.structure.representation.addRepresentation(hetComp, {
-                type: 'ball-and-stick',
-                color: 'element-symbol',
-              });
-              console.log('[ProteinViewer] Added ball-and-stick for ligands');
-            }
-          } catch (reprErr) {
-            console.log('[ProteinViewer] Custom representation failed, trying preset fallback:', reprErr);
-            // Fallback to preset
-            await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-              representationPreset: 'polymer-cartoon',
-            });
-          }
+          console.log('[ProteinViewer] Structure loaded with preset');
 
           console.log('[ProteinViewer] Representation applied');
 

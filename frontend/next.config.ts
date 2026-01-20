@@ -34,6 +34,24 @@ const nextConfig: NextConfig = {
 
         // Disable inner graph analysis which can break Molstar's dynamic requires
         config.optimization.innerGraph = false;
+
+        // Ensure Molstar isn't put in a chunk that gets optimized away
+        if (config.optimization.splitChunks) {
+          config.optimization.splitChunks = {
+            ...config.optimization.splitChunks,
+            cacheGroups: {
+              ...(config.optimization.splitChunks as any).cacheGroups,
+              molstar: {
+                test: /[\\/]node_modules[\\/]molstar[\\/]/,
+                name: 'molstar',
+                chunks: 'all',
+                priority: 20,
+                // Don't minimize this chunk
+                enforce: true,
+              },
+            },
+          };
+        }
       }
     }
 

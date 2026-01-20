@@ -203,20 +203,38 @@ export function HotspotSelector({
     setError(null);
 
     try {
+      // Ensure plugin canvas is fully initialized (critical for serverless/production)
+      if (!plugin.canvas3d) {
+        console.warn('[HotspotSelector] Waiting for canvas3d initialization...');
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!plugin.canvas3d) {
+          throw new Error('Molstar canvas3d not initialized - WebGL may not be available');
+        }
+      }
+
       await plugin.clear();
       await loadMolstarModules();
 
       const isCif = pdbContent.trimStart().startsWith('data_');
       const format = isCif ? 'mmcif' : 'pdb';
 
-      const data = await plugin.builders.data.rawData({
-        data: pdbContent,
-        label: 'target.pdb',
-      });
+      const data = await plugin.builders.data.rawData(
+        { data: pdbContent, label: 'target.pdb' },
+        { state: { isGhost: true } }
+      );
 
       const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+      if (!trajectory) {
+        throw new Error('Failed to parse trajectory - PDB data may be malformed');
+      }
       const model = await plugin.builders.structure.createModel(trajectory);
+      if (!model) {
+        throw new Error('Failed to create model from trajectory');
+      }
       const structure = await plugin.builders.structure.createStructure(model);
+      if (!structure || !structure.ref) {
+        throw new Error('Failed to create structure from model - this may be a WebGL or Molstar initialization issue');
+      }
       structureRef.current = structure;
 
       // All residues as gray base

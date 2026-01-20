@@ -118,6 +118,15 @@ export function MolstarProvider({ children }: MolstarProviderProps) {
     setState(s => ({ ...s, isLoading: true, error: null }));
 
     try {
+      // Ensure plugin canvas is fully initialized (critical for serverless/production)
+      if (!plugin.canvas3d) {
+        console.warn('[MolstarContext] Waiting for canvas3d initialization...');
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (!plugin.canvas3d) {
+          throw new Error('Molstar canvas3d not initialized - WebGL may not be available');
+        }
+      }
+
       await plugin.clear();
 
       const isCif = pdbContent.trimStart().startsWith('data_');
@@ -129,8 +138,17 @@ export function MolstarProvider({ children }: MolstarProviderProps) {
       );
 
       const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+      if (!trajectory) {
+        throw new Error('Failed to parse trajectory - PDB data may be malformed');
+      }
       const model = await plugin.builders.structure.createModel(trajectory);
+      if (!model) {
+        throw new Error('Failed to create model from trajectory');
+      }
       const structure = await plugin.builders.structure.createStructure(model);
+      if (!structure || !structure.ref) {
+        throw new Error('Failed to create structure from model - this may be a WebGL or Molstar initialization issue');
+      }
 
       structureRefRef.current = structure.ref;
       setState(s => ({

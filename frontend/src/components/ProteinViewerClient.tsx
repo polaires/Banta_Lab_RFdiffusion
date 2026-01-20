@@ -143,8 +143,17 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         );
 
         const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+        if (!trajectory) {
+          throw new Error('Failed to parse trajectory from PDB data');
+        }
         const model = await plugin.builders.structure.createModel(trajectory);
+        if (!model) {
+          throw new Error('Failed to create model from trajectory');
+        }
         const structure = await plugin.builders.structure.createStructure(model);
+        if (!structure || !structure.ref) {
+          throw new Error('Failed to create structure from model');
+        }
         globalStructureRef = structure.ref;
 
         // Build metal selection expression using helper
@@ -282,8 +291,17 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         );
 
         const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+        if (!trajectory) {
+          throw new Error('Failed to parse trajectory from PDB data');
+        }
         const model = await plugin.builders.structure.createModel(trajectory);
+        if (!model) {
+          throw new Error('Failed to create model from trajectory');
+        }
         const structure = await plugin.builders.structure.createStructure(model);
+        if (!structure || !structure.ref) {
+          throw new Error('Failed to create structure from model');
+        }
         globalStructureRef = structure.ref;
 
         // Build ligand selection expression using helper
@@ -667,6 +685,21 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           });
 
           console.log('[ProteinViewer] Plugin created successfully');
+
+          // Wait for canvas3d to be fully initialized (critical for serverless/production)
+          let waitAttempts = 0;
+          const maxWaitAttempts = 20; // 2 seconds max
+          while (!plugin.canvas3d && waitAttempts < maxWaitAttempts) {
+            console.log(`[ProteinViewer] Waiting for canvas3d... attempt ${waitAttempts + 1}`);
+            await new Promise(resolve => setTimeout(resolve, 100));
+            waitAttempts++;
+          }
+          if (!plugin.canvas3d) {
+            console.error('[ProteinViewer] canvas3d failed to initialize after 2 seconds');
+            throw new Error('WebGL canvas failed to initialize - this may be a browser compatibility issue');
+          }
+          console.log('[ProteinViewer] canvas3d initialized successfully');
+
           globalPlugin = plugin;
 
           // Wrap the highlight and interactivity managers to prevent crashes on hover
@@ -743,6 +776,16 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         setFocusMode('none');
 
         try {
+          // Ensure plugin canvas is fully initialized (critical for serverless/production)
+          if (!plugin.canvas3d) {
+            console.warn('[ProteinViewer] Waiting for canvas3d initialization...');
+            // Give the canvas time to initialize
+            await new Promise(resolve => setTimeout(resolve, 100));
+            if (!plugin.canvas3d) {
+              throw new Error('Molstar canvas3d not initialized - WebGL may not be available');
+            }
+          }
+
           console.log('[ProteinViewer] Clearing existing structures...');
           await plugin.clear();
 
@@ -758,8 +801,21 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           );
 
           const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+          if (!trajectory) {
+            throw new Error('Failed to parse trajectory - PDB data may be malformed');
+          }
+          console.log('[ProteinViewer] Trajectory parsed successfully');
+
           const model = await plugin.builders.structure.createModel(trajectory);
+          if (!model) {
+            throw new Error('Failed to create model from trajectory');
+          }
+          console.log('[ProteinViewer] Model created successfully');
+
           const structure = await plugin.builders.structure.createStructure(model);
+          if (!structure || !structure.ref) {
+            throw new Error('Failed to create structure from model - this may be a WebGL or Molstar initialization issue');
+          }
 
           // Store structure reference
           globalStructureRef = structure.ref;

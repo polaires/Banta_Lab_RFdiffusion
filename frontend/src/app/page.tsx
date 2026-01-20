@@ -18,8 +18,8 @@ import { RF3Panel } from '@/components/RF3Panel';
 import { MPNNPanel } from '@/components/MPNNPanel';
 import { DesignHistoryPanel } from '@/components/DesignHistoryPanel';
 
-// Existing viewer
-import { ProteinViewerClient } from '@/components/ProteinViewerClient';
+// Existing viewer - use dynamic import wrapper to prevent bundling issues
+import { ProteinViewer } from '@/components/ProteinViewer';
 
 // Map TabId to workflow step display
 const WORKFLOW_STEPS = [
@@ -201,7 +201,7 @@ export default function Home() {
             onExpand={() => {/* TODO: expand viewer */}}
           >
             {selectedPdb ? (
-              <ProteinViewerClient
+              <ProteinViewer
                 pdbContent={selectedPdb}
                 className="h-full w-full"
                 focusedMetalIndex={focusedMetalIndex}

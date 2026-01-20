@@ -75,6 +75,7 @@ function MetalCard({
   metal,
   index,
   isFocused,
+  onFocus,
 }: {
   metal: MetalCoordination;
   index: number;
@@ -82,6 +83,11 @@ function MetalCard({
   onFocus: (index: number | null) => void;
 }) {
   const [expanded, setExpanded] = useState(true); // Expanded by default
+
+  const handleFocusClick = () => {
+    // Toggle focus: if already focused, unfocus; otherwise focus
+    onFocus(isFocused ? null : index);
+  };
 
   return (
     <div
@@ -107,11 +113,17 @@ function MetalCard({
               Chain {metal.chainId}, Res {metal.resSeq}
             </span>
           </div>
-          {isFocused && (
-            <div className="p-1.5 rounded bg-blue-600 text-white">
-              <Focus className="w-4 h-4" />
-            </div>
-          )}
+          <button
+            onClick={handleFocusClick}
+            className={`p-1.5 rounded transition-colors ${
+              isFocused
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+            }`}
+            title={isFocused ? 'Exit focus mode' : 'Focus on this metal'}
+          >
+            <Focus className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Quick info */}
@@ -209,6 +221,7 @@ function LigandCard({
   ligand,
   index,
   isFocused,
+  onFocus,
 }: {
   ligand: LigandData;
   index: number;
@@ -216,6 +229,11 @@ function LigandCard({
   onFocus: (index: number | null) => void;
 }) {
   const [expanded, setExpanded] = useState(true); // Expanded by default
+
+  const handleFocusClick = () => {
+    // Toggle focus: if already focused, unfocus; otherwise focus
+    onFocus(isFocused ? null : index);
+  };
 
   return (
     <div
@@ -241,11 +259,17 @@ function LigandCard({
               Chain {ligand.chainId}, {ligand.atoms} atoms
             </span>
           </div>
-          {isFocused && (
-            <div className="p-1.5 rounded bg-blue-600 text-white">
-              <Focus className="w-4 h-4" />
-            </div>
-          )}
+          <button
+            onClick={handleFocusClick}
+            className={`p-1.5 rounded transition-colors ${
+              isFocused
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground'
+            }`}
+            title={isFocused ? 'Exit focus mode' : 'Focus on this ligand'}
+          >
+            <Focus className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Quick info */}

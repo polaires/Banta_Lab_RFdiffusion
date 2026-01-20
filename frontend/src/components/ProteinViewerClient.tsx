@@ -6,6 +6,7 @@ import type { LigandData, PharmacophoreFeature } from '@/lib/ligandAnalysis';
 import { computeInteractionLines, type InteractionLine } from '@/lib/interactionGeometry';
 import { useStore } from '@/lib/store';
 import { useMolstarContextMenu } from '@/components/MolstarContextMenu';
+import { useCatalyticVisualization } from '@/hooks/useCatalyticVisualization';
 
 // Import expression helpers from new modules
 import {
@@ -94,6 +95,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
     const [error, setError] = useState<string | null>(null);
     const [isReady, setIsReady] = useState(false);
     const [focusMode, setFocusMode] = useState<'none' | 'metal' | 'ligand'>('none');
+    const [pluginInstance, setPluginInstance] = useState<PluginUIContext | null>(null);
     const lastPdbContentRef = useRef<string | null>(null);
     const prevFocusRef = useRef<{ metalIndex: number | null | undefined; ligandIndex: number | null | undefined }>({
       metalIndex: undefined,
@@ -102,6 +104,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
     // Get focus settings from store
     const { focusSettings } = useStore();
+
+    // Use catalytic visualization hook to highlight suggestions in Molstar
+    useCatalyticVisualization(pluginInstance);
 
     // Context menu for right-click residue selection
     const { showMenu, hideMenu, MenuComponent } = useMolstarContextMenu({
@@ -570,6 +575,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             globalPlugin?.canvas3d?.handleResize();
           });
         }
+        setPluginInstance(globalPlugin);
         setIsReady(true);
         onReady?.();
         return;
@@ -581,6 +587,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         globalInitPromise.then(() => {
           if (globalPlugin) {
             globalContainer = container;
+            setPluginInstance(globalPlugin);
             setIsReady(true);
             onReady?.();
           }
@@ -710,6 +717,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
       globalInitPromise.then((plugin) => {
         if (plugin) {
+          setPluginInstance(plugin);
           setIsReady(true);
           onReady?.();
         }

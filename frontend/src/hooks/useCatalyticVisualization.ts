@@ -4,37 +4,146 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useStore, type CatalyticSuggestion } from '@/lib/store';
 import { Color } from 'molstar/lib/mol-util/color';
 import { MolScriptBuilder as MS } from 'molstar/lib/mol-script/language/builder';
+import { Script } from 'molstar/lib/mol-script/script';
+import { StructureSelection } from 'molstar/lib/mol-model/structure';
 import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context';
+import {
+  POLYMER_EXPRESSION,
+  surroundingsExpression,
+  exceptExpression,
+} from '@/lib/molstar-expressions';
 
-// Colors for suggestion highlighting
-const MCSA_COLOR = Color(0x2563eb);  // Blue - for curated M-CSA catalytic residues
-const LOCAL_COLOR = Color(0xf97316); // Orange - for local binding pocket detection
+// Colors for highlighting
+const SELECTED_COLOR = Color(0xf97316);  // Orange - for selected catalytic residues
+const HOVER_COLOR = Color(0xfbbf24);     // Yellow/amber - for hover highlight
+
+// Component labels for cleanup
+const SELECTED_COMPONENT_LABEL = 'selected-catalytic-residues';
+const BACKGROUND_COMPONENT_LABEL = 'catalytic-background-cartoon';
 
 /**
- * Hook to highlight catalytic suggestions in Molstar viewer.
+ * Hook to highlight catalytic residues in Molstar viewer.
+ * - Highlights SELECTED residues (enzymeCatalyticResidues) with orange ball-and-stick
+ * - Adds transparent background cartoon for context (like focus mode)
+ * - Handles hover highlighting when user hovers over a suggestion in the panel
  * Call this from ProteinViewerClient or a parent component.
  */
 export function useCatalyticVisualization(plugin: PluginUIContext | null) {
   const catalyticSuggestions = useStore((s) => s.catalyticSuggestions);
-  const previousSuggestionsRef = useRef<CatalyticSuggestion[]>([]);
+  const enzymeCatalyticResidues = useStore((s) => s.enzymeCatalyticResidues);
+  const hoveredCatalyticSuggestion = useStore((s) => s.hoveredCatalyticSuggestion);
+  const previousSelectedRef = useRef<string>('');
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const attemptHighlight = useCallback(async (retryCount = 0) => {
-    if (!plugin || catalyticSuggestions.length === 0) return;
+  // Clear existing highlight components
+  const clearHighlightComponents = useCallback(async () => {
+    if (!plugin) return;
+
+    try {
+      const state = plugin.state.data;
+      const toRemove: string[] = [];
+
+      state.cells.forEach((cell: any, ref: string) => {
+        if (cell.obj?.label === SELECTED_COMPONENT_LABEL ||
+            cell.obj?.label === BACKGROUND_COMPONENT_LABEL) {
+          toRemove.push(ref);
+        }
+      });
+
+      for (const ref of toRemove) {
+        await plugin.build().delete(ref).commit();
+      }
+    } catch (err) {
+      // Ignore cleanup errors
+    }
+  }, [plugin]);
+
+  // Create highlight for selected residues
+  const highlightSelectedResidues = useCallback(async (retryCount = 0) => {
+    if (!plugin) return;
 
     const structure = plugin.managers.structure.hierarchy.current.structures[0];
     if (!structure?.cell?.obj?.data) {
       // Structure not ready, retry after delay (max 5 retries)
-      if (retryCount < 5) {
+      if (retryCount < 5 && enzymeCatalyticResidues.length > 0) {
         console.log(`[CatalyticVisualization] Structure not ready, retrying in 500ms (attempt ${retryCount + 1})`);
-        retryTimeoutRef.current = setTimeout(() => attemptHighlight(retryCount + 1), 500);
+        retryTimeoutRef.current = setTimeout(() => highlightSelectedResidues(retryCount + 1), 500);
       }
       return;
     }
 
-    await highlightSuggestions(plugin, catalyticSuggestions);
-  }, [plugin, catalyticSuggestions]);
+    // Clear existing highlights first
+    await clearHighlightComponents();
 
+    // If no selected residues, we're done
+    if (enzymeCatalyticResidues.length === 0) {
+      console.log('[CatalyticVisualization] No selected residues to highlight');
+      return;
+    }
+
+    try {
+      // Get the state reference from the structure
+      const structureRef = (structure as any).cell?.transform?.ref ?? (structure as any).ref;
+      if (!structureRef) return;
+
+      console.log(`[CatalyticVisualization] Highlighting ${enzymeCatalyticResidues.length} selected residues`);
+
+      // Build combined expression for all selected residues
+      const groups = enzymeCatalyticResidues.map((r) =>
+        MS.struct.generator.atomGroups({
+          'chain-test': MS.core.rel.eq([
+            MS.struct.atomProperty.macromolecular.auth_asym_id(),
+            r.chain,
+          ]),
+          'residue-test': MS.core.rel.eq([
+            MS.struct.atomProperty.macromolecular.auth_seq_id(),
+            r.residue,
+          ]),
+        })
+      );
+
+      const expression = MS.struct.combinator.merge(groups);
+
+      // 1. Create ball-and-stick for catalytic residues (orange)
+      const component = await plugin.builders.structure.tryCreateComponentFromExpression(
+        structureRef,
+        expression,
+        SELECTED_COMPONENT_LABEL
+      );
+
+      if (component) {
+        await plugin.builders.structure.representation.addRepresentation(component, {
+          type: 'ball-and-stick',
+          color: 'uniform',
+          colorParams: { value: SELECTED_COLOR },
+          typeParams: { sizeFactor: 0.35 },
+        });
+      }
+
+      // 2. Create transparent background cartoon for context (like focus mode)
+      // Get surroundings of the selected residues and exclude them to show background
+      const surroundingsExpr = surroundingsExpression(expression, 8.0);
+      const backgroundExpr = exceptExpression(POLYMER_EXPRESSION, surroundingsExpr);
+
+      const backgroundComponent = await plugin.builders.structure.tryCreateComponentFromExpression(
+        structureRef,
+        backgroundExpr,
+        BACKGROUND_COMPONENT_LABEL
+      );
+
+      if (backgroundComponent) {
+        await plugin.builders.structure.representation.addRepresentation(backgroundComponent, {
+          type: 'cartoon',
+          color: 'chain-id',
+          typeParams: { alpha: 0.3 },
+        });
+      }
+    } catch (error) {
+      console.error('[CatalyticVisualization] Failed to highlight selected residues:', error);
+    }
+  }, [plugin, enzymeCatalyticResidues, clearHighlightComponents]);
+
+  // Update highlights when selected residues change
   useEffect(() => {
     // Clean up any pending retry
     if (retryTimeoutRef.current) {
@@ -44,103 +153,70 @@ export function useCatalyticVisualization(plugin: PluginUIContext | null) {
 
     if (!plugin) return;
 
-    // Skip if suggestions haven't changed
-    const current = JSON.stringify(catalyticSuggestions);
-    const previous = JSON.stringify(previousSuggestionsRef.current);
-    if (current === previous) return;
+    // Create a stable string representation to check for changes
+    const currentSelected = JSON.stringify(
+      enzymeCatalyticResidues.map((r) => `${r.chain}${r.residue}`).sort()
+    );
 
-    previousSuggestionsRef.current = catalyticSuggestions;
+    // Skip if selection hasn't changed
+    if (currentSelected === previousSelectedRef.current) return;
+    previousSelectedRef.current = currentSelected;
 
-    attemptHighlight();
+    highlightSelectedResidues();
 
     return () => {
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
       }
     };
-  }, [plugin, catalyticSuggestions, attemptHighlight]);
+  }, [plugin, enzymeCatalyticResidues, highlightSelectedResidues]);
 
-  return { catalyticSuggestions };
-}
+  // Handle hover highlighting - when user hovers over a suggestion in the panel
+  useEffect(() => {
+    if (!plugin) return;
 
-async function highlightSuggestions(
-  plugin: PluginUIContext,
-  suggestions: CatalyticSuggestion[]
-) {
-  if (suggestions.length === 0) {
-    return;
-  }
-
-  try {
     const structure = plugin.managers.structure.hierarchy.current.structures[0];
-    if (!structure?.cell?.obj?.data) {
+    if (!structure?.cell?.obj?.data) return;
+
+    if (!hoveredCatalyticSuggestion) {
+      // Clear highlight when nothing is hovered
+      try {
+        plugin.managers.interactivity.lociHighlights.clearHighlights();
+      } catch (err) {
+        // Ignore errors when clearing highlights
+      }
       return;
     }
 
-    // Group suggestions by source for batch processing
-    const mcsaResidues = suggestions.filter((s) => s.source === 'mcsa');
-    const localResidues = suggestions.filter((s) => s.source === 'local');
-
-    // Get the state reference from the structure
-    const structureRef = (structure as any).cell?.transform?.ref ?? (structure as any).ref;
-    if (!structureRef) {
-      return;
-    }
-
-    console.log(`[CatalyticVisualization] Creating highlights: ${mcsaResidues.length} mcsa, ${localResidues.length} local`);
-
-    // Create highlight components for each group
-    if (mcsaResidues.length > 0) {
-      await createHighlightGroup(plugin, structureRef, mcsaResidues, MCSA_COLOR, 'mcsa-suggestions');
-    }
-
-    if (localResidues.length > 0) {
-      await createHighlightGroup(plugin, structureRef, localResidues, LOCAL_COLOR, 'local-suggestions');
-    }
-  } catch (error) {
-    console.error('[CatalyticVisualization] Failed to highlight:', error);
-  }
-}
-
-async function createHighlightGroup(
-  plugin: PluginUIContext,
-  structureRef: any,
-  residues: CatalyticSuggestion[],
-  color: Color,
-  label: string
-) {
-  // Build combined expression for all residues in this group
-  const groups = residues.map((r) =>
-    MS.struct.generator.atomGroups({
-      'chain-test': MS.core.rel.eq([
-        MS.struct.atomProperty.macromolecular.auth_asym_id(),
-        r.chain,
-      ]),
-      'residue-test': MS.core.rel.eq([
-        MS.struct.atomProperty.macromolecular.auth_seq_id(),
-        r.residue,
-      ]),
-    })
-  );
-
-  const expression = MS.struct.combinator.merge(groups);
-
-  try {
-    const component = await plugin.builders.structure.tryCreateComponentFromExpression(
-      structureRef,
-      expression,
-      label
-    );
-
-    if (component) {
-      await plugin.builders.structure.representation.addRepresentation(component, {
-        type: 'ball-and-stick',
-        color: 'uniform',
-        colorParams: { value: color },
-        typeParams: { sizeFactor: 0.3 },
+    try {
+      // Build expression for the hovered residue
+      const expression = MS.struct.generator.atomGroups({
+        'chain-test': MS.core.rel.eq([
+          MS.struct.atomProperty.macromolecular.auth_asym_id(),
+          hoveredCatalyticSuggestion.chain,
+        ]),
+        'residue-test': MS.core.rel.eq([
+          MS.struct.atomProperty.macromolecular.auth_seq_id(),
+          hoveredCatalyticSuggestion.residue,
+        ]),
       });
+
+      // Get selection from structure
+      const structureData = structure.cell.obj.data;
+      const selection = Script.getStructureSelection(expression, structureData);
+
+      if (!StructureSelection.isEmpty(selection)) {
+        // Convert to loci and highlight
+        const loci = StructureSelection.toLociWithSourceUnits(selection);
+        plugin.managers.interactivity.lociHighlights.highlightOnly({ loci });
+
+        // Also focus camera on the residue for better visibility
+        plugin.managers.camera.focusLoci(loci, { durationMs: 200 });
+      }
+    } catch (err) {
+      console.warn('[CatalyticVisualization] Hover highlight error:', err);
     }
-  } catch (error) {
-    console.error(`[CatalyticVisualization] Failed to create ${label}:`, error);
-  }
+  }, [plugin, hoveredCatalyticSuggestion]);
+
+  return { catalyticSuggestions, enzymeCatalyticResidues, hoveredCatalyticSuggestion };
 }

@@ -250,6 +250,8 @@ export function ViewerPanel({
     setBottomPanelMode,
     enzymeCatalyticResidues,
     addEnzymeCatalyticResidue,
+    removeEnzymeCatalyticResidue,
+    setHoveredCatalyticSuggestion,
   } = useStore();
 
   // Resizing state
@@ -389,12 +391,14 @@ export function ViewerPanel({
           error={suggestionsError}
           existingResidues={enzymeCatalyticResidues}
           onAdd={(s, atomType) => addEnzymeCatalyticResidue(s.chain, s.residue, s.name, atomType)}
+          onRemove={(s) => removeEnzymeCatalyticResidue(s.chain, s.residue)}
           onAddAll={(atomType) => {
             catalyticSuggestions
               .filter((s) => !enzymeCatalyticResidues.some((r) => r.chain === s.chain && r.residue === s.residue))
               .forEach((s) => addEnzymeCatalyticResidue(s.chain, s.residue, s.name, atomType));
           }}
           onClose={() => setBottomPanelMode('none')}
+          onHoverResidue={setHoveredCatalyticSuggestion}
         />
       )}
 

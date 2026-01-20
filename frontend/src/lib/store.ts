@@ -15,6 +15,7 @@ const MAX_JOB_HISTORY = 100;
 import type { JobStatus, HealthResponse, ConfidenceMetrics, RMSDResult, MetalBindingAnalysis, UserPreferences, DesignEvaluation } from './api';
 import type { MetalCoordination } from './metalAnalysis';
 import type { LigandAnalysisResult, PharmacophoreFeature } from './ligandAnalysis';
+import type { MetalReplacementPreset } from './enzymeAnalysis';
 
 // Viewer mode for different visualization states
 export type ViewerMode = 'default' | 'metal' | 'ligand' | 'confidence' | 'comparison';
@@ -37,6 +38,29 @@ export interface CatalyticSuggestion {
 
 // Bottom panel mode
 export type BottomPanelMode = 'suggestions' | 'metal-analysis' | 'ligand-analysis' | 'none';
+
+// Enzyme analysis result from auto-detection (for H-bond/RASA conditioning)
+export interface EnzymeAnalysisResult {
+  metals: Array<{
+    element: string;
+    chain: string;
+    residueNumber: number;
+    coordinatingAtoms: Array<{ chain: string; residue: number; atom: string; distance: number }>;
+    coordinationNumber: number;
+  }>;
+  ligands: Array<{
+    name: string;
+    chain: string;
+    residueNumber: number;
+    atoms: Array<{ name: string; element: string }>;
+    suggestedBuried: string[];      // Coordination atoms (near metal)
+    suggestedExposed: string[];     // Entry/exit atoms (terminal)
+    suggestedHBondAcceptors: string[];  // O/N atoms that can accept H-bonds
+  }>;
+}
+
+// Coordination mode for metal replacement workflow
+export type CoordinationMode = 'keep' | 'explore' | 'hybrid';
 
 interface ErrorContext {
   task?: string;
@@ -260,12 +284,15 @@ interface AppState {
   suggestionsLoading: boolean;
   suggestionsError: string | null;
   bottomPanelMode: BottomPanelMode;
+  /** Currently hovered catalytic suggestion for 3D highlight */
+  hoveredCatalyticSuggestion: CatalyticSuggestion | null;
 
   // Catalytic suggestions actions
   setCatalyticSuggestions: (suggestions: CatalyticSuggestion[], source: 'mcsa' | 'local' | 'none') => void;
   setSuggestionsLoading: (loading: boolean) => void;
   setSuggestionsError: (error: string | null) => void;
   setBottomPanelMode: (mode: BottomPanelMode) => void;
+  setHoveredCatalyticSuggestion: (suggestion: CatalyticSuggestion | null) => void;
   clearSuggestions: () => void;
 
   // Enzyme form shared state (for cross-component communication)
@@ -274,6 +301,57 @@ interface AppState {
   addEnzymeCatalyticResidue: (chain: string, residue: number, name: string, atomType: string) => void;
   removeEnzymeCatalyticResidue: (chain: string, residue: number) => void;
   clearEnzymeCatalyticResidues: () => void;
+  /** Batch set catalytic residues with their atom types */
+  setEnzymeCatalyticResidues: (residues: Array<{ chain: string; residue: number; name: string; atomType: string }>) => void;
+
+  // Enzyme analysis state (auto-detection results)
+  enzymeAnalysis: EnzymeAnalysisResult | null;
+  enzymeAnalysisLoading: boolean;
+  setEnzymeAnalysis: (analysis: EnzymeAnalysisResult | null) => void;
+  setEnzymeAnalysisLoading: (loading: boolean) => void;
+
+  // Metal replacement workflow
+  metalReplacementEnabled: boolean;
+  sourceMetal: string | null;
+  targetMetal: string | null;
+  coordinationMode: CoordinationMode;
+  fixLigandPosition: boolean;
+  metalReplacementPreset: MetalReplacementPreset;
+  /** Residues excluded from fixing due to preset (metal coordinators for expand/lanthanide) */
+  excludedCatalyticResidues: Set<string>;
+  setMetalReplacementEnabled: (enabled: boolean) => void;
+  setSourceMetal: (metal: string | null) => void;
+  setTargetMetal: (metal: string | null) => void;
+  setCoordinationMode: (mode: CoordinationMode) => void;
+  setFixLigandPosition: (fix: boolean) => void;
+  setMetalReplacementPreset: (preset: MetalReplacementPreset) => void;
+  /** Apply a preset - configures all parameters based on preset config */
+  applyMetalReplacementPreset: (preset: MetalReplacementPreset) => void;
+
+  // RASA conditioning (burial/exposure)
+  selectedBuriedAtoms: Record<string, string>;    // {"CIT": "O3,O4,O5", "TB": "ALL"}
+  selectedExposedAtoms: Record<string, string>;   // {"CIT": "O1,O2,O6,O7"}
+  buriedOverridden: boolean;
+  exposedOverridden: boolean;
+  setBuriedAtoms: (key: string, atoms: string) => void;
+  setExposedAtoms: (key: string, atoms: string) => void;
+  removeBuriedAtoms: (key: string) => void;
+  removeExposedAtoms: (key: string) => void;
+  clearRASAConditioning: () => void;
+
+  // H-Bond conditioning
+  selectedHBondAcceptors: Record<string, string>; // {"CIT": "O1,O2,O3,O4,O5,O6,O7"}
+  selectedHBondDonors: Record<string, string>;    // {"A193": "N", "A195": "N"}
+  hbondOverridden: boolean;
+  setHBondAcceptors: (key: string, atoms: string) => void;
+  setHBondDonors: (key: string, atoms: string) => void;
+  removeHBondAcceptors: (key: string) => void;
+  removeHBondDonors: (key: string) => void;
+  clearHBondConditioning: () => void;
+
+  // Apply auto-suggestions from analysis
+  applyEnzymeSuggestions: () => void;
+  clearAllEnzymeConditioning: () => void;
 }
 
 // Default backend URL from environment or fallback
@@ -488,6 +566,7 @@ export const useStore = create<AppState>()(
   suggestionsLoading: false,
   suggestionsError: null,
   bottomPanelMode: 'none',
+  hoveredCatalyticSuggestion: null,
 
   setCatalyticSuggestions: (suggestions, source) => set({
     catalyticSuggestions: suggestions,
@@ -499,6 +578,7 @@ export const useStore = create<AppState>()(
   setSuggestionsLoading: (loading) => set({ suggestionsLoading: loading }),
   setSuggestionsError: (error) => set({ suggestionsError: error, suggestionsLoading: false }),
   setBottomPanelMode: (mode) => set({ bottomPanelMode: mode }),
+  setHoveredCatalyticSuggestion: (suggestion) => set({ hoveredCatalyticSuggestion: suggestion }),
   clearSuggestions: () => set({
     catalyticSuggestions: [],
     suggestionsSource: 'none',
@@ -532,6 +612,283 @@ export const useStore = create<AppState>()(
   clearEnzymeCatalyticResidues: () => set({
     enzymeCatalyticResidues: [],
     enzymeFixedAtomTypes: {},
+  }),
+  setEnzymeCatalyticResidues: (residues) => set(() => {
+    const newResidues: Array<{ chain: string; residue: number; name: string }> = [];
+    const newAtomTypes: Record<string, string> = {};
+
+    for (const r of residues) {
+      // Avoid duplicates
+      if (!newResidues.some(existing => existing.chain === r.chain && existing.residue === r.residue)) {
+        newResidues.push({ chain: r.chain, residue: r.residue, name: r.name });
+        newAtomTypes[`${r.chain}${r.residue}`] = r.atomType;
+      }
+    }
+
+    return {
+      enzymeCatalyticResidues: newResidues,
+      enzymeFixedAtomTypes: newAtomTypes,
+    };
+  }),
+
+  // Enzyme analysis state
+  enzymeAnalysis: null,
+  enzymeAnalysisLoading: false,
+  setEnzymeAnalysis: (analysis) => set({ enzymeAnalysis: analysis }),
+  setEnzymeAnalysisLoading: (loading) => set({ enzymeAnalysisLoading: loading }),
+
+  // Metal replacement workflow
+  metalReplacementEnabled: false,
+  sourceMetal: null,
+  targetMetal: null,
+  coordinationMode: 'explore',
+  fixLigandPosition: true,
+  metalReplacementPreset: 'custom' as MetalReplacementPreset,
+  excludedCatalyticResidues: new Set<string>(),
+  setMetalReplacementEnabled: (enabled) => set({ metalReplacementEnabled: enabled }),
+  setSourceMetal: (metal) => set({ sourceMetal: metal }),
+  setTargetMetal: (metal) => set({ targetMetal: metal }),
+  setCoordinationMode: (mode) => set({ coordinationMode: mode }),
+  setFixLigandPosition: (fix) => set({ fixLigandPosition: fix }),
+  setMetalReplacementPreset: (preset) => set({ metalReplacementPreset: preset }),
+
+  // Apply a metal replacement preset - configures ALL parameters including catalytic residues
+  applyMetalReplacementPreset: (preset) => set((state) => {
+    // Import preset config dynamically to avoid circular deps
+    const { METAL_REPLACEMENT_PRESETS, getPresetConfig } = require('./enzymeAnalysis');
+    const config = getPresetConfig(preset, state.sourceMetal, state.targetMetal);
+
+    // Determine which residues to exclude (metal coordinators for expand/lanthanide presets)
+    const excludedResidues = new Set<string>();
+    const metalCoordinators: Array<{ chain: string; residue: number; name: string; atom: string }> = [];
+
+    if (state.enzymeAnalysis) {
+      // Collect metal coordinators
+      for (const metal of state.enzymeAnalysis.metals) {
+        for (const coord of metal.coordinatingAtoms) {
+          metalCoordinators.push({
+            chain: coord.chain,
+            residue: coord.residue,
+            name: '', // Will be filled from suggestions or defaults
+            atom: coord.atom,
+          });
+          // Mark as excluded if preset doesn't fix metal coordinators
+          if (!config.fixMetalCoordinators) {
+            excludedResidues.add(`${coord.chain}${coord.residue}`);
+          }
+        }
+      }
+    }
+
+    // Build catalytic residues from suggestions and metal coordinators
+    const newCatalyticResidues: Array<{ chain: string; residue: number; name: string }> = [];
+    const newAtomTypes: Record<string, string> = {};
+
+    // Add residues from catalytic suggestions (MCSA/local analysis)
+    for (const suggestion of state.catalyticSuggestions) {
+      const key = `${suggestion.chain}${suggestion.residue}`;
+      // Skip if excluded (metal coordinators for expand/lanthanide)
+      if (excludedResidues.has(key)) continue;
+
+      if (!newCatalyticResidues.some(r => r.chain === suggestion.chain && r.residue === suggestion.residue)) {
+        newCatalyticResidues.push({
+          chain: suggestion.chain,
+          residue: suggestion.residue,
+          name: suggestion.name,
+        });
+        // Use 'ALL' to fix entire residue (valid RFD3 values: BKBN, ALL, TIP, '')
+        newAtomTypes[key] = 'ALL';
+      }
+    }
+
+    // Add metal coordinators if preset fixes them
+    if (config.fixMetalCoordinators) {
+      for (const coord of metalCoordinators) {
+        const key = `${coord.chain}${coord.residue}`;
+        if (!newCatalyticResidues.some(r => r.chain === coord.chain && r.residue === coord.residue)) {
+          // Try to find name from suggestions
+          const suggestion = state.catalyticSuggestions.find(
+            s => s.chain === coord.chain && s.residue === coord.residue
+          );
+          newCatalyticResidues.push({
+            chain: coord.chain,
+            residue: coord.residue,
+            name: suggestion?.name || 'UNK',
+          });
+          // Metal coordinators should fix entire residue (valid RFD3 values: BKBN, ALL, TIP, '')
+          newAtomTypes[key] = 'ALL';
+        }
+      }
+    }
+
+    // Build buried atoms if preset enables RASA and burial
+    const newBuried: Record<string, string> = {};
+    if (config.buryMetal && state.targetMetal) {
+      newBuried[state.targetMetal] = 'ALL';
+    }
+    // Also bury ligand coordination atoms if analysis available
+    if (config.enableRASA && state.enzymeAnalysis) {
+      for (const ligand of state.enzymeAnalysis.ligands) {
+        if (ligand.suggestedBuried.length > 0) {
+          newBuried[ligand.name] = ligand.suggestedBuried.join(',');
+        }
+      }
+    }
+
+    // Build exposed atoms
+    const newExposed: Record<string, string> = {};
+    if (config.enableRASA && state.enzymeAnalysis) {
+      for (const ligand of state.enzymeAnalysis.ligands) {
+        if (ligand.suggestedExposed.length > 0) {
+          newExposed[ligand.name] = ligand.suggestedExposed.join(',');
+        }
+      }
+    }
+
+    // Build H-bond acceptors
+    const newAcceptors: Record<string, string> = {};
+    if (config.enableHBonds && state.enzymeAnalysis) {
+      for (const ligand of state.enzymeAnalysis.ligands) {
+        if (ligand.suggestedHBondAcceptors.length > 0) {
+          newAcceptors[ligand.name] = ligand.suggestedHBondAcceptors.join(',');
+        }
+      }
+    }
+
+    return {
+      metalReplacementPreset: preset,
+      coordinationMode: config.coordinationMode,
+      fixLigandPosition: config.fixLigandPosition,
+      excludedCatalyticResidues: excludedResidues,
+      // Set catalytic residues from combined suggestions + coordinators
+      enzymeCatalyticResidues: newCatalyticResidues,
+      enzymeFixedAtomTypes: newAtomTypes,
+      // Apply RASA if enabled by preset
+      selectedBuriedAtoms: config.enableRASA ? newBuried : state.selectedBuriedAtoms,
+      selectedExposedAtoms: config.enableRASA ? newExposed : state.selectedExposedAtoms,
+      // Apply H-bonds if enabled by preset
+      selectedHBondAcceptors: config.enableHBonds ? newAcceptors : state.selectedHBondAcceptors,
+      // Reset override flags
+      buriedOverridden: false,
+      exposedOverridden: false,
+      hbondOverridden: false,
+    };
+  }),
+
+  // RASA conditioning
+  selectedBuriedAtoms: {},
+  selectedExposedAtoms: {},
+  buriedOverridden: false,
+  exposedOverridden: false,
+  setBuriedAtoms: (key, atoms) => set((state) => ({
+    selectedBuriedAtoms: { ...state.selectedBuriedAtoms, [key]: atoms },
+    buriedOverridden: true,
+  })),
+  setExposedAtoms: (key, atoms) => set((state) => ({
+    selectedExposedAtoms: { ...state.selectedExposedAtoms, [key]: atoms },
+    exposedOverridden: true,
+  })),
+  removeBuriedAtoms: (key) => set((state) => {
+    const { [key]: _, ...rest } = state.selectedBuriedAtoms;
+    return { selectedBuriedAtoms: rest };
+  }),
+  removeExposedAtoms: (key) => set((state) => {
+    const { [key]: _, ...rest } = state.selectedExposedAtoms;
+    return { selectedExposedAtoms: rest };
+  }),
+  clearRASAConditioning: () => set({
+    selectedBuriedAtoms: {},
+    selectedExposedAtoms: {},
+    buriedOverridden: false,
+    exposedOverridden: false,
+  }),
+
+  // H-Bond conditioning
+  selectedHBondAcceptors: {},
+  selectedHBondDonors: {},
+  hbondOverridden: false,
+  setHBondAcceptors: (key, atoms) => set((state) => ({
+    selectedHBondAcceptors: { ...state.selectedHBondAcceptors, [key]: atoms },
+    hbondOverridden: true,
+  })),
+  setHBondDonors: (key, atoms) => set((state) => ({
+    selectedHBondDonors: { ...state.selectedHBondDonors, [key]: atoms },
+    hbondOverridden: true,
+  })),
+  removeHBondAcceptors: (key) => set((state) => {
+    const { [key]: _, ...rest } = state.selectedHBondAcceptors;
+    return { selectedHBondAcceptors: rest };
+  }),
+  removeHBondDonors: (key) => set((state) => {
+    const { [key]: _, ...rest } = state.selectedHBondDonors;
+    return { selectedHBondDonors: rest };
+  }),
+  clearHBondConditioning: () => set({
+    selectedHBondAcceptors: {},
+    selectedHBondDonors: {},
+    hbondOverridden: false,
+  }),
+
+  // Apply auto-suggestions from analysis
+  // NOTE: This function ALWAYS applies suggestions regardless of override flags,
+  // because it's called when user explicitly clicks "Apply Suggestions" button.
+  // Override flags are only used to prevent auto-application on PDB upload.
+  applyEnzymeSuggestions: () => set((state) => {
+    if (!state.enzymeAnalysis) return state;
+
+    const newBuried: Record<string, string> = {};
+    const newExposed: Record<string, string> = {};
+    const newAcceptors: Record<string, string> = {};
+
+    // Apply metal burial - use TARGET metal if replacement is enabled, otherwise source
+    for (const metal of state.enzymeAnalysis.metals) {
+      const metalToUse = (state.metalReplacementEnabled && state.targetMetal)
+        ? state.targetMetal
+        : metal.element;
+      newBuried[metalToUse] = 'ALL';
+    }
+
+    // Apply ligand suggestions (always apply - user clicked the button)
+    for (const ligand of state.enzymeAnalysis.ligands) {
+      if (ligand.suggestedBuried.length > 0) {
+        newBuried[ligand.name] = ligand.suggestedBuried.join(',');
+      }
+      if (ligand.suggestedExposed.length > 0) {
+        newExposed[ligand.name] = ligand.suggestedExposed.join(',');
+      }
+      if (ligand.suggestedHBondAcceptors.length > 0) {
+        newAcceptors[ligand.name] = ligand.suggestedHBondAcceptors.join(',');
+      }
+    }
+
+    // Always apply suggestions and reset override flags
+    return {
+      selectedBuriedAtoms: newBuried,
+      selectedExposedAtoms: newExposed,
+      selectedHBondAcceptors: newAcceptors,
+      // Reset override flags so auto-suggestion works on next PDB upload
+      buriedOverridden: false,
+      exposedOverridden: false,
+      hbondOverridden: false,
+    };
+  }),
+
+  clearAllEnzymeConditioning: () => set({
+    enzymeAnalysis: null,
+    metalReplacementEnabled: false,
+    sourceMetal: null,
+    targetMetal: null,
+    coordinationMode: 'explore',
+    fixLigandPosition: true,
+    metalReplacementPreset: 'custom' as MetalReplacementPreset,
+    excludedCatalyticResidues: new Set<string>(),
+    selectedBuriedAtoms: {},
+    selectedExposedAtoms: {},
+    buriedOverridden: false,
+    exposedOverridden: false,
+    selectedHBondAcceptors: {},
+    selectedHBondDonors: {},
+    hbondOverridden: false,
   }),
 }),
     {

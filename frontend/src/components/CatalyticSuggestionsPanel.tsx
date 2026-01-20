@@ -13,10 +13,13 @@ interface CatalyticSuggestionsPanelProps {
   error: string | null;
   existingResidues: Array<{ chain: string; residue: number }>;
   onAdd: (suggestion: CatalyticSuggestion, atomType: string) => void;
+  onRemove: (suggestion: CatalyticSuggestion) => void;
   onAddAll: (atomType: string) => void;
   onClose: () => void;
   onHoverResidue?: (suggestion: CatalyticSuggestion | null) => void;
   onRetry?: () => void;
+  /** Default atom type for click-to-add (default: 'ALL') */
+  defaultAtomType?: string;
 }
 
 export function CatalyticSuggestionsPanel({
@@ -26,10 +29,12 @@ export function CatalyticSuggestionsPanel({
   error,
   existingResidues,
   onAdd,
+  onRemove,
   onAddAll,
   onClose,
   onHoverResidue,
   onRetry,
+  defaultAtomType = 'ALL',
 }: CatalyticSuggestionsPanelProps) {
   const isAdded = (s: CatalyticSuggestion) =>
     existingResidues.some((r) => r.chain === s.chain && r.residue === s.residue);
@@ -104,11 +109,21 @@ export function CatalyticSuggestionsPanel({
           {suggestions.map((s) => {
             const added = isAdded(s);
             return (
-              <div
+              <button
+                type="button"
                 key={`${s.chain}${s.residue}`}
-                className={`flex items-center justify-between p-2 rounded-md border transition-colors ${
-                  added ? 'bg-muted/50 border-border' : 'bg-card border-border hover:bg-accent/50'
+                className={`flex items-center justify-between p-2 rounded-md border transition-colors cursor-pointer text-left ${
+                  added
+                    ? 'bg-primary/10 border-primary/30 hover:bg-primary/20'
+                    : 'bg-card border-border hover:bg-accent/50'
                 }`}
+                onClick={() => {
+                  if (added) {
+                    onRemove(s);
+                  } else {
+                    onAdd(s, defaultAtomType);
+                  }
+                }}
                 onMouseEnter={() => onHoverResidue?.(s)}
                 onMouseLeave={() => onHoverResidue?.(null)}
               >
@@ -130,15 +145,11 @@ export function CatalyticSuggestionsPanel({
                   </div>
                 </div>
                 {added ? (
-                  <Check className="h-4 w-4 text-green-500 shrink-0" />
+                  <Check className="h-4 w-4 text-primary shrink-0" />
                 ) : (
-                  <AtomTypeDropdown onSelect={(type) => onAdd(s, type)} align="end">
-                    <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0">
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                  </AtomTypeDropdown>
+                  <Plus className="h-4 w-4 text-muted-foreground shrink-0" />
                 )}
-              </div>
+              </button>
             );
           })}
         </div>

@@ -13,7 +13,7 @@ import runpod
 import os
 import sys
 import traceback
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 
 # Import inference utilities
 from inference_utils import (
@@ -6392,9 +6392,11 @@ def handle_interface_metal_ligand_design(job_input: Dict[str, Any]) -> Dict[str,
         metal: str - Metal code (CA, TB, FE, etc.)
 
         # Design parameters
-        approach: str - "joint" (both chains) or "sequential" (one at a time)
+        approach: str - "joint" (both chains), "sequential" (one at a time),
+                       or "crystal" (use coordination from real crystal structures)
         chain_length: str - e.g., "60-80"
         num_designs: int - Number of designs to generate
+        use_crystal_coordination: bool - Fetch coordination scaffold from RCSB (auto for "crystal" approach)
 
         # Coordination preferences
         chain_a_donors: list - e.g., ["Glu", "Asp"]
@@ -6488,6 +6490,16 @@ def handle_interface_metal_ligand_design(job_input: Dict[str, Any]) -> Dict[str,
     validate_coordination = job_input.get("validate_coordination", True)
     validate_binding = job_input.get("validate_binding", False)
     use_mock = job_input.get("use_mock", False)
+
+    # Ori_offset for crystal approach - distance (Å) to push chain B from ligand center
+    # Larger values = chain B further from ligand (less clash potential)
+    ori_offset = job_input.get("ori_offset", 25.0)
+
+    # Crystal structure coordination option (Option 3)
+    use_crystal_coordination = job_input.get("use_crystal_coordination", False)
+    # Auto-enable for "crystal" approach
+    if approach == "crystal":
+        use_crystal_coordination = True
 
     # Determine complex source
     complex_info = None
@@ -6667,10 +6679,47 @@ def handle_interface_metal_ligand_design(job_input: Dict[str, Any]) -> Dict[str,
             chain_b_donors=chain_b_donors,
             use_mock=use_mock,
         )
+    elif approach == "crystal":
+        # Option 3: Use coordination from real crystal structures
+        print(f"[MetalLigandDesign] Using crystal structure coordination approach")
+        ligand_name = coord_info.get("ligand_name", "")
+
+        # Fetch coordination scaffold from RCSB
+        scaffold = _fetch_crystal_coordination_scaffold(
+            metal=metal,
+            ligand=ligand_name,
+            coord_cutoff=3.0,
+            max_structures=5,
+        )
+
+        if not scaffold:
+            return {
+                "status": "failed",
+                "error": f"Could not find crystal structure with {metal}+{ligand_name} coordination. "
+                         f"Try 'sequential' approach instead."
+            }
+
+        print(f"[MetalLigandDesign] Using scaffold from {scaffold.get('source_pdb')}")
+        print(f"[MetalLigandDesign] Coordinating residues: {scaffold.get('coordinating_residues')}")
+
+        # CRITICAL: Use the scaffold's original_hetatm_pdb for geometry restoration
+        # NOT the centered template complex_pdb! The crystal scaffold has the
+        # correct coordinates from the RCSB structure.
+        crystal_hetatm = scaffold.get("original_hetatm_pdb", "")
+
+        result = _design_with_crystal_scaffold(
+            scaffold=scaffold,
+            original_complex_pdb=crystal_hetatm,  # Use crystal structure, not centered template
+            chain_length=chain_length,
+            num_designs=num_designs,
+            seed=seed,
+            use_mock=use_mock,
+            ori_offset=ori_offset,  # Distance (Å) to push chain B from ligand
+        )
     else:
         return {
             "status": "failed",
-            "error": f"Unknown approach: {approach}. Valid: joint, sequential"
+            "error": f"Unknown approach: {approach}. Valid: joint, sequential, crystal"
         }
 
     # Add metadata to result
@@ -6693,6 +6742,10 @@ def handle_interface_metal_ligand_design(job_input: Dict[str, Any]) -> Dict[str,
         # Add template source info for transparency
         if template_source:
             result["result"]["template_source"] = template_source
+
+        # Add crystal scaffold info if using crystal approach
+        if approach == "crystal" and "scaffold_info" in result.get("result", {}):
+            result["result"]["crystal_scaffold"] = result["result"].pop("scaffold_info")
 
     return result
 
@@ -8057,6 +8110,1681 @@ def _count_metal_coordination(pdb_content: str, metal: str, threshold: float = 3
                         except:
                             pass
     return count
+
+
+# =============================================================================
+# CRYSTAL STRUCTURE COORDINATION SCAFFOLD (Option 3)
+# Uses existing StructureDiscovery infrastructure
+# =============================================================================
+
+def _find_ligand_contacting_residues(
+    pdb_content: str,
+    ligand: str,
+    metal: str,
+    metal_chain: str,
+    metal_resnum: int,
+    contact_cutoff: float = 4.0,
+) -> List[Dict[str, Any]]:
+    """
+    Find protein residues that directly contact the ligand (not through metal).
+
+    This extends the coordination shell to include residues that:
+    - Form H-bonds with ligand (e.g., to PQQ carboxylates)
+    - Stack with aromatic rings
+    - Make van der Waals contacts
+
+    Args:
+        pdb_content: Full PDB content
+        ligand: Ligand 3-letter code
+        metal: Metal symbol (to identify which ligand copy is near the active site)
+        metal_chain: Chain of active site metal
+        metal_resnum: Residue number of active site metal
+        contact_cutoff: Distance cutoff for contacts (Angstroms)
+
+    Returns:
+        List of dicts with residue info for ligand-contacting residues
+    """
+    import math
+
+    amino_acids = {
+        "GLU", "ASP", "HIS", "CYS", "ASN", "TYR", "MET", "SER", "THR", "GLN",
+        "LYS", "ARG", "GLY", "ALA", "VAL", "LEU", "ILE", "PRO", "PHE", "TRP"
+    }
+
+    # First, find the metal position to identify the correct ligand copy
+    metal_pos = None
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == metal:
+            try:
+                line_chain = line[21:22].strip()
+                line_resnum = int(line[22:26].strip())
+                if line_chain == metal_chain and line_resnum == metal_resnum:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_pos = (x, y, z)
+                    break
+            except (ValueError, IndexError):
+                pass
+
+    if not metal_pos:
+        print(f"[LigandContacts] Could not find metal position for chain {metal_chain} resnum {metal_resnum}")
+        return []
+
+    # Find ligand atoms near the active site metal (within 10Å)
+    ligand_atoms = []
+    ligand_proximity_cutoff = 10.0
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == ligand:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                dist_to_metal = math.sqrt(
+                    (x - metal_pos[0])**2 +
+                    (y - metal_pos[1])**2 +
+                    (z - metal_pos[2])**2
+                )
+                if dist_to_metal < ligand_proximity_cutoff:
+                    atom_name = line[12:16].strip()
+                    chain = line[21:22].strip()
+                    resnum = line[22:26].strip()
+                    ligand_atoms.append({
+                        'atom': atom_name,
+                        'pos': (x, y, z),
+                        'chain': chain,
+                        'resnum': resnum,
+                    })
+            except (ValueError, IndexError):
+                pass
+
+    print(f"[LigandContacts] Found {len(ligand_atoms)} ligand atoms near active site metal")
+
+    if not ligand_atoms:
+        return []
+
+    # Find protein residues contacting these ligand atoms
+    contacting_residues = {}  # (chain, resnum) -> best contact info
+
+    for line in pdb_content.split('\n'):
+        if not line.startswith('ATOM'):
+            continue
+
+        res_name = line[17:20].strip()
+        if res_name not in amino_acids:
+            continue
+
+        try:
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+            atom_name = line[12:16].strip()
+            chain = line[21:22].strip()
+            resnum = int(line[22:26].strip())
+        except (ValueError, IndexError):
+            continue
+
+        # Check distance to each ligand atom
+        for lig_atom in ligand_atoms:
+            dist = math.sqrt(
+                (x - lig_atom['pos'][0])**2 +
+                (y - lig_atom['pos'][1])**2 +
+                (z - lig_atom['pos'][2])**2
+            )
+
+            if dist <= contact_cutoff:
+                key = (chain, resnum)
+                if key not in contacting_residues or dist < contacting_residues[key]['distance']:
+                    contacting_residues[key] = {
+                        'residue': res_name,
+                        'chain': chain,
+                        'resnum': resnum,
+                        'atom': atom_name,
+                        'distance': dist,
+                        'ligand_atom': lig_atom['atom'],
+                        'is_backbone': atom_name in ('O', 'N', 'CA', 'C'),
+                    }
+
+    contacts = list(contacting_residues.values())
+    print(f"[LigandContacts] Found {len(contacts)} protein residues contacting {ligand}")
+    for c in contacts[:10]:  # Show first 10
+        print(f"[LigandContacts]   {c['chain']}{c['resnum']}:{c['residue']} {c['atom']} -> {c['ligand_atom']} @ {c['distance']:.2f}Å")
+
+    return contacts
+
+
+def _fetch_crystal_coordination_scaffold(
+    metal: str,
+    ligand: str,
+    coord_cutoff: float = 3.5,
+    max_structures: int = 5,
+) -> Optional[Dict[str, Any]]:
+    """
+    Fetch coordination scaffold from crystal structures.
+
+    Uses the metal_site_fetcher infrastructure to find real crystal structures
+    with metal-ligand coordination and extract the active site geometry.
+
+    Args:
+        metal: Metal symbol (e.g., "CA", "ZN")
+        ligand: Ligand code (e.g., "PQQ", "ATP")
+        coord_cutoff: Distance cutoff for coordination (Angstroms)
+        max_structures: Maximum structures to search
+
+    Returns:
+        Dict with coordination scaffold info, or None if not found
+    """
+    try:
+        from metal_site_fetcher import (
+            search_metal_ligand_structures,
+            find_metal_ligand_active_site,
+            _fetch_pdb_content,
+        )
+    except ImportError as e:
+        print(f"[CrystalCoord] Required modules not available: {e}")
+        return None
+
+    print(f"[CrystalCoord] Searching for {metal}+{ligand} crystal structures...")
+
+    # Use new infrastructure to find structures with both metal and ligand
+    pdb_ids = search_metal_ligand_structures(metal, ligand, limit=max_structures)
+
+    if not pdb_ids:
+        print(f"[CrystalCoord] No {metal}+{ligand} structures found in RCSB")
+        return None
+
+    print(f"[CrystalCoord] Found {len(pdb_ids)} candidate structures: {pdb_ids}")
+
+    # Try each structure until we find one with good protein coordination
+    for pdb_id in pdb_ids:
+        print(f"[CrystalCoord] Analyzing {pdb_id}...")
+
+        # Use new infrastructure to find active site metal coordinating ligand
+        site_info = find_metal_ligand_active_site(pdb_id, metal, ligand, cutoff=coord_cutoff)
+
+        if not site_info:
+            print(f"[CrystalCoord] {pdb_id}: no active site found")
+            continue
+
+        print(f"[CrystalCoord] {pdb_id}: Active site {metal} {site_info['metal_chain']}{site_info['metal_resnum']}")
+        print(f"[CrystalCoord]   Ligand donors: {site_info['ligand_donors']}")
+        print(f"[CrystalCoord]   Protein donors: {site_info['protein_donors']}")
+
+        if not site_info['protein_donors']:
+            print(f"[CrystalCoord] {pdb_id}: no protein coordination (only ligand donors)")
+            continue
+
+        # Fetch full PDB content for scaffold extraction
+        pdb_content = _fetch_pdb_content(pdb_id)
+        if not pdb_content:
+            continue
+
+        # Build protein_coords list from site_info (metal-coordinating residues)
+        protein_coords = []
+        seen_residues = set()  # Track (chain, resnum) to avoid duplicates
+        for atom in site_info.get("coordinating_atoms", []):
+            res_name = atom.get("res_name", "")
+            atom_name = atom.get("atom_name", "")
+            # Skip ligand atoms
+            if res_name == ligand:
+                continue
+            # Include protein atoms
+            amino_acids = {
+                "GLU", "ASP", "HIS", "CYS", "ASN", "TYR", "MET", "SER", "THR", "GLN",
+                "LYS", "ARG", "GLY", "ALA", "VAL", "LEU", "ILE", "PRO", "PHE", "TRP"
+            }
+            if res_name in amino_acids:
+                chain = atom.get("chain_id", "")
+                resnum = atom.get("res_seq", 0)
+                key = (chain, resnum)
+                if key not in seen_residues:
+                    seen_residues.add(key)
+                    protein_coords.append({
+                        "residue": res_name,
+                        "chain": chain,
+                        "resnum": resnum,
+                        "atom": atom_name,
+                        "distance": atom.get("distance", 0),
+                        "is_backbone": atom_name in ("O", "N", "CA", "C"),
+                        "contact_type": "metal_coordination",
+                    })
+
+        # Also find residues that contact the ligand directly (not through metal)
+        # This creates a full "coordination shell" around the metal-ligand complex
+        ligand_contacts = _find_ligand_contacting_residues(
+            pdb_content=pdb_content,
+            ligand=ligand,
+            metal=metal,
+            metal_chain=site_info['metal_chain'],
+            metal_resnum=int(site_info['metal_resnum']),
+            contact_cutoff=4.0,  # Å - captures H-bonds and van der Waals contacts
+        )
+
+        # Add ligand contacts that aren't already metal-coordinating
+        for contact in ligand_contacts:
+            key = (contact['chain'], contact['resnum'])
+            if key not in seen_residues:
+                seen_residues.add(key)
+                contact['contact_type'] = 'ligand_contact'
+                protein_coords.append(contact)
+
+        print(f"[CrystalCoord] {pdb_id}: Total coordination shell: {len(protein_coords)} residues")
+        metal_coord_count = sum(1 for p in protein_coords if p.get('contact_type') == 'metal_coordination')
+        ligand_contact_count = sum(1 for p in protein_coords if p.get('contact_type') == 'ligand_contact')
+        print(f"[CrystalCoord]   - Metal-coordinating: {metal_coord_count}")
+        print(f"[CrystalCoord]   - Ligand-contacting: {ligand_contact_count}")
+
+        if not protein_coords:
+            continue
+
+        # Build scaffold - pass specific metal chain/resnum to filter to active site only
+        scaffold = _extract_coordination_scaffold(
+            pdb_content=pdb_content,
+            metal=metal,
+            ligand=ligand,
+            protein_coords=protein_coords,
+            metal_chain=site_info['metal_chain'],
+            metal_resnum=site_info['metal_resnum'],
+        )
+
+        if scaffold:
+            scaffold["source_pdb"] = pdb_id
+            scaffold["metal"] = metal
+            scaffold["ligand"] = ligand
+            scaffold["metal_chain"] = site_info['metal_chain']
+            scaffold["metal_resnum"] = site_info['metal_resnum']
+            scaffold["coordination_number"] = len(protein_coords)
+            scaffold["ligand_donors"] = site_info['ligand_donors']
+            scaffold["protein_donors"] = site_info['protein_donors']
+            # Track contact types for debugging
+            scaffold["metal_coordinating_residues"] = metal_coord_count
+            scaffold["ligand_contacting_residues"] = ligand_contact_count
+            return scaffold
+
+    print(f"[CrystalCoord] No suitable scaffold found in any structure")
+    return None
+
+
+def _find_active_site_metal(
+    pdb_content: str,
+    metal: str,
+    ligand: str,
+    cutoff: float = 3.5,
+) -> Optional[Dict[str, Any]]:
+    """
+    Find the metal site that directly coordinates the ligand (active site).
+
+    For metal-ligand cofactors like PQQ-Ca, there may be multiple metal ions
+    in the structure. This function finds the one that's actually coordinating
+    the ligand, not structural metals elsewhere.
+
+    Args:
+        pdb_content: Full PDB content
+        metal: Metal symbol (e.g., "CA")
+        ligand: Ligand code (e.g., "PQQ")
+        cutoff: Distance cutoff for coordination
+
+    Returns:
+        Coordination info dict for the active site metal, or None
+    """
+    import math
+
+    # Find all metal positions
+    metal_sites = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == metal:
+            atom_name = line[12:16].strip()
+            if atom_name == metal:  # The metal atom itself
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    chain = line[21]
+                    resnum = line[22:26].strip()
+                    metal_sites.append({
+                        'chain': chain,
+                        'resnum': resnum,
+                        'pos': (x, y, z),
+                    })
+                except (ValueError, IndexError):
+                    pass
+
+    if not metal_sites:
+        print(f"[ActiveSite] No {metal} sites found")
+        return None
+
+    # Find all ligand atoms (potential coordination donors)
+    ligand_atoms = []
+    donor_elements = {'O', 'N', 'S'}
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == ligand:
+            atom_name = line[12:16].strip()
+            element = line[76:78].strip() if len(line) > 76 else atom_name[0]
+            if element in donor_elements:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    chain = line[21]
+                    resnum = line[22:26].strip()
+                    ligand_atoms.append({
+                        'atom': atom_name,
+                        'chain': chain,
+                        'resnum': resnum,
+                        'pos': (x, y, z),
+                    })
+                except (ValueError, IndexError):
+                    pass
+
+    if not ligand_atoms:
+        print(f"[ActiveSite] No {ligand} donor atoms found")
+        return None
+
+    # For each metal site, find the closest ligand atom distance
+    best_site = None
+    best_dist = float('inf')
+    for site in metal_sites:
+        for lig_atom in ligand_atoms:
+            dist = math.sqrt(sum((site['pos'][i] - lig_atom['pos'][i])**2 for i in range(3)))
+            if dist < best_dist:
+                best_dist = dist
+                best_site = site
+
+    if not best_site or best_dist > cutoff:
+        print(f"[ActiveSite] No {metal} within {cutoff}Å of {ligand} (closest: {best_dist:.1f}Å)")
+        return None
+
+    print(f"[ActiveSite] Found active site {metal} {best_site['chain']}{best_site['resnum']} @ {best_dist:.2f}Å from {ligand}")
+
+    # Extract full coordination sphere for this specific metal site
+    coord_atoms = []
+    metal_pos = best_site['pos']
+
+    for line in pdb_content.split('\n'):
+        if not line.startswith(('ATOM', 'HETATM')):
+            continue
+
+        res_name = line[17:20].strip()
+        atom_name = line[12:16].strip()
+        chain = line[21]
+        resnum = line[22:26].strip()
+
+        # Skip the metal itself
+        if res_name == metal and atom_name == metal:
+            continue
+
+        # Skip water
+        if res_name == 'HOH':
+            continue
+
+        try:
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+            dist = math.sqrt(sum((metal_pos[i] - (x, y, z)[i])**2 for i in range(3)))
+
+            if dist <= cutoff:
+                element = line[76:78].strip() if len(line) > 76 else atom_name[0]
+                coord_atoms.append({
+                    'atom_name': atom_name,
+                    'res_name': res_name,
+                    'res_seq': int(resnum) if resnum.isdigit() else 0,
+                    'chain_id': chain,
+                    'element': element,
+                    'distance': round(dist, 2),
+                    'coords': (x, y, z),
+                    'is_ligand': res_name == ligand,
+                })
+        except (ValueError, IndexError):
+            pass
+
+    coord_atoms.sort(key=lambda x: x['distance'])
+
+    return {
+        'metal': metal,
+        'metal_chain': best_site['chain'],
+        'metal_resnum': best_site['resnum'],
+        'metal_coords': metal_pos,
+        'coordination_number': len(coord_atoms),
+        'coordinating_atoms': coord_atoms,
+        'ligand_distance': best_dist,
+    }
+
+
+def _extract_coordination_scaffold(
+    pdb_content: str,
+    metal: str,
+    ligand: str,
+    protein_coords: List[Dict[str, Any]],
+    metal_chain: str = None,
+    metal_resnum: int = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Extract minimal PDB content containing metal + ligand + coordinating residues.
+
+    This creates a "coordination scaffold" that can be used as a template for
+    designing new protein chains that properly coordinate the metal.
+
+    Args:
+        pdb_content: Full PDB content
+        metal: Metal symbol
+        ligand: Ligand code
+        protein_coords: List of coordinating residue info
+        metal_chain: Specific chain of the active site metal (to filter multiple metals)
+        metal_resnum: Specific residue number of the active site metal
+
+    Returns:
+        Dict with scaffold_pdb, fixed_residues list
+    """
+    scaffold_lines = []
+    fixed_residues = []
+
+    # Collect residue identifiers to extract
+    coord_residue_keys = set()
+    for res in protein_coords:
+        chain = res.get("chain", "")
+        resnum = res.get("resnum", 0)
+        coord_residue_keys.add((chain, resnum))
+        fixed_residues.append(f"{chain}{resnum}")
+
+    # Extract HETATM lines for metal and ligand
+    # Filter to only the specific active site metal if chain/resnum provided
+    hetatm_lines = []
+    all_metal_lines = []  # Collect all metals for fallback
+    all_ligand_lines = []  # Collect all ligand atoms for proximity filtering
+
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            line_chain = line[21:22].strip()
+            try:
+                line_resnum = int(line[22:26].strip())
+            except ValueError:
+                line_resnum = None
+
+            if res_name == metal:
+                all_metal_lines.append((line, line_chain, line_resnum))
+                # Only include this metal if it's the active site metal
+                if metal_chain and metal_resnum:
+                    # Fix type mismatch: ensure both are strings for comparison
+                    line_chain_str = str(line_chain).strip()
+                    metal_chain_str = str(metal_chain).strip()
+                    line_resnum_int = int(line_resnum) if line_resnum is not None else -1
+                    metal_resnum_int = int(metal_resnum) if metal_resnum is not None else -2
+
+                    match = (line_chain_str == metal_chain_str and line_resnum_int == metal_resnum_int)
+                    if line_resnum_int == metal_resnum_int or line_chain_str == metal_chain_str:
+                        print(f"[ExtractScaffold] Comparing: '{line_chain_str}'=='{metal_chain_str}'? {line_chain_str == metal_chain_str}, {line_resnum_int}=={metal_resnum_int}? {line_resnum_int == metal_resnum_int}")
+                    if match:
+                        hetatm_lines.append(line)
+                else:
+                    hetatm_lines.append(line)
+            elif res_name == ligand:
+                # Store ligand lines for later filtering by proximity to metal
+                all_ligand_lines.append(line)
+
+    # Debug: Show what metals were found
+    print(f"[ExtractScaffold] Found {len(all_metal_lines)} {metal} atoms in PDB:")
+    for line, chain, resnum in all_metal_lines[:5]:  # Show first 5
+        print(f"[ExtractScaffold]   Chain {chain}, Resnum {resnum}")
+    print(f"[ExtractScaffold] Filtering for chain={metal_chain}, resnum={metal_resnum}")
+
+    # Count how many metals were kept after filtering
+    metal_count = sum(1 for line in hetatm_lines if line[17:20].strip() == metal)
+    print(f"[ExtractScaffold] Kept {metal_count} metal atoms after filtering")
+
+    # Fallback: If no metal found with chain/resnum filter, use first metal found
+    if metal_count == 0 and all_metal_lines:
+        print(f"[ExtractScaffold] WARNING: No metal matched chain/resnum filter, using first metal found")
+        hetatm_lines.append(all_metal_lines[0][0])
+
+    # Filter ligand atoms by proximity to the active site metal
+    # Get the metal position from hetatm_lines
+    metal_pos = None
+    for line in hetatm_lines:
+        if line[17:20].strip() == metal:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                metal_pos = (x, y, z)
+                break
+            except ValueError:
+                pass
+
+    # Filter ligand atoms: only keep those close to the active site metal
+    import math
+    ligand_cutoff = 15.0  # Angstroms - keep ligand atoms within this distance of metal
+    kept_ligand_residues = set()
+
+    if metal_pos and all_ligand_lines:
+        for line in all_ligand_lines:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                dist = math.sqrt((x - metal_pos[0])**2 + (y - metal_pos[1])**2 + (z - metal_pos[2])**2)
+                if dist < ligand_cutoff:
+                    # Get residue identifier (chain + resnum)
+                    lig_chain = line[21:22].strip()
+                    try:
+                        lig_resnum = int(line[22:26].strip())
+                    except ValueError:
+                        lig_resnum = 0
+                    kept_ligand_residues.add((lig_chain, lig_resnum))
+            except ValueError:
+                pass
+
+        # Now add all atoms from the kept ligand residues
+        for line in all_ligand_lines:
+            lig_chain = line[21:22].strip()
+            try:
+                lig_resnum = int(line[22:26].strip())
+            except ValueError:
+                lig_resnum = 0
+            if (lig_chain, lig_resnum) in kept_ligand_residues:
+                hetatm_lines.append(line)
+
+        print(f"[ExtractScaffold] Filtered ligand: kept {len(kept_ligand_residues)} {ligand} residue(s) near metal")
+    else:
+        # No metal or no ligand, add all ligand lines
+        hetatm_lines.extend(all_ligand_lines)
+        print(f"[ExtractScaffold] No proximity filter: added all {len(all_ligand_lines)} ligand atoms")
+
+    # Extract ATOM lines for coordinating residues
+    atom_lines = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM'):
+            chain = line[21:22]
+            try:
+                resnum = int(line[22:26].strip())
+            except ValueError:
+                continue
+
+            if (chain, resnum) in coord_residue_keys:
+                atom_lines.append(line)
+
+    if not hetatm_lines:
+        print(f"[ExtractScaffold] No HETATM found for {metal}/{ligand}")
+        return None
+
+    if not atom_lines:
+        print(f"[ExtractScaffold] No protein atoms found for coordinating residues")
+        return None
+
+    # Renumber scaffold to avoid RFD3 chain conflicts
+    # RFD3 separates polymer/non-polymer on same chain, so we use:
+    # - Chain A for protein residues (renumbered sequentially)
+    # - Chain M for metal (residue 1)
+    # - Chain L for ligand (residue 1)
+    renumbered_lines = []
+    new_fixed_residues = []
+
+    # Build old->new residue mapping for protein atoms
+    old_to_new_resnum = {}
+    sorted_keys = sorted(coord_residue_keys)
+    for idx, (old_chain, old_resnum) in enumerate(sorted_keys, start=1):
+        old_to_new_resnum[(old_chain, old_resnum)] = idx
+        new_fixed_residues.append(f"A{idx}")
+
+    # Renumber protein atoms to chain A with sequential numbering
+    for line in atom_lines:
+        chain = line[21:22]
+        try:
+            resnum = int(line[22:26].strip())
+        except ValueError:
+            continue
+        new_resnum = old_to_new_resnum.get((chain, resnum), resnum)
+        # Rebuild line with new chain (A) and resnum
+        new_line = line[:21] + "A" + f"{new_resnum:4d}" + line[26:]
+        renumbered_lines.append(new_line)
+
+    # Renumber metal to chain M, resnum 1
+    metal_lines = []
+    for line in hetatm_lines:
+        res_name = line[17:20].strip()
+        if res_name == metal:
+            new_line = line[:21] + "M" + "   1" + line[26:]
+            metal_lines.append(new_line)
+
+    # Renumber ligand to chain L, resnum 1
+    ligand_lines = []
+    for line in hetatm_lines:
+        res_name = line[17:20].strip()
+        if res_name == ligand:
+            new_line = line[:21] + "L" + "   1" + line[26:]
+            ligand_lines.append(new_line)
+
+    # ===========================================================================
+    # CENTER SCAFFOLD ON METAL POSITION
+    # ===========================================================================
+    # Critical: We must center the scaffold so the metal is at origin (0,0,0).
+    # This way RFD3 designs the protein AROUND the metal-ligand complex,
+    # avoiding steric clashes. Without centering, RFD3 generates around origin
+    # but HETATM is at crystal coordinates → clashes when combined.
+
+    # Find metal position from metal_lines
+    metal_center = None
+    for line in metal_lines:
+        if line[17:20].strip() == metal:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                metal_center = (x, y, z)
+                break
+            except ValueError:
+                pass
+
+    if metal_center:
+        print(f"[ExtractScaffold] Centering scaffold on metal at ({metal_center[0]:.1f}, {metal_center[1]:.1f}, {metal_center[2]:.1f})")
+
+        # Center all protein atoms
+        centered_protein_lines = []
+        for line in renumbered_lines:
+            try:
+                x = float(line[30:38]) - metal_center[0]
+                y = float(line[38:46]) - metal_center[1]
+                z = float(line[46:54]) - metal_center[2]
+                new_line = line[:30] + f"{x:8.3f}{y:8.3f}{z:8.3f}" + line[54:]
+                centered_protein_lines.append(new_line)
+            except ValueError:
+                centered_protein_lines.append(line)
+        renumbered_lines = centered_protein_lines
+
+        # Center metal atoms
+        centered_metal_lines = []
+        for line in metal_lines:
+            try:
+                x = float(line[30:38]) - metal_center[0]
+                y = float(line[38:46]) - metal_center[1]
+                z = float(line[46:54]) - metal_center[2]
+                new_line = line[:30] + f"{x:8.3f}{y:8.3f}{z:8.3f}" + line[54:]
+                centered_metal_lines.append(new_line)
+            except ValueError:
+                centered_metal_lines.append(line)
+        metal_lines = centered_metal_lines
+
+        # Center ligand atoms
+        centered_ligand_lines = []
+        for line in ligand_lines:
+            try:
+                x = float(line[30:38]) - metal_center[0]
+                y = float(line[38:46]) - metal_center[1]
+                z = float(line[46:54]) - metal_center[2]
+                new_line = line[:30] + f"{x:8.3f}{y:8.3f}{z:8.3f}" + line[54:]
+                centered_ligand_lines.append(new_line)
+            except ValueError:
+                centered_ligand_lines.append(line)
+        ligand_lines = centered_ligand_lines
+
+        print(f"[ExtractScaffold] Scaffold centered - metal now at origin")
+    else:
+        print(f"[ExtractScaffold] WARNING: Could not find metal position for centering")
+
+    # Build scaffold PDB: Include protein atoms AND HETATM (metal + ligand)
+    # Everything is now centered on the metal position
+    all_lines = renumbered_lines + metal_lines + ligand_lines
+    scaffold_pdb = "\n".join(all_lines) + "\nEND\n"
+
+    # Store centered HETATM - these are at origin-relative coordinates
+    # After RFD3, the designed protein will be around origin, so HETATM matches
+    original_hetatm_pdb = "\n".join(metal_lines + ligand_lines)
+
+    # Debug: show what's in original_hetatm_pdb
+    metal_in_hetatm = sum(1 for line in original_hetatm_pdb.split('\n') if line.startswith('HETATM') and line[17:20].strip() == metal)
+    ligand_in_hetatm = sum(1 for line in original_hetatm_pdb.split('\n') if line.startswith('HETATM') and line[17:20].strip() == ligand)
+    print(f"[ExtractScaffold] original_hetatm_pdb contains: {metal_in_hetatm} {metal} atoms, {ligand_in_hetatm} {ligand} atoms")
+
+    print(f"[ExtractScaffold] Renumbered scaffold (protein + HETATM):")
+    print(f"[ExtractScaffold]   Protein residues: {new_fixed_residues} (chain A)")
+    print(f"[ExtractScaffold]   Metal: M1 ({metal})")
+    print(f"[ExtractScaffold]   Ligand: L1 ({ligand})")
+
+    return {
+        "scaffold_pdb": scaffold_pdb,
+        "original_hetatm_pdb": original_hetatm_pdb,  # For geometry restoration
+        "fixed_residues": new_fixed_residues,
+        "metal_chain_resnum": "M1",
+        "ligand_chain_resnum": "L1",
+        "coordinating_residues": protein_coords,
+        "num_scaffold_atoms": len(renumbered_lines),
+        "num_hetatm": len(metal_lines) + len(ligand_lines),
+    }
+
+
+def _hetatm_to_sdf(hetatm_pdb: str, ligand_name: str) -> Optional[str]:
+    """
+    Convert HETATM lines (ligand only) to SDF format using RDKit.
+
+    Args:
+        hetatm_pdb: PDB content containing HETATM lines
+        ligand_name: 3-letter ligand code (e.g., "PQQ")
+
+    Returns:
+        SDF string or None if conversion fails
+    """
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        import tempfile
+        import os
+
+        # Extract only the ligand HETATM lines (not metal)
+        ligand_lines = []
+        for line in hetatm_pdb.split('\n'):
+            if line.startswith('HETATM') and line[17:20].strip() == ligand_name:
+                ligand_lines.append(line)
+
+        if not ligand_lines:
+            print(f"[HETATM2SDF] No {ligand_name} atoms found")
+            return None
+
+        # Create minimal PDB for RDKit
+        pdb_content = "\n".join(ligand_lines) + "\nEND\n"
+
+        # Write to temp file and read with RDKit
+        with tempfile.NamedTemporaryFile(suffix=".pdb", delete=False, mode='w') as f:
+            f.write(pdb_content)
+            temp_path = f.name
+
+        try:
+            mol = Chem.MolFromPDBFile(temp_path, removeHs=False, sanitize=False)
+            if mol is None:
+                print(f"[HETATM2SDF] RDKit could not parse ligand PDB")
+                return None
+
+            # Try to sanitize (may fail for unusual molecules)
+            try:
+                Chem.SanitizeMol(mol)
+            except:
+                print(f"[HETATM2SDF] Sanitization failed, using unsanitized mol")
+
+            # Convert to SDF
+            sdf_string = Chem.MolToMolBlock(mol)
+            print(f"[HETATM2SDF] Converted {len(ligand_lines)} {ligand_name} atoms to SDF")
+            return sdf_string
+        finally:
+            os.unlink(temp_path)
+
+    except ImportError as e:
+        print(f"[HETATM2SDF] RDKit not available: {e}")
+        return None
+    except Exception as e:
+        print(f"[HETATM2SDF] Conversion failed: {e}")
+        return None
+
+
+def _create_blocker_residues_for_ligand(
+    ligand_hetatm: str,
+    ligand_name: str,
+    blocker_chain: str = "X",
+    min_spacing: float = 2.0,
+    start_resnum: int = 1,
+) -> Tuple[str, List[str]]:
+    """
+    Create "blocker" protein residues at ligand atom positions.
+
+    CRITICAL INSIGHT: RFD3 avoids clashing with PROTEIN atoms (ATOM records)
+    but does NOT avoid LIGAND atoms (HETATM records). By creating dummy ALA
+    residues at ligand atom positions, we force RFD3 to design around them.
+
+    Strategy:
+    1. Extract ligand atom positions
+    2. Cluster atoms that are too close (< min_spacing)
+    3. Create ALA residues with CA at each cluster centroid
+    4. Return these as ATOM records that RFD3 will avoid
+
+    Args:
+        ligand_hetatm: HETATM lines for the ligand
+        ligand_name: 3-letter ligand code (e.g., "PQQ")
+        blocker_chain: Chain ID for blocker residues
+        min_spacing: Minimum spacing between blockers (Å)
+
+    Returns:
+        Tuple of (blocker PDB lines, list of blocker residue IDs)
+    """
+    import math
+
+    # Extract ligand atom positions
+    ligand_atoms = []
+    for line in ligand_hetatm.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == ligand_name:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                atom_name = line[12:16].strip()
+                ligand_atoms.append({'atom': atom_name, 'pos': (x, y, z)})
+            except (ValueError, IndexError):
+                pass
+
+    if not ligand_atoms:
+        print(f"[BlockerResidues] No atoms found for ligand {ligand_name}")
+        return "", []
+
+    print(f"[BlockerResidues] Found {len(ligand_atoms)} ligand atoms")
+
+    # Cluster atoms that are too close together
+    # Use simple greedy clustering
+    clusters = []
+    used = set()
+
+    for i, atom in enumerate(ligand_atoms):
+        if i in used:
+            continue
+
+        cluster = [atom['pos']]
+        used.add(i)
+
+        for j, other in enumerate(ligand_atoms):
+            if j in used:
+                continue
+            dist = math.sqrt(
+                (atom['pos'][0] - other['pos'][0])**2 +
+                (atom['pos'][1] - other['pos'][1])**2 +
+                (atom['pos'][2] - other['pos'][2])**2
+            )
+            if dist < min_spacing:
+                cluster.append(other['pos'])
+                used.add(j)
+
+        # Compute cluster centroid
+        centroid = (
+            sum(p[0] for p in cluster) / len(cluster),
+            sum(p[1] for p in cluster) / len(cluster),
+            sum(p[2] for p in cluster) / len(cluster),
+        )
+        clusters.append(centroid)
+
+    print(f"[BlockerResidues] Created {len(clusters)} blocker positions from {len(ligand_atoms)} atoms")
+
+    # Create ALA residues at each cluster centroid
+    blocker_lines = []
+    blocker_residues = []
+    atom_serial = 1
+
+    for res_num, centroid in enumerate(clusters, start=start_resnum):
+        # Create minimal ALA residue with just N, CA, C, O
+        # CA is at the blocker position
+        x, y, z = centroid
+
+        # Simple ALA geometry: N-CA-C-O roughly linear
+        # CA at centroid, others offset
+        atoms = [
+            ('N',   x - 1.5, y, z),
+            ('CA',  x, y, z),
+            ('C',   x + 1.5, y, z),
+            ('O',   x + 1.5, y + 1.2, z),
+            ('CB',  x, y - 1.5, z),  # CB extends away
+        ]
+
+        for atom_name, ax, ay, az in atoms:
+            # PDB format atom name is columns 13-16 (4 chars)
+            # For 1-2 char atoms like N, CA: right-justify in first 2 positions with trailing space
+            # Standard: " N  ", " CA ", " C  ", " O  ", " CB "
+            if len(atom_name) <= 2:
+                atom_field = f" {atom_name:<3s}"  # " N  " or " CA "
+            else:
+                atom_field = f"{atom_name:<4s}"   # "CG1 " etc
+
+            # Proper PDB ATOM format:
+            # ATOM  serial atom res  chainresi    X       Y       Z      occ  bfac         elem
+            line = f"ATOM  {atom_serial:5d} {atom_field:4s} ALA {blocker_chain}{res_num:4d}    {ax:8.3f}{ay:8.3f}{az:8.3f}  1.00  0.00          {atom_name[0]:>2s}"
+            blocker_lines.append(line)
+            atom_serial += 1
+
+        blocker_residues.append(f"{blocker_chain}{res_num}")
+
+    print(f"[BlockerResidues] Generated {len(blocker_residues)} blocker ALA residues")
+    for i, (res_id, centroid) in enumerate(zip(blocker_residues[:5], clusters[:5])):
+        print(f"[BlockerResidues]   {res_id}: ({centroid[0]:.1f}, {centroid[1]:.1f}, {centroid[2]:.1f})")
+
+    return '\n'.join(blocker_lines), blocker_residues
+
+
+def _check_ligand_clashes(
+    pdb_content: str,
+    ligand_name: str,
+    designed_chains: List[str] = None,
+    clash_threshold: float = 2.0,
+) -> Dict[str, Any]:
+    """
+    Check for clashes between designed protein backbone and ligand atoms.
+
+    CRITICAL: RFD3 does NOT perform collision detection during backbone generation.
+    Even with blocker residues, the designed protein may pass through the ligand.
+    This function detects such clashes so designs can be filtered.
+
+    Args:
+        pdb_content: PDB content with designed protein and ligand HETATM
+        ligand_name: 3-letter ligand code (e.g., "PQQ", "ATP")
+        designed_chains: List of chain IDs for designed chains (default: all non-scaffold chains)
+        clash_threshold: Distance threshold for clash (Angstroms, default 2.0)
+
+    Returns:
+        Dict with:
+        - has_clashes: bool
+        - clash_count: int
+        - clashes: List of (protein_atom, ligand_atom, distance) tuples
+        - min_distance: float (minimum distance to ligand)
+    """
+    import math
+
+    # Parse ligand atoms from HETATM records
+    ligand_atoms = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == ligand_name:
+            try:
+                atom_name = line[12:16].strip()
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                ligand_atoms.append({
+                    'name': atom_name,
+                    'resname': ligand_name,
+                    'coord': (x, y, z),
+                })
+            except (ValueError, IndexError):
+                pass
+
+    if not ligand_atoms:
+        print(f"[ClashCheck] WARNING: No ligand atoms found for {ligand_name}")
+        return {
+            'has_clashes': False,
+            'clash_count': 0,
+            'clashes': [],
+            'min_distance': float('inf'),
+        }
+
+    # Parse protein atoms from designed chains
+    protein_atoms = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM') and len(line) > 54:
+            chain_id = line[21]
+            # If designed_chains specified, only check those chains
+            # Otherwise check all chains except scaffold chain A
+            if designed_chains:
+                if chain_id not in designed_chains:
+                    continue
+            else:
+                # Default: check all chains except A (scaffold)
+                if chain_id == 'A':
+                    continue
+
+            try:
+                atom_name = line[12:16].strip()
+                resname = line[17:20].strip()
+                resnum = int(line[22:26].strip())
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                protein_atoms.append({
+                    'name': atom_name,
+                    'resname': resname,
+                    'resnum': resnum,
+                    'chain': chain_id,
+                    'coord': (x, y, z),
+                })
+            except (ValueError, IndexError):
+                pass
+
+    if not protein_atoms:
+        print(f"[ClashCheck] WARNING: No protein atoms found for clash check")
+        return {
+            'has_clashes': False,
+            'clash_count': 0,
+            'clashes': [],
+            'min_distance': float('inf'),
+        }
+
+    # Check distances
+    clashes = []
+    min_distance = float('inf')
+
+    for pa in protein_atoms:
+        px, py, pz = pa['coord']
+        for la in ligand_atoms:
+            lx, ly, lz = la['coord']
+            dist = math.sqrt((px - lx)**2 + (py - ly)**2 + (pz - lz)**2)
+
+            min_distance = min(min_distance, dist)
+
+            if dist < clash_threshold:
+                clashes.append({
+                    'protein': f"{pa['chain']}{pa['resnum']}:{pa['resname']}.{pa['name']}",
+                    'ligand': f"{la['resname']}.{la['name']}",
+                    'distance': dist,
+                })
+
+    # Sort by distance
+    clashes.sort(key=lambda x: x['distance'])
+
+    result = {
+        'has_clashes': len(clashes) > 0,
+        'clash_count': len(clashes),
+        'clashes': clashes,
+        'min_distance': min_distance,
+    }
+
+    if clashes:
+        print(f"[ClashCheck] CLASH DETECTED: {len(clashes)} atom pairs closer than {clash_threshold} Å")
+        for clash in clashes[:5]:  # Show first 5
+            print(f"[ClashCheck]   {clash['protein']} -- {clash['ligand']} @ {clash['distance']:.2f} Å")
+        if len(clashes) > 5:
+            print(f"[ClashCheck]   ... and {len(clashes) - 5} more")
+    else:
+        print(f"[ClashCheck] No clashes detected. Min distance to ligand: {min_distance:.2f} Å")
+
+    return result
+
+
+def _design_with_crystal_scaffold(
+    scaffold: Dict[str, Any],
+    original_complex_pdb: str,
+    chain_length: str,
+    num_designs: int,
+    seed: Optional[int],
+    use_mock: bool = False,
+    ori_offset: float = 25.0,
+) -> Dict[str, Any]:
+    """
+    Design protein dimer around a metal-ligand coordination scaffold from crystal structure.
+
+    Uses template-based approach: the metal-ligand complex with pre-positioned coordination
+    geometry from crystal structure is FIXED during RFD3 design. This avoids the crashes
+    seen in joint design where backbone crowds the metal.
+
+    STRATEGY (Post-Design Filtering):
+    1. Scaffold contains: protein coordinating residues + metal (M1) + ligand (L1)
+    2. Create "blocker" ALA residues at ligand atom positions
+    3. RFD3 designs new chains (ori_token pushes chain B away from ligand)
+    4. Post-design: Check for backbone-ligand clashes and reject clashing designs
+    5. Return only clash-free designs
+
+    IMPORTANT: RFD3 does NOT do collision detection. Even with blockers, backbone
+    may pass through ligand atoms. This is why we use post-design clash filtering.
+
+    Args:
+        scaffold: Coordination scaffold from _fetch_crystal_coordination_scaffold
+        original_complex_pdb: Original metal-ligand complex PDB (for geometry restoration)
+        chain_length: Length range for new chains (e.g., "60-80")
+        num_designs: Number of designs to generate
+        seed: Random seed
+        use_mock: Use mock instead of real inference
+        ori_offset: Distance (Å) to offset chain B from metal center (default: 25.0)
+                    Larger values push chain B further from ligand
+
+    Returns:
+        Dict with status and designs
+    """
+    from inference_utils import run_rfd3_inference
+
+    print(f"[CrystalDesign] Designing dimer with scaffold from {scaffold.get('source_pdb')}")
+    print(f"[CrystalDesign] Scaffold has {scaffold.get('coordination_number')} coordinating residues")
+    print(f"[CrystalDesign] Fixed residues: {scaffold.get('fixed_residues')}")
+
+    scaffold_pdb = scaffold.get("scaffold_pdb", "")
+    original_hetatm_pdb = scaffold.get("original_hetatm_pdb", "")
+    fixed_residues = scaffold.get("fixed_residues", [])
+    metal_chain_resnum = scaffold.get("metal_chain_resnum", "M1")
+    ligand_chain_resnum = scaffold.get("ligand_chain_resnum", "L1")
+    metal = scaffold.get("metal", "CA")
+    ligand = scaffold.get("ligand", "LIG")
+    ligand_donors = scaffold.get("ligand_donors", [])
+
+    # ===========================================================================
+    # BLOCKER RESIDUES: Create dummy protein atoms at ligand positions
+    # ===========================================================================
+    # CRITICAL INSIGHT: RFD3 avoids PROTEIN atoms (ATOM records) but IGNORES
+    # ligand atoms (HETATM records). To prevent backbone from passing through
+    # the ligand, we create "blocker" ALA residues at ligand atom positions.
+    # These blockers are on chain X and will be removed after design.
+
+    # Extract ligand HETATM lines from scaffold
+    ligand_hetatm_lines = []
+    for line in scaffold_pdb.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == ligand:
+            ligand_hetatm_lines.append(line)
+
+    blocker_pdb = ""
+    blocker_residues = []
+    num_scaffold_residues = len(fixed_residues)
+
+    if ligand_hetatm_lines:
+        ligand_hetatm_str = '\n'.join(ligand_hetatm_lines)
+        # CRITICAL FIX: Put blockers on chain A (same as scaffold) so RFD3 respects select_fixed_atoms
+        # RFD3 may not fix atoms on disconnected chains properly.
+        # Blocker residues will be numbered A16, A17, etc. (continuing from scaffold)
+        blocker_pdb, blocker_residues = _create_blocker_residues_for_ligand(
+            ligand_hetatm=ligand_hetatm_str,
+            ligand_name=ligand,
+            blocker_chain="A",  # Same chain as scaffold (CRITICAL!)
+            min_spacing=2.5,    # Space blockers ~2.5 Å apart (covers ligand volume)
+            start_resnum=num_scaffold_residues + 1,  # Continue numbering from scaffold
+        )
+        print(f"[CrystalDesign] Created {len(blocker_residues)} blocker residues at ligand positions (on chain A)")
+    else:
+        print(f"[CrystalDesign] WARNING: No ligand HETATM found for blocker generation")
+
+    # Insert blocker ATOM records into scaffold PDB (before HETATM)
+    # This makes RFD3 see these as protein atoms to avoid
+    if blocker_pdb:
+        # Split scaffold into ATOM, HETATM, and other sections
+        atom_lines = []
+        hetatm_lines = []
+        other_lines = []
+        for line in scaffold_pdb.split('\n'):
+            if line.startswith('ATOM') or line.startswith('TER'):
+                atom_lines.append(line)
+            elif line.startswith('HETATM'):
+                hetatm_lines.append(line)
+            elif line.strip():
+                other_lines.append(line)
+
+        # Rebuild scaffold: ATOM + BLOCKER + TER + HETATM + END
+        scaffold_with_blockers = '\n'.join(atom_lines)
+        scaffold_with_blockers += '\n' + blocker_pdb
+        scaffold_with_blockers += '\nTER'
+        scaffold_with_blockers += '\n' + '\n'.join(hetatm_lines)
+        scaffold_with_blockers += '\nEND'
+
+        # Use this modified scaffold for RFD3
+        scaffold_pdb_for_rfd3 = scaffold_with_blockers
+        print(f"[CrystalDesign] Scaffold now includes {len(blocker_residues)} blocker residues on chain A (A{num_scaffold_residues+1}-A{num_scaffold_residues+len(blocker_residues)})")
+    else:
+        scaffold_pdb_for_rfd3 = scaffold_pdb
+
+    # Get metal position from scaffold for ori_token
+    # The scaffold is centered on the metal, so metal should be at/near origin
+    metal_pos = None
+    for line in scaffold_pdb.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == metal:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                metal_pos = [x, y, z]
+                break
+            except ValueError:
+                pass
+
+    if metal_pos:
+        # ori_token: Push protein COM away from ligand
+        # PQQ extends ~8 Å from metal in multiple directions (planar aromatic)
+        # Use large offset to push chain B COM further from ligand center
+        ori_token_offset = ori_offset  # Å from metal (configurable)
+        ori_token = [metal_pos[0], metal_pos[1] + ori_token_offset, metal_pos[2]]
+        print(f"[CrystalDesign] Metal position (centered): ({metal_pos[0]:.1f}, {metal_pos[1]:.1f}, {metal_pos[2]:.1f})")
+        print(f"[CrystalDesign] ori_token: {ori_token} (offset {ori_token_offset} Å in +Y from metal)")
+    else:
+        # Fallback: assume metal at origin, offset in +Y direction
+        ori_token = [0.0, 20.0, 0.0]
+        print(f"[CrystalDesign] Using default ori_token (20 Å in +Y from origin): {ori_token}")
+
+    # Parse chain length
+    length_parts = chain_length.split("-")
+    min_len = int(length_parts[0]) if len(length_parts) > 0 else 60
+    max_len = int(length_parts[1]) if len(length_parts) > 1 else 80
+
+    # Count scaffold residues for contig
+    scaffold_res_count = len(set(fixed_residues))
+
+    # ===========================================================================
+    # Build RFD3 conditioning parameters
+    # ===========================================================================
+    # CRITICAL: RFD3/Foundry API only supports simple METALS in select_fixed_atoms,
+    # NOT organic ligands like PQQ. So we:
+    # 1. Design around METAL ONLY (RFD3 understands metals)
+    # 2. Restore full HETATM (metal + ligand) after design
+    # STRATEGY: Include ligand in scaffold and tell RFD3 via ligand parameter.
+    # The Foundry API expects ligand to be a 3-letter code referencing HETATM in the PDB.
+
+    # 1. select_fixed_atoms: Lock metal AND protein coordinating residues AND blocker residues
+    select_fixed = {}
+    # Lock metal position
+    select_fixed[metal_chain_resnum] = "ALL"
+    # Lock protein coordinating residues
+    for res_id in fixed_residues:
+        select_fixed[res_id] = "ALL"
+    # Lock blocker residues (CRITICAL: this is what makes RFD3 avoid the ligand space!)
+    for blocker_id in blocker_residues:
+        select_fixed[blocker_id] = "ALL"
+
+    print(f"[CrystalDesign] Blocker residues added to select_fixed_atoms: {blocker_residues}")
+
+    # 2. hotspots: DISABLED for large ligands to prevent chain B from being forced
+    # into the ligand space. The select_fixed_atoms already preserves the coordination
+    # shell, and we want chain B to find its own position via ori_token.
+    # hotspots = list(fixed_residues) if fixed_residues else None
+    hotspots = None  # Let chain B position freely
+
+    # 3. The scaffold already contains both metal (M chain) and ligand (L chain) as HETATM.
+    # We'll pass the full scaffold and tell RFD3 about the ligand via ligand parameter.
+    # Note: scaffold_pdb is already centered on the metal at origin.
+
+    print(f"[CrystalDesign] RFD3 Conditioning:")
+    print(f"[CrystalDesign]   select_fixed_atoms: {select_fixed} (metal + protein)")
+    print(f"[CrystalDesign]   hotspots: {hotspots}")
+    print(f"[CrystalDesign]   ligand: {ligand} (3-letter code for HETATM in scaffold)")
+    print(f"[CrystalDesign]   NOTE: Full scaffold includes metal + ligand HETATM")
+
+    designs = []
+    rejected_count = 0  # Count designs rejected due to ligand clashes
+
+    for design_idx in range(num_designs):
+        design_seed = (seed + design_idx) if seed is not None else None
+        print(f"\n[CrystalDesign] === Design {design_idx + 1}/{num_designs} ===")
+
+        # ===========================================================================
+        # Build contig for DIMER design around the scaffold
+        # ===========================================================================
+        # Strategy: Two new chains around the metal-ligand complex
+        # The scaffold provides coordinating residues + metal + ligand
+        #
+        # IMPORTANT: For large ligands like PQQ, adding new residues adjacent to
+        # fixed residues causes clashes because RFD3 doesn't know about ligand atoms.
+        #
+        # Solution: Don't add new residues to chain A - keep only the fixed crystal
+        # residues which already properly surround the ligand. Put all new protein
+        # in chain B, positioned away from the ligand via ori_token.
+
+        num_fixed = len(fixed_residues)
+        num_blockers = len(blocker_residues)
+
+        if num_fixed > 0:
+            # CRITICAL FIX: Blocker residues are now on chain A (same chain as scaffold)
+            # This ensures RFD3 respects select_fixed_atoms for blockers
+            # The contig is now: A1-{num_fixed+num_blockers},/0,{new_chain_length}
+            total_fixed_a = num_fixed + num_blockers  # scaffold + blockers on chain A
+
+            if num_blockers > 0:
+                # Blockers are A{num_fixed+1} to A{num_fixed+num_blockers}
+                fixed_range = f"A1-{total_fixed_a}"
+                contig = f"{fixed_range},/0,{min_len}-{max_len}"
+                print(f"[CrystalDesign] Chain A includes {num_fixed} scaffold + {num_blockers} blocker residues")
+                print(f"[CrystalDesign] Blocker residues are A{num_fixed+1}-A{total_fixed_a}")
+            else:
+                fixed_range = f"A1-{num_fixed}"
+                contig = f"{fixed_range},/0,{min_len}-{max_len}"
+
+            print(f"[CrystalDesign] NOTE: All fixed residues (scaffold + blockers) on chain A")
+        else:
+            # No fixed protein residues, just design two chains around metal-ligand
+            if num_blockers > 0:
+                # Even with no scaffold, put blockers on chain A
+                blocker_range = f"A1-{num_blockers}"
+                contig = f"{blocker_range},/0,{min_len}-{max_len},/0,{min_len}-{max_len}"
+            else:
+                contig = f"{min_len}-{max_len},/0,{min_len}-{max_len}"
+
+        print(f"[CrystalDesign] Contig: {contig}")
+
+        if use_mock:
+            result = {"status": "completed", "result": {"designs": [{"content": scaffold_pdb_for_rfd3}]}}
+        else:
+            # Design protein dimer around the crystal scaffold.
+            # We use:
+            # 1. pdb_content: Scaffold WITH BLOCKER RESIDUES (protein + blockers + metal + ligand)
+            # 2. ligand: 3-letter code (e.g., "PQQ") - tells RFD3 about ligand in PDB
+            # 3. select_fixed_atoms: Lock metal (M1) + protein residues + BLOCKER residues (X chain)
+            # 4. hotspots: Disabled - let chain B position freely
+            # 5. ori_token: Guide protein COM position away from ligand
+            # 6. is_non_loopy: Prefer structured elements
+            #
+            # CRITICAL: The blocker ALA residues at ligand positions are now ATOM records.
+            # RFD3 will avoid clashing with ATOM records but ignores HETATM.
+            # This forces RFD3 to design backbone AROUND the ligand volume.
+            result = run_rfd3_inference(
+                contig=contig,
+                pdb_content=scaffold_pdb_for_rfd3,  # Scaffold + blocker residues!
+                ligand=ligand,  # 3-letter code for ligand in PDB
+                num_designs=1,
+                seed=design_seed,
+                select_fixed_atoms=select_fixed if select_fixed else None,
+                hotspots=hotspots,
+                ori_token=ori_token,
+                is_non_loopy=True,
+            )
+
+        if result.get("status") != "completed":
+            print(f"[CrystalDesign] Design failed: {result.get('error')}")
+            continue
+
+        design_list = result.get("result", {}).get("designs", [])
+        if not design_list:
+            continue
+
+        pdb_content = design_list[0].get("content") or design_list[0].get("pdb_content")
+        if not pdb_content:
+            continue
+
+        # ===========================================================================
+        # REMOVE BLOCKER RESIDUES from output
+        # ===========================================================================
+        # The blocker ALA residues were only needed during RFD3 diffusion
+        # to prevent backbone from passing through ligand space. Remove them now.
+        # Blockers are on chain A, residue numbers num_scaffold_residues+1 to total_fixed_a
+        if blocker_residues:
+            # Parse blocker residue numbers from the IDs (e.g., "A16" -> 16)
+            blocker_resnums = set()
+            for res_id in blocker_residues:
+                try:
+                    resnum = int(res_id[1:])  # Strip chain letter, get number
+                    blocker_resnums.add(resnum)
+                except (ValueError, IndexError):
+                    pass
+
+            cleaned_lines = []
+            removed_count = 0
+            for line in pdb_content.split('\n'):
+                # Check if this is a blocker residue (chain A, resnum in blocker range)
+                if line.startswith('ATOM') and len(line) > 26:
+                    chain_id = line[21]
+                    try:
+                        resnum = int(line[22:26].strip())
+                        if chain_id == 'A' and resnum in blocker_resnums:
+                            removed_count += 1
+                            continue
+                    except ValueError:
+                        pass
+                cleaned_lines.append(line)
+            pdb_content = '\n'.join(cleaned_lines)
+            print(f"[CrystalDesign] Removed {removed_count} blocker atom lines (A{min(blocker_resnums)}-A{max(blocker_resnums)}) from output")
+
+        # ===========================================================================
+        # CRITICAL: Restore original HETATM geometry (centered coordinates)
+        # ===========================================================================
+        # The scaffold was centered on the metal, so both the designed protein
+        # and the HETATM are at origin-relative coordinates. No translation needed.
+        # Just restore the centered HETATM geometry (RFD3 may have distorted it).
+        pdb_content = _restore_original_hetatm(
+            pdb_content,
+            original_hetatm_pdb or original_complex_pdb,
+            metal,
+            ligand,
+        )
+        print(f"[CrystalDesign] Restored centered HETATM geometry")
+
+        # Analyze coordination
+        coord_count, coord_details = _count_metal_coordination_detailed(pdb_content, metal)
+        print(f"[CrystalDesign] Coordination: {coord_count}, details: {coord_details}")
+
+        # ===========================================================================
+        # CLASH FILTERING: Check for backbone-ligand clashes
+        # ===========================================================================
+        # CRITICAL: RFD3 does NOT do collision detection. The designed backbone
+        # may pass through the ligand. Filter out such designs.
+        clash_result = _check_ligand_clashes(
+            pdb_content=pdb_content,
+            ligand_name=ligand,
+            designed_chains=['B'],  # New chain is B
+            clash_threshold=2.0,    # Standard clash threshold
+        )
+
+        if clash_result['has_clashes']:
+            print(f"[CrystalDesign] Design {design_idx} REJECTED: {clash_result['clash_count']} ligand clashes (min: {clash_result['min_distance']:.2f} Å)")
+            rejected_count += 1
+            continue  # Skip this design
+
+        print(f"[CrystalDesign] Design {design_idx} PASSED clash filter (min distance: {clash_result['min_distance']:.2f} Å)")
+
+        designs.append({
+            "pdb_content": pdb_content,
+            "design_index": design_idx,
+            "scaffold_source": scaffold.get("source_pdb"),
+            "metrics": {
+                "coordination": coord_count,
+                "scaffold_residues": scaffold_res_count,
+                "ligand_min_distance": clash_result['min_distance'],
+            }
+        })
+
+    print(f"\n[CrystalDesign] === SUMMARY ===")
+    print(f"[CrystalDesign] Generated: {num_designs}, Rejected (clashes): {rejected_count}, Accepted: {len(designs)}")
+
+    if not designs:
+        error_msg = f"All {num_designs} designs rejected due to ligand clashes (RFD3 lacks collision detection)"
+        if rejected_count > 0:
+            error_msg += f". Consider: (1) increase num_designs, (2) adjust ori_token offset, (3) use different scaffold"
+        return {"status": "failed", "error": error_msg, "rejected_count": rejected_count}
+
+    return {
+        "status": "completed",
+        "result": {
+            "designs": designs,
+            "scaffold_info": {
+                "source_pdb": scaffold.get("source_pdb"),
+                "coordination_number": scaffold.get("coordination_number"),
+                "coordinating_residues": scaffold.get("coordinating_residues"),
+            },
+            "rejection_stats": {
+                "total_generated": num_designs,
+                "rejected_clashes": rejected_count,
+                "accepted": len(designs),
+            }
+        }
+    }
+
+
+def _restore_original_hetatm(
+    pdb_content: str,
+    original_hetatm_source: str,
+    metal: str,
+    ligand: str,
+) -> str:
+    """
+    Replace HETATM records in pdb_content with original geometry.
+
+    RFD3 may distort metal-ligand geometry during design. This function
+    removes all HETATM from the design and replaces them with the original
+    coordinates from the template/crystal structure.
+
+    Args:
+        pdb_content: Designed PDB (may have distorted HETATM)
+        original_hetatm_source: PDB content with correct HETATM geometry
+        metal: Metal residue name
+        ligand: Ligand residue name
+
+    Returns:
+        PDB with original HETATM geometry restored
+    """
+    # Remove all HETATM from designed PDB
+    atom_lines = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM') or line.startswith('TER'):
+            atom_lines.append(line)
+
+    # Extract HETATM from original source
+    hetatm_lines = []
+    for line in original_hetatm_source.split('\n'):
+        if line.startswith('HETATM'):
+            hetatm_lines.append(line)
+
+    # Debug: show what we got
+    metal_count = sum(1 for line in hetatm_lines if line[17:20].strip() == metal)
+    ligand_count = sum(1 for line in hetatm_lines if line[17:20].strip() == ligand)
+    print(f"[RestoreHETATM] Source contains: {metal_count} {metal} atoms, {ligand_count} {ligand} atoms")
+
+    if not hetatm_lines:
+        print(f"[RestoreHETATM] Warning: No HETATM found in source")
+        return pdb_content
+
+    # Find max atom serial in designed PDB
+    max_atom_num = 0
+    for line in atom_lines:
+        if line.startswith('ATOM'):
+            try:
+                atom_num = int(line[6:11].strip())
+                max_atom_num = max(max_atom_num, atom_num)
+            except ValueError:
+                pass
+
+    # Renumber HETATM to continue from max atom serial
+    renumbered_hetatm = []
+    for i, line in enumerate(hetatm_lines):
+        new_atom_num = max_atom_num + i + 1
+        new_line = f"{line[:6]}{new_atom_num:5d}{line[11:]}"
+        renumbered_hetatm.append(new_line)
+
+    # Combine ATOM + renumbered HETATM
+    result_pdb = '\n'.join(atom_lines) + '\n' + '\n'.join(renumbered_hetatm) + '\nEND\n'
+
+    print(f"[RestoreHETATM] Restored {len(renumbered_hetatm)} HETATM records with original geometry")
+
+    return result_pdb
+
+
+def design_dimer_from_crystal_structure(
+    pdb_id: str,
+    metal: str,
+    ligand: str,
+    chain_length: str = "60-80",
+    num_designs: int = 3,
+    seed: Optional[int] = None,
+    coord_cutoff: float = 3.5,
+) -> Dict[str, Any]:
+    """
+    Design a protein dimer around a metal-ligand complex from a crystal structure.
+
+    This is the main entry point for template-based metal-ligand dimer design.
+    It fetches coordination geometry from RCSB PDB and uses it as a scaffold
+    for RFD3 design.
+
+    The approach avoids joint design crashes by:
+    1. Using pre-positioned metal-ligand geometry from crystal structure
+    2. Fixing metal position during RFD3 to prevent backbone crowding
+    3. Restoring original HETATM geometry after design
+
+    Args:
+        pdb_id: 4-character PDB ID containing the metal-ligand complex
+        metal: Metal element symbol (e.g., "CA", "TB", "ZN")
+        ligand: Ligand 3-letter code (e.g., "CIT", "PQQ", "ATP")
+        chain_length: Length range for each chain (e.g., "60-80")
+        num_designs: Number of designs to generate
+        seed: Random seed for reproducibility
+        coord_cutoff: Distance cutoff for coordination (Angstroms)
+
+    Returns:
+        Dict with status and designs:
+        {
+            "status": "completed" or "failed",
+            "result": {
+                "designs": [...],
+                "scaffold_info": {...}
+            }
+        }
+
+    Example:
+        # Design dimer with citrate-terbium from lanmodulin structure
+        result = design_dimer_from_crystal_structure(
+            pdb_id="6MI5",
+            metal="TB",
+            ligand="CIT",
+            chain_length="60-80",
+            num_designs=3,
+        )
+
+        # Design dimer with PQQ-calcium from MDH structure
+        result = design_dimer_from_crystal_structure(
+            pdb_id="1W6S",
+            metal="CA",
+            ligand="PQQ",
+            chain_length="70-90",
+            num_designs=5,
+        )
+    """
+    from metal_site_fetcher import find_metal_ligand_active_site, _fetch_pdb_content
+
+    print(f"[DimerDesign] Fetching {metal}+{ligand} coordination from PDB {pdb_id}")
+
+    # Step 1: Fetch active site coordination from crystal structure
+    site_info = find_metal_ligand_active_site(pdb_id, metal, ligand, cutoff=coord_cutoff)
+
+    if not site_info:
+        return {
+            "status": "failed",
+            "error": f"Could not find {metal}+{ligand} active site in PDB {pdb_id}. "
+                     f"Check that the structure contains both the metal and ligand."
+        }
+
+    print(f"[DimerDesign] Found active site: {metal} {site_info['metal_chain']}{site_info['metal_resnum']}")
+    print(f"[DimerDesign] Ligand donors: {site_info['ligand_donors']}")
+    print(f"[DimerDesign] Protein donors: {site_info['protein_donors']}")
+
+    # Step 2: Build protein_coords list from site_info
+    protein_coords = []
+    amino_acids = {
+        "GLU", "ASP", "HIS", "CYS", "ASN", "TYR", "MET", "SER", "THR", "GLN",
+        "LYS", "ARG", "GLY", "ALA", "VAL", "LEU", "ILE", "PRO", "PHE", "TRP"
+    }
+    for atom in site_info.get("coordinating_atoms", []):
+        res_name = atom.get("res_name", "")
+        atom_name = atom.get("atom_name", "")
+        if res_name == ligand:
+            continue
+        if res_name in amino_acids:
+            protein_coords.append({
+                "residue": res_name,
+                "chain": atom.get("chain_id", ""),
+                "resnum": atom.get("res_seq", 0),
+                "atom": atom_name,
+                "distance": atom.get("distance", 0),
+                "is_backbone": atom_name in ("O", "N", "CA", "C"),
+            })
+
+    # Step 3: Fetch full PDB content for scaffold extraction
+    pdb_content = _fetch_pdb_content(pdb_id)
+    if not pdb_content:
+        return {
+            "status": "failed",
+            "error": f"Could not fetch PDB content for {pdb_id}"
+        }
+
+    # Step 4: Build scaffold with metal-ligand geometry
+    scaffold = _extract_coordination_scaffold(
+        pdb_content=pdb_content,
+        metal=metal,
+        ligand=ligand,
+        protein_coords=protein_coords,
+        metal_chain=site_info['metal_chain'],
+        metal_resnum=site_info['metal_resnum'],
+    )
+
+    if not scaffold:
+        return {
+            "status": "failed",
+            "error": f"Could not extract coordination scaffold from {pdb_id}"
+        }
+
+    # Add metadata to scaffold
+    scaffold["source_pdb"] = pdb_id
+    scaffold["metal"] = metal
+    scaffold["ligand"] = ligand
+    scaffold["coordination_number"] = len(protein_coords)
+    scaffold["ligand_donors"] = site_info['ligand_donors']
+    scaffold["protein_donors"] = site_info['protein_donors']
+
+    print(f"[DimerDesign] Built scaffold with {len(protein_coords)} coordinating residues")
+
+    # Step 5: Design dimer using crystal scaffold approach
+    result = _design_with_crystal_scaffold(
+        scaffold=scaffold,
+        original_complex_pdb=pdb_content,  # Full PDB for HETATM extraction
+        chain_length=chain_length,
+        num_designs=num_designs,
+        seed=seed,
+        use_mock=False,
+    )
+
+    # Add metadata to result
+    if result.get("status") == "completed":
+        result["result"]["source_pdb"] = pdb_id
+        result["result"]["metal"] = metal
+        result["result"]["ligand"] = ligand
+        result["result"]["approach"] = "crystal_scaffold"
+
+    return result
 
 
 def _translate_backbone_to_complex(

@@ -745,3 +745,260 @@ def get_available_reference_metals() -> List[str]:
 def get_reference_pdb_ids(metal: str) -> List[str]:
     """Get curated reference PDB IDs for a metal."""
     return REFERENCE_STRUCTURES.get(metal.upper(), [])
+
+
+# =============================================================================
+# METAL-LIGAND ACTIVE SITE FUNCTIONS
+# =============================================================================
+
+def find_metal_ligand_active_site(
+    pdb_id: str,
+    metal: str,
+    ligand: str,
+    cutoff: float = 3.5,
+) -> Optional[Dict[str, Any]]:
+    """
+    Find the metal site that directly coordinates a ligand in a PDB structure.
+
+    This is the key function for finding active site metal coordination where
+    the metal binds to an organic cofactor (e.g., PQQ-Ca, ATP-Mg, heme-Fe).
+
+    Args:
+        pdb_id: 4-character PDB ID
+        metal: Metal element symbol (e.g., "CA", "MG", "FE")
+        ligand: Ligand 3-letter code (e.g., "PQQ", "ATP", "HEM")
+        cutoff: Distance cutoff for coordination (Angstroms)
+
+    Returns:
+        Dict with:
+            - metal: Metal symbol
+            - metal_chain: Chain ID of metal
+            - metal_resnum: Residue number of metal
+            - metal_coords: (x, y, z) coordinates
+            - ligand_distance: Distance to closest ligand atom
+            - coordination_number: Total coordinating atoms
+            - coordinating_atoms: List of coordinating atom dicts
+            - protein_donors: List of protein residues that coordinate
+            - ligand_donors: List of ligand atoms that coordinate
+        Returns None if not found or no coordination
+
+    Example:
+        >>> site = find_metal_ligand_active_site("1CQ1", "CA", "PQQ")
+        >>> print(f"Active site Ca at {site['metal_chain']}{site['metal_resnum']}")
+        >>> print(f"PQQ donors: {site['ligand_donors']}")
+        >>> print(f"Protein donors: {site['protein_donors']}")
+    """
+    pdb_content = _fetch_pdb_content(pdb_id)
+    if not pdb_content:
+        logger.warning(f"Could not fetch PDB {pdb_id}")
+        return None
+
+    metal = metal.upper()
+    ligand = ligand.upper()
+
+    # Verify structure contains both metal and ligand
+    hetatm_types = set()
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            hetatm_types.add(res_name)
+
+    if metal not in hetatm_types:
+        logger.warning(f"No {metal} found in {pdb_id}")
+        return None
+
+    if ligand not in hetatm_types:
+        logger.warning(f"No {ligand} found in {pdb_id}")
+        return None
+
+    # Find all metal positions
+    metal_sites = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == metal:
+            atom_name = line[12:16].strip()
+            if atom_name == metal:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    chain = line[21]
+                    resnum = line[22:26].strip()
+                    metal_sites.append({
+                        'chain': chain, 'resnum': resnum, 'pos': (x, y, z)
+                    })
+                except (ValueError, IndexError):
+                    pass
+
+    if not metal_sites:
+        return None
+
+    # Find ligand donor atoms (O, N, S)
+    ligand_atoms = []
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM') and line[17:20].strip() == ligand:
+            atom_name = line[12:16].strip()
+            element = line[76:78].strip() if len(line) > 76 else atom_name[0]
+            if element in ('O', 'N', 'S'):
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    chain = line[21]
+                    resnum = line[22:26].strip()
+                    ligand_atoms.append({
+                        'atom': atom_name, 'chain': chain,
+                        'resnum': resnum, 'pos': (x, y, z)
+                    })
+                except (ValueError, IndexError):
+                    pass
+
+    if not ligand_atoms:
+        return None
+
+    # Find metal site closest to ligand
+    best_site = None
+    best_dist = float('inf')
+    for site in metal_sites:
+        for lig_atom in ligand_atoms:
+            dist = _calculate_distance(site['pos'], lig_atom['pos'])
+            if dist < best_dist:
+                best_dist = dist
+                best_site = site
+
+    if not best_site or best_dist > cutoff:
+        logger.warning(f"No {metal} within {cutoff}Å of {ligand}")
+        return None
+
+    # Extract full coordination sphere
+    metal_pos = best_site['pos']
+    coord_atoms = []
+    protein_donors = []
+    ligand_donors = []
+
+    amino_acids = {
+        "GLU", "ASP", "HIS", "CYS", "ASN", "TYR", "MET", "SER", "THR", "GLN",
+        "LYS", "ARG", "GLY", "ALA", "VAL", "LEU", "ILE", "PRO", "PHE", "TRP"
+    }
+
+    for line in pdb_content.split('\n'):
+        if not line.startswith(('ATOM', 'HETATM')):
+            continue
+
+        res_name = line[17:20].strip()
+        atom_name = line[12:16].strip()
+        chain = line[21]
+        resnum = line[22:26].strip()
+
+        if res_name == metal and atom_name == metal:
+            continue
+        if res_name == 'HOH':
+            continue
+
+        try:
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+            dist = _calculate_distance(metal_pos, (x, y, z))
+
+            if dist <= cutoff:
+                element = line[76:78].strip() if len(line) > 76 else atom_name[0]
+                atom_info = {
+                    'atom_name': atom_name,
+                    'res_name': res_name,
+                    'res_seq': int(resnum) if resnum.isdigit() else 0,
+                    'chain_id': chain,
+                    'element': element,
+                    'distance': round(dist, 2),
+                }
+                coord_atoms.append(atom_info)
+
+                if res_name == ligand:
+                    ligand_donors.append(f"{atom_name}@{dist:.2f}Å")
+                elif res_name in amino_acids:
+                    protein_donors.append(f"{chain}{resnum}:{res_name} {atom_name}@{dist:.2f}Å")
+        except (ValueError, IndexError):
+            pass
+
+    coord_atoms.sort(key=lambda x: x['distance'])
+
+    return {
+        'pdb_id': pdb_id.upper(),
+        'metal': metal,
+        'metal_chain': best_site['chain'],
+        'metal_resnum': best_site['resnum'],
+        'metal_coords': metal_pos,
+        'ligand': ligand,
+        'ligand_distance': round(best_dist, 2),
+        'coordination_number': len(coord_atoms),
+        'coordinating_atoms': coord_atoms,
+        'protein_donors': protein_donors,
+        'ligand_donors': ligand_donors,
+    }
+
+
+def search_metal_ligand_structures(
+    metal: str,
+    ligand: str,
+    limit: int = 10,
+) -> List[str]:
+    """
+    Search RCSB PDB for structures containing both a metal and a ligand.
+
+    Args:
+        metal: Metal element symbol
+        ligand: Ligand 3-letter code
+        limit: Maximum results
+
+    Returns:
+        List of PDB IDs that contain both the metal and ligand
+    """
+    if not REQUESTS_AVAILABLE:
+        logger.warning("requests not available")
+        return []
+
+    # Search for ligand first (more specific)
+    try:
+        query = {
+            'query': {
+                'type': 'terminal',
+                'service': 'text',
+                'parameters': {
+                    'attribute': 'rcsb_nonpolymer_entity_container_identifiers.nonpolymer_comp_id',
+                    'operator': 'exact_match',
+                    'value': ligand.upper()
+                }
+            },
+            'return_type': 'entry',
+            'request_options': {
+                'results_content_type': ['experimental'],
+                'paginate': {'start': 0, 'rows': limit * 3}
+            }
+        }
+        response = requests.post(
+            RCSB_SEARCH_URL,
+            json=query,
+            headers={"Content-Type": "application/json"},
+            timeout=30,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        candidates = [h['identifier'] for h in data.get('result_set', [])]
+
+        # Filter to those with the target metal
+        results = []
+        for pdb_id in candidates[:limit * 2]:
+            pdb_content = _fetch_pdb_content(pdb_id)
+            if pdb_content:
+                for line in pdb_content.split('\n'):
+                    if line.startswith('HETATM') and line[17:20].strip() == metal.upper():
+                        results.append(pdb_id)
+                        break
+            if len(results) >= limit:
+                break
+
+        return results
+
+    except Exception as e:
+        logger.warning(f"Metal-ligand search failed: {e}")
+        return []

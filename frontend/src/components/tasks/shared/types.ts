@@ -104,6 +104,11 @@ export interface RFD3Request extends BaseRFD3Request {
   step_scale?: number;
   gamma_0?: number;
 
+  // Classifier-Free Guidance (CFG)
+  // Use when applying H-bond or RASA conditioning to improve adherence
+  use_classifier_free_guidance?: boolean;
+  cfg_scale?: number;  // Recommended: 2.0 when CFG enabled
+
   // Motif specifications
   select_hotspots?: Record<string, string>;
   select_fixed_atoms?: Record<string, string>;
@@ -115,10 +120,12 @@ export interface RFD3Request extends BaseRFD3Request {
   select_exposed?: Record<string, string>;
   select_partially_buried?: Record<string, string>;
 
-  // Nucleic acid binders
-  ori_token?: [number, number, number];
+  // H-bond conditioning
   select_hbond_donor?: Record<string, string>;
   select_hbond_acceptor?: Record<string, string>;
+
+  // Origin/center-of-mass positioning
+  ori_token?: [number, number, number];  // Explicit XYZ coordinates
 
   // Enzyme design
   unindex?: string;

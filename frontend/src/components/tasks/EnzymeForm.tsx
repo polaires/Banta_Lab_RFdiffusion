@@ -130,6 +130,10 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
   const [rasaEnabled, setRasaEnabled] = useState(false);
   const [hbondEnabled, setHbondEnabled] = useState(false);
 
+  // Origin positioning strategy for scaffold generation
+  // 'auto' = let model decide, 'com' = center on fixed atoms, 'hotspots' = center on catalytic residues
+  const [originStrategy, setOriginStrategy] = useState<'auto' | 'com' | 'hotspots'>('auto');
+
   // Fixed atoms customize dialog
   const [customizeDialogOpen, setCustomizeDialogOpen] = useState(false);
 
@@ -429,6 +433,24 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
       if (donors) {
         request.select_hbond_donor = donors;
       }
+    }
+
+    // Auto-enable Classifier-Free Guidance (CFG) when using RASA or H-bond conditioning
+    // Per RFD3 reference: CFG improves H-bond success rate from ~27% to ~33-37%
+    const hasRASACondition = Object.keys(request.select_buried || {}).length > 0 ||
+                             Object.keys(request.select_exposed || {}).length > 0;
+    const hasHBondCondition = Object.keys(request.select_hbond_acceptor || {}).length > 0 ||
+                              Object.keys(request.select_hbond_donor || {}).length > 0;
+
+    if (hasRASACondition || hasHBondCondition) {
+      request.use_classifier_free_guidance = true;
+      request.cfg_scale = 2.0;  // Recommended value per RFD3 reference
+    }
+
+    // Add origin positioning strategy if catalytic residues are defined
+    // Use 'com' to center scaffold around the fixed atoms (active site)
+    if (enzymeCatalyticResidues.length > 0 && originStrategy !== 'auto') {
+      request.infer_ori_strategy = originStrategy;
     }
 
     // DEBUG: Log final request
@@ -849,12 +871,76 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
                 onApplySuggestions={applyEnzymeSuggestions}
               />
             )}
+
+            {/* CFG Auto-enable Status */}
+            {(rasaEnabled || hbondEnabled || (metalReplacementEnabled && targetMetal)) && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <span className="text-xs text-foreground">
+                  <strong>Classifier-Free Guidance (CFG)</strong> will be auto-enabled
+                  <span className="text-muted-foreground ml-1">(scale=2.0)</span>
+                </span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                      <p className="text-xs">CFG improves H-bond/RASA conditioning adherence from ~27% to ~33-37% success rate. Recommended when using any conditioning constraints.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            )}
           </div>
         )}
 
         {/* Structure Options Group */}
         <div className="space-y-3">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Structure Options</div>
+
+          {/* Origin Positioning Strategy */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-foreground">Origin Positioning</span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p className="text-xs">Controls where the scaffold materializes relative to the active site. &apos;Center on fixed atoms&apos; is recommended for enzyme design.</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <div className="inline-flex rounded-lg border border-border p-1 bg-muted/30">
+              {[
+                { value: 'auto', label: 'Auto', hint: 'Model decides' },
+                { value: 'com', label: 'Fixed Atoms', hint: 'Center on active site' },
+                { value: 'hotspots', label: 'Catalytic', hint: 'Center on catalytic residues' },
+              ].map((opt, i, arr) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setOriginStrategy(opt.value as 'auto' | 'com' | 'hotspots')}
+                  className={`px-3 py-1.5 text-sm font-medium transition-all ${
+                    originStrategy === opt.value
+                      ? 'bg-primary text-primary-foreground rounded-md shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  } ${i === 0 ? 'rounded-l-md' : ''} ${i === arr.length - 1 ? 'rounded-r-md' : ''}`}
+                  title={opt.hint}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {originStrategy !== 'auto' && (
+              <p className="text-xs text-muted-foreground">
+                {originStrategy === 'com' && 'Scaffold will be centered around all fixed atoms (ligand + catalytic residues)'}
+                {originStrategy === 'hotspots' && 'Scaffold will be centered around the catalytic residue positions'}
+              </p>
+            )}
+          </div>
 
           <label className="flex items-center gap-3 cursor-pointer">
             <input

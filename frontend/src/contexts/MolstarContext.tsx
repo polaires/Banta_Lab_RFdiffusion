@@ -15,8 +15,6 @@ import type { StateObjectRef } from 'molstar/lib/mol-state';
 // Force-include Molstar modules to prevent tree-shaking in production builds
 import 'molstar/lib/mol-model-formats/structure/pdb';
 import 'molstar/lib/mol-model-formats/structure/mmcif';
-import 'molstar/lib/mol-io/reader/cif';
-import 'molstar/lib/mol-io/reader/pdb';
 
 interface MolstarState {
   plugin: PluginUIContext | null;

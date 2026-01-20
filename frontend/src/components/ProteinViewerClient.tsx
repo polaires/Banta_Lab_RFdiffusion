@@ -31,12 +31,6 @@ import { Color } from 'molstar/lib/mol-util/color';
 // These side-effect imports ensure the parsing pipeline is bundled correctly
 import 'molstar/lib/mol-model-formats/structure/pdb';
 import 'molstar/lib/mol-model-formats/structure/mmcif';
-import 'molstar/lib/mol-io/reader/cif';
-import 'molstar/lib/mol-io/reader/pdb';
-import 'molstar/lib/mol-model/structure';
-import 'molstar/lib/mol-plugin-state/transforms/model';
-import 'molstar/lib/mol-plugin-state/transforms/data';
-import 'molstar/lib/mol-plugin-state/builder/structure';
 
 type StateObjectRef = any;
 

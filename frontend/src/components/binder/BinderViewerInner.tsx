@@ -9,8 +9,6 @@ import 'molstar/lib/mol-plugin-ui/skin/light.scss';
 // Force-include Molstar modules to prevent tree-shaking in production builds
 import 'molstar/lib/mol-model-formats/structure/pdb';
 import 'molstar/lib/mol-model-formats/structure/mmcif';
-import 'molstar/lib/mol-io/reader/cif';
-import 'molstar/lib/mol-io/reader/pdb';
 
 // Types
 type PluginUIContext = any;

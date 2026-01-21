@@ -392,6 +392,7 @@ export function InterfaceLigandForm({ onSubmit, isSubmitting, health }: TaskForm
                         onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
                       />
                     </FormControl>
+                    <FormDescription className="text-xs">Number to generate</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

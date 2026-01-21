@@ -80,6 +80,8 @@ const METRIC_LABELS: Record<string, { name: string; Icon: LucideIcon }> = {
   anti_homo_score: { name: 'Anti-Homo Score', Icon: Shield },
   n7_hbonds: { name: 'N7 H-bonds', Icon: Droplets },
   n8_hbonds: { name: 'N8 H-bonds', Icon: Droplets },
+  has_clashes: { name: 'Clashes', Icon: Shield },
+  is_heterodimer: { name: 'Heterodimer', Icon: CheckCircle2 },
   // RFdiffusion3
   pae_interaction: { name: 'pAE (Interface)', Icon: Network },
   plddt: { name: 'pLDDT', Icon: Brain },
@@ -128,11 +130,11 @@ function getMetricStatus(
 }
 
 const STATUS_STYLES: Record<MetricStatus, { bg: string; text: string; badge: string }> = {
-  excellent: { bg: 'bg-green-50', text: 'text-green-700', badge: 'bg-green-100 text-green-700' },
-  good: { bg: 'bg-blue-50', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700' },
-  moderate: { bg: 'bg-muted/50', text: 'text-muted-foreground', badge: 'bg-muted text-muted-foreground' },
-  poor: { bg: 'bg-red-50', text: 'text-red-700', badge: 'bg-red-100 text-red-700' },
-  unknown: { bg: 'bg-muted/50', text: 'text-muted-foreground', badge: 'bg-muted text-muted-foreground' },
+  excellent: { bg: 'bg-muted/30', text: 'text-foreground', badge: 'border border-border bg-background text-foreground' },
+  good: { bg: 'bg-muted/30', text: 'text-foreground', badge: 'border border-border bg-background text-foreground' },
+  moderate: { bg: 'bg-muted/30', text: 'text-muted-foreground', badge: 'border border-border bg-muted text-muted-foreground' },
+  poor: { bg: 'bg-muted/30', text: 'text-muted-foreground', badge: 'border border-border bg-muted text-muted-foreground' },
+  unknown: { bg: 'bg-muted/30', text: 'text-muted-foreground', badge: 'border border-border bg-muted text-muted-foreground' },
 };
 
 export function SuccessCriteriaCard({
@@ -157,16 +159,16 @@ export function SuccessCriteriaCard({
       const IconComponent = label.Icon;
 
       return (
-        <div key={key} className={`p-3 rounded-lg ${styles.bg}`}>
+        <div key={key} className="p-3 rounded-md border border-border bg-background">
           <div className="flex items-center gap-2 mb-1">
-            <IconComponent className={`h-4 w-4 ${styles.text}`} />
+            <IconComponent className="h-4 w-4 text-muted-foreground" />
             <span className="text-xs text-muted-foreground">{label.name}</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className={`font-semibold ${styles.text}`}>
+            <span className="font-semibold text-foreground">
               {key === 'has_clashes' ? (value ? 'Yes' : 'None') : (value ? 'Yes' : 'No')}
             </span>
-            <span className={`text-xs px-2 py-0.5 rounded-full ${styles.badge}`}>
+            <span className={`text-xs px-2 py-0.5 rounded-md ${styles.badge}`}>
               {status === 'excellent' ? 'Good' : status === 'poor' ? 'Issue' : status}
             </span>
           </div>
@@ -185,16 +187,16 @@ export function SuccessCriteriaCard({
     const unit = threshold?.unit || '';
 
     return (
-      <div key={key} className={`p-3 rounded-lg ${styles.bg}`}>
+      <div key={key} className="p-3 rounded-md border border-border bg-background">
         <div className="flex items-center gap-2 mb-1">
-          <IconComponent className={`h-4 w-4 ${styles.text}`} />
+          <IconComponent className="h-4 w-4 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">{label.name}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className={`font-semibold ${styles.text}`}>
+          <span className="font-semibold text-foreground">
             {numValue !== undefined ? `${numValue.toFixed(2)}${unit}` : 'N/A'}
           </span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${styles.badge}`}>
+          <span className={`text-xs px-2 py-0.5 rounded-md ${styles.badge}`}>
             {status === 'unknown' ? 'N/A' : status.charAt(0).toUpperCase() + status.slice(1)}
           </span>
         </div>
@@ -252,9 +254,9 @@ export function SuccessCriteriaCard({
   const overallStyles = STATUS_STYLES[overall.status];
 
   return (
-    <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
+    <div className="bg-card rounded-lg border border-border overflow-hidden">
       {/* Header with Toggle */}
-      <div className="px-4 py-3 border-b border-border bg-muted/50">
+      <div className="px-4 py-3 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
@@ -262,12 +264,12 @@ export function SuccessCriteriaCard({
           </div>
 
           {showToggle && (
-            <div className="flex items-center gap-1 bg-card rounded-lg p-1 border border-border">
+            <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1">
               <button
                 onClick={() => handleModeChange('heterodimer')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
                   filterMode === 'heterodimer'
-                    ? 'bg-primary/10 text-primary'
+                    ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
@@ -277,7 +279,7 @@ export function SuccessCriteriaCard({
                 onClick={() => handleModeChange('rfdiffusion3')}
                 className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${
                   filterMode === 'rfdiffusion3'
-                    ? 'bg-blue-100 text-blue-700'
+                    ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
@@ -289,19 +291,19 @@ export function SuccessCriteriaCard({
       </div>
 
       {/* Overall Status */}
-      <div className={`px-4 py-3 ${overallStyles.bg} border-b border-border`}>
+      <div className="px-4 py-3 bg-muted/30 border-b border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {overall.status === 'excellent' || overall.status === 'good' ? (
-              <CheckCircle2 className={`h-5 w-5 ${overallStyles.text}`} />
+              <CheckCircle2 className="h-5 w-5 text-foreground" />
             ) : (
-              <Info className={`h-5 w-5 ${overallStyles.text}`} />
+              <Info className="h-5 w-5 text-muted-foreground" />
             )}
-            <span className={`font-medium ${overallStyles.text}`}>
+            <span className="font-medium text-foreground">
               {overall.passed}/{overall.total} criteria passed
             </span>
           </div>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${overallStyles.badge}`}>
+          <span className="text-xs px-2 py-0.5 rounded-md border border-border bg-background text-foreground">
             {overall.status.charAt(0).toUpperCase() + overall.status.slice(1)}
           </span>
         </div>
@@ -323,16 +325,16 @@ export function SuccessCriteriaCard({
       </div>
 
       {/* Mode Description */}
-      <div className="px-4 py-2 bg-muted/50 border-t border-border">
+      <div className="px-4 py-2 border-t border-border">
         <p className="text-xs text-muted-foreground">
           {filterMode === 'heterodimer' ? (
             <>
-              <span className="font-medium">Heterodimer mode:</span> Custom thresholds for GNINA docking,
+              <span className="font-medium text-foreground">Heterodimer mode:</span> Custom thresholds for GNINA docking,
               anti-homodimerization validation, and azobenzene-specific H-bond tracking.
             </>
           ) : (
             <>
-              <span className="font-medium">RFdiffusion3 mode:</span> Standard Baker Lab thresholds using
+              <span className="font-medium text-foreground">RFdiffusion3 mode:</span> Standard Baker Lab thresholds using
               AlphaFold2 pAE, pLDDT, and Rosetta ddG metrics.
             </>
           )}

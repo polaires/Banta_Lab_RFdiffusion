@@ -11,11 +11,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ pdbId: string }> }
-) {
-  const { pdbId } = await params;
+export async function GET(request: NextRequest) {
+  // Extract PDB ID from pathname (same pattern as runpod route)
+  const pathname = request.nextUrl.pathname;
+  const pdbIdMatch = pathname.match(/\/api\/rcsb\/([^/]+)/);
+  const pdbId = pdbIdMatch ? pdbIdMatch[1] : null;
 
   // Validate PDB ID format (4 characters, alphanumeric)
   if (!pdbId || !/^[A-Za-z0-9]{4}$/.test(pdbId)) {
@@ -32,7 +32,8 @@ export async function GET(
 
     const response = await fetch(rcsbUrl, {
       headers: {
-        'Accept': 'text/plain, chemical/x-pdb',
+        'User-Agent': 'Mozilla/5.0 (compatible; RFdiffusion/1.0)',
+        'Accept': 'text/plain, chemical/x-pdb, */*',
       },
     });
 
@@ -56,7 +57,6 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': 'text/plain',
-        'Content-Disposition': `attachment; filename="${normalizedPdbId}.pdb"`,
         'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
       },
     });
@@ -69,5 +69,5 @@ export async function GET(
   }
 }
 
-// Edge runtime for better performance
-export const runtime = 'edge';
+// Use Node.js runtime instead of Edge - Edge has issues with some external fetches
+export const runtime = 'nodejs';

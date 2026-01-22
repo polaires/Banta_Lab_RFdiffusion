@@ -102,31 +102,8 @@ export function PdbUploader({
     }
   };
 
-  // Fetch structure from RCSB with fallback strategy
-  // 1. Try models.rcsb.org/v1 API directly (CORS-enabled, faster)
-  // 2. Fall back to our proxy (which also uses models.rcsb.org)
-  const fetchFromRcsb = async (pdbId: string): Promise<{ content: string; format: 'cif' }> => {
-    // Try models.rcsb.org v1 API first (has CORS support: access-control-allow-origin: *)
-    try {
-      const modelsUrl = `https://models.rcsb.org/v1/${pdbId}/full`;
-      const response = await fetch(modelsUrl);
-      if (response.ok) {
-        const content = await response.text();
-        return { content, format: 'cif' };
-      }
-      // If 404, the PDB ID doesn't exist
-      if (response.status === 404) {
-        throw new Error(`PDB ID "${pdbId}" not found in RCSB database`);
-      }
-    } catch (e) {
-      // If it's our own error, rethrow it
-      if (e instanceof Error && e.message.includes('not found')) {
-        throw e;
-      }
-      console.log('models.rcsb.org failed, falling back to proxy:', e);
-    }
-
-    // Fall back to our proxy (which also uses models.rcsb.org)
+  // Fetch PDB from RCSB via our proxy (to avoid CORS issues)
+  const fetchFromRcsb = async (pdbId: string): Promise<string> => {
     const proxyUrl = `/api/rcsb/${pdbId}`;
     const response = await fetch(proxyUrl);
 
@@ -135,8 +112,7 @@ export function PdbUploader({
       throw new Error(errorData.error || `PDB ID "${pdbId}" not found`);
     }
 
-    const content = await response.text();
-    return { content, format: 'cif' };
+    return response.text();
   };
 
   // Load PDB from RCSB by ID
@@ -153,9 +129,10 @@ export function PdbUploader({
     setLoadError(null);
 
     try {
-      const { content } = await fetchFromRcsb(pdbId);
-      // Note: CIF format from models.rcsb.org doesn't need assembly filtering
-      const generatedFileName = `${pdbId}.cif`;
+      const rawContent = await fetchFromRcsb(pdbId);
+      // Filter to single biological assembly to avoid duplicate ligands
+      const content = filterPdbToSingleAssembly(rawContent);
+      const generatedFileName = `${pdbId}.pdb`;
 
       onChange(content, generatedFileName);
       setSelectedPdb(content);

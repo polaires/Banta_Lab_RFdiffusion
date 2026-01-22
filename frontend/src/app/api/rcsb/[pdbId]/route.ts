@@ -1,11 +1,12 @@
 /**
  * RCSB PDB Proxy API Route
  *
- * This route proxies requests to RCSB models.rcsb.org to avoid CORS issues
- * in environments where direct access might be blocked.
+ * This route proxies requests to RCSB to avoid CORS issues.
+ * The RCSB server doesn't include CORS headers, so we need to
+ * fetch from the server side and return the content.
  *
  * Endpoint:
- *   GET /api/rcsb/[pdbId] -> Fetches mmCIF file from models.rcsb.org
+ *   GET /api/rcsb/[pdbId] -> Fetches PDB file from RCSB
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -27,12 +28,13 @@ export async function GET(request: NextRequest) {
   const normalizedPdbId = pdbId.toUpperCase();
 
   try {
-    // Use models.rcsb.org v1 API which is reliable and has CORS support
-    const rcsbUrl = `https://models.rcsb.org/v1/${normalizedPdbId}/full`;
+    // Fetch PDB format from files.rcsb.org
+    const rcsbUrl = `https://files.rcsb.org/download/${normalizedPdbId}.pdb`;
 
     const response = await fetch(rcsbUrl, {
       headers: {
-        'Accept': 'text/plain, */*',
+        'User-Agent': 'Mozilla/5.0 (compatible; RFdiffusion/1.0)',
+        'Accept': 'text/plain, chemical/x-pdb, */*',
       },
     });
 
@@ -43,16 +45,22 @@ export async function GET(request: NextRequest) {
           { status: 404 }
         );
       }
+      if (response.status === 502 || response.status === 503) {
+        return NextResponse.json(
+          { error: `RCSB servers are temporarily unavailable. Please try again later.` },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
-        { error: `Failed to fetch structure: ${response.statusText}` },
+        { error: `Failed to fetch PDB: ${response.statusText}` },
         { status: response.status }
       );
     }
 
-    const cifContent = await response.text();
+    const pdbContent = await response.text();
 
-    // Return the CIF content as plain text
-    return new NextResponse(cifContent, {
+    // Return the PDB content as plain text
+    return new NextResponse(pdbContent, {
       status: 200,
       headers: {
         'Content-Type': 'text/plain',
@@ -60,9 +68,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[RCSB Proxy] Error fetching structure:', error);
+    console.error('[RCSB Proxy] Error fetching PDB:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to fetch structure from RCSB' },
+      { error: error instanceof Error ? error.message : 'Failed to fetch PDB from RCSB' },
       { status: 500 }
     );
   }

@@ -1318,9 +1318,10 @@ def generate_ef_hand_template(
     params = LANTHANIDE_PARAMS.get(metal.upper(), LANTHANIDE_PARAMS["TB"])
     bond_dist = params["bond_distance"]
 
-    # Metal at a central position (not origin - helps with RFD3 processing)
-    # Using a realistic position that won't be confused with unset coordinates
-    metal_pos = np.array([50.0, 50.0, 50.0])
+    # Metal at origin - RFD3 designs proteins around origin
+    # IMPORTANT: Using (50,50,50) causes stretched chains because ori_token
+    # positions protein COM near origin while template residues are far away
+    metal_pos = np.array([0.0, 0.0, 0.0])
 
     # CA distance from metal depends on residue type:
     # Glu side chain: CA-CB (1.54) + CB-CG (1.52) + CG-CD (1.52) + CD-OE (1.25) = 5.83 Å
@@ -1491,8 +1492,8 @@ def generate_c4_symmetric_template(
     params = LANTHANIDE_PARAMS.get(metal.upper(), LANTHANIDE_PARAMS["TB"])
     bond_dist = params["bond_distance"]
 
-    # Metal at a central position (not origin - helps with RFD3 processing)
-    metal_pos = np.array([50.0, 50.0, 50.0])
+    # Metal at origin - RFD3 designs proteins around origin
+    metal_pos = np.array([0.0, 0.0, 0.0])
 
     # CA distance from metal depends on residue type:
     # Glu side chain: CA-CB (1.54) + CB-CG (1.52) + CG-CD (1.52) + CD-OE (1.25) = 5.83 Å
@@ -2063,8 +2064,8 @@ def generate_template_from_library(
     params = LANTHANIDE_PARAMS.get(metal.upper(), LANTHANIDE_PARAMS["TB"])
     bond_dist = params["bond_distance"]
 
-    # Metal at central position
-    metal_pos = np.array([50.0, 50.0, 50.0])
+    # Metal at origin - RFD3 designs proteins around origin
+    metal_pos = np.array([0.0, 0.0, 0.0])
 
     # CA radius is calculated PER RESIDUE based on type and coordination mode.
     # This is necessary because:
@@ -2392,8 +2393,8 @@ def generate_parametric_template(
         geom_info = COORDINATION_GEOMETRIES.get(coordination_number, COORDINATION_GEOMETRIES[8])
         geometry = geom_info["geometry"]
 
-    # Metal at central position
-    metal_pos = np.array([50.0, 50.0, 50.0])
+    # Metal at origin - RFD3 designs proteins around origin
+    metal_pos = np.array([0.0, 0.0, 0.0])
 
     # Calculate number of protein donors
     num_protein_donors = coordination_number - num_waters

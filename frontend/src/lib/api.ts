@@ -923,14 +923,14 @@ class FoundryAPI {
   // ============== AI Assistant Methods ==============
 
   // Fetch structure from RCSB with fallback strategy
-  // 1. Try models.rcsb.org directly (CORS-enabled, faster)
-  // 2. Fall back to our proxy for files.rcsb.org (PDB format)
+  // 1. Try models.rcsb.org/v1 API directly (CORS-enabled, faster)
+  // 2. Fall back to our proxy (which also uses models.rcsb.org)
   async fetchPdb(pdbId: string): Promise<FetchPdbResponse> {
     const pdbIdUpper = pdbId.toUpperCase();
 
-    // Try models.rcsb.org first (has CORS support)
+    // Try models.rcsb.org v1 API first (has CORS support: access-control-allow-origin: *)
     try {
-      const modelsUrl = `https://models.rcsb.org/${pdbIdUpper}.cif`;
+      const modelsUrl = `https://models.rcsb.org/v1/${pdbIdUpper}/full`;
       const response = await fetch(modelsUrl);
       if (response.ok) {
         const content = await response.text();
@@ -943,11 +943,19 @@ class FoundryAPI {
           info,
         };
       }
+      // If 404, the PDB ID doesn't exist
+      if (response.status === 404) {
+        throw new Error(`PDB ${pdbIdUpper} not found in RCSB database`);
+      }
     } catch (e) {
+      // If it's our own error, rethrow it
+      if (e instanceof Error && e.message.includes('not found')) {
+        throw e;
+      }
       console.log('models.rcsb.org failed, falling back to proxy:', e);
     }
 
-    // Fall back to our proxy for PDB format
+    // Fall back to our proxy (which also uses models.rcsb.org)
     try {
       const proxyUrl = `/api/rcsb/${pdbIdUpper}`;
       const response = await fetch(proxyUrl);

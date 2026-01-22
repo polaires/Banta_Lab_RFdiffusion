@@ -103,22 +103,30 @@ export function PdbUploader({
   };
 
   // Fetch structure from RCSB with fallback strategy
-  // 1. Try models.rcsb.org directly (CORS-enabled, faster)
-  // 2. Fall back to our proxy for files.rcsb.org (PDB format)
-  const fetchFromRcsb = async (pdbId: string): Promise<{ content: string; format: 'cif' | 'pdb' }> => {
-    // Try models.rcsb.org first (has CORS support)
+  // 1. Try models.rcsb.org/v1 API directly (CORS-enabled, faster)
+  // 2. Fall back to our proxy (which also uses models.rcsb.org)
+  const fetchFromRcsb = async (pdbId: string): Promise<{ content: string; format: 'cif' }> => {
+    // Try models.rcsb.org v1 API first (has CORS support: access-control-allow-origin: *)
     try {
-      const modelsUrl = `https://models.rcsb.org/${pdbId}.cif`;
+      const modelsUrl = `https://models.rcsb.org/v1/${pdbId}/full`;
       const response = await fetch(modelsUrl);
       if (response.ok) {
         const content = await response.text();
         return { content, format: 'cif' };
       }
+      // If 404, the PDB ID doesn't exist
+      if (response.status === 404) {
+        throw new Error(`PDB ID "${pdbId}" not found in RCSB database`);
+      }
     } catch (e) {
+      // If it's our own error, rethrow it
+      if (e instanceof Error && e.message.includes('not found')) {
+        throw e;
+      }
       console.log('models.rcsb.org failed, falling back to proxy:', e);
     }
 
-    // Fall back to our proxy for PDB format
+    // Fall back to our proxy (which also uses models.rcsb.org)
     const proxyUrl = `/api/rcsb/${pdbId}`;
     const response = await fetch(proxyUrl);
 
@@ -128,7 +136,7 @@ export function PdbUploader({
     }
 
     const content = await response.text();
-    return { content, format: 'pdb' };
+    return { content, format: 'cif' };
   };
 
   // Load PDB from RCSB by ID

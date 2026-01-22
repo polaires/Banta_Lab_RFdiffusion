@@ -102,6 +102,35 @@ export function PdbUploader({
     }
   };
 
+  // Fetch structure from RCSB with fallback strategy
+  // 1. Try models.rcsb.org directly (CORS-enabled, faster)
+  // 2. Fall back to our proxy for files.rcsb.org (PDB format)
+  const fetchFromRcsb = async (pdbId: string): Promise<{ content: string; format: 'cif' | 'pdb' }> => {
+    // Try models.rcsb.org first (has CORS support)
+    try {
+      const modelsUrl = `https://models.rcsb.org/${pdbId}.cif`;
+      const response = await fetch(modelsUrl);
+      if (response.ok) {
+        const content = await response.text();
+        return { content, format: 'cif' };
+      }
+    } catch (e) {
+      console.log('models.rcsb.org failed, falling back to proxy:', e);
+    }
+
+    // Fall back to our proxy for PDB format
+    const proxyUrl = `/api/rcsb/${pdbId}`;
+    const response = await fetch(proxyUrl);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `PDB ID "${pdbId}" not found`);
+    }
+
+    const content = await response.text();
+    return { content, format: 'pdb' };
+  };
+
   // Load PDB from RCSB by ID
   const handleLoadFromRcsb = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -116,17 +145,10 @@ export function PdbUploader({
     setLoadError(null);
 
     try {
-      const rcsbUrl = `https://files.rcsb.org/download/${pdbId}.pdb`;
-      const response = await fetch(rcsbUrl);
-
-      if (!response.ok) {
-        throw new Error(`PDB ID "${pdbId}" not found`);
-      }
-
-      const rawContent = await response.text();
-      // Filter to single biological assembly to avoid duplicate ligands
-      const content = filterPdbToSingleAssembly(rawContent);
-      const generatedFileName = `${pdbId}.pdb`;
+      const { content: rawContent, format } = await fetchFromRcsb(pdbId);
+      // Filter to single biological assembly to avoid duplicate ligands (PDB format only)
+      const content = format === 'pdb' ? filterPdbToSingleAssembly(rawContent) : rawContent;
+      const generatedFileName = `${pdbId}.${format}`;
 
       onChange(content, generatedFileName);
       setSelectedPdb(content);

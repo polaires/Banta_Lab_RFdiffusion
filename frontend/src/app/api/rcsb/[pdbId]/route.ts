@@ -1,18 +1,18 @@
 /**
  * RCSB PDB Proxy API Route
  *
- * This route proxies requests to RCSB to avoid CORS issues.
- * The RCSB server doesn't include CORS headers, so we need to
- * fetch from the server side and return the content.
+ * This route proxies requests to fetch PDB files, avoiding CORS issues.
+ * Uses the wwPDB archive which is more reliable than files.rcsb.org/download/
  *
  * Endpoint:
- *   GET /api/rcsb/[pdbId] -> Fetches PDB file from RCSB
+ *   GET /api/rcsb/[pdbId] -> Fetches PDB file from wwPDB archive
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { gunzipSync } from 'zlib';
 
 export async function GET(request: NextRequest) {
-  // Extract PDB ID from pathname (same pattern as runpod route)
+  // Extract PDB ID from pathname
   const pathname = request.nextUrl.pathname;
   const pdbIdMatch = pathname.match(/\/api\/rcsb\/([^/]+)/);
   const pdbId = pdbIdMatch ? pdbIdMatch[1] : null;
@@ -25,23 +25,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const normalizedPdbId = pdbId.toUpperCase();
+  const normalizedPdbId = pdbId.toLowerCase();
+  // wwPDB archive organizes by middle 2 characters of PDB ID
+  const middleChars = normalizedPdbId.substring(1, 3);
 
   try {
-    // Fetch PDB format from files.rcsb.org
-    const rcsbUrl = `https://files.rcsb.org/download/${normalizedPdbId}.pdb`;
+    // Use wwPDB archive - more reliable than files.rcsb.org/download/
+    // Format: /pub/pdb/data/structures/divided/pdb/{middle2}/pdb{pdbid}.ent.gz
+    const archiveUrl = `https://files.wwpdb.org/pub/pdb/data/structures/divided/pdb/${middleChars}/pdb${normalizedPdbId}.ent.gz`;
 
-    const response = await fetch(rcsbUrl, {
+    const response = await fetch(archiveUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; RFdiffusion/1.0)',
-        'Accept': 'text/plain, chemical/x-pdb, */*',
+        'Accept': 'application/gzip, */*',
       },
     });
 
     if (!response.ok) {
       if (response.status === 404) {
         return NextResponse.json(
-          { error: `PDB ID "${normalizedPdbId}" not found in RCSB database` },
+          { error: `PDB ID "${pdbId.toUpperCase()}" not found in RCSB database` },
           { status: 404 }
         );
       }
@@ -57,7 +59,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const pdbContent = await response.text();
+    // Decompress the gzipped content
+    const compressedBuffer = await response.arrayBuffer();
+    const decompressed = gunzipSync(Buffer.from(compressedBuffer));
+    const pdbContent = decompressed.toString('utf-8');
 
     // Return the PDB content as plain text
     return new NextResponse(pdbContent, {
@@ -76,5 +81,5 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Use Node.js runtime for reliability
+// Use Node.js runtime (required for zlib)
 export const runtime = 'nodejs';

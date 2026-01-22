@@ -153,10 +153,9 @@ export function PdbUploader({
     setLoadError(null);
 
     try {
-      const { content: rawContent, format } = await fetchFromRcsb(pdbId);
-      // Filter to single biological assembly to avoid duplicate ligands (PDB format only)
-      const content = format === 'pdb' ? filterPdbToSingleAssembly(rawContent) : rawContent;
-      const generatedFileName = `${pdbId}.${format}`;
+      const { content } = await fetchFromRcsb(pdbId);
+      // Note: CIF format from models.rcsb.org doesn't need assembly filtering
+      const generatedFileName = `${pdbId}.cif`;
 
       onChange(content, generatedFileName);
       setSelectedPdb(content);

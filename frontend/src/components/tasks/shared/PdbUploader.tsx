@@ -14,6 +14,8 @@ interface PdbUploaderProps {
   onChange: (content: string | null, fileName: string | null) => void;
   accept?: string;
   className?: string;
+  /** Distance cutoff for organic ligand binding pocket (default: 5.0 Å). Metals always use tight 3.5 Å for direct coordinators. */
+  catalyticCutoff?: number;
 }
 
 export function PdbUploader({
@@ -25,6 +27,7 @@ export function PdbUploader({
   onChange,
   accept = '.pdb,.cif',
   className = '',
+  catalyticCutoff,
 }: PdbUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [pdbIdInput, setPdbIdInput] = useState('');
@@ -46,7 +49,7 @@ export function PdbUploader({
     setSuggestionsLoading(true);
     try {
       const pdbId = extractPdbId(content);
-      const result = await fetchCatalyticSuggestions(content, pdbId, backendUrl);
+      const result = await fetchCatalyticSuggestions(content, pdbId, backendUrl, catalyticCutoff);
       setCatalyticSuggestions(result.residues, result.source);
     } catch (error) {
       console.error('Failed to fetch catalytic suggestions:', error);
@@ -141,7 +144,7 @@ export function PdbUploader({
       // Fetch catalytic suggestions with the known PDB ID
       setSuggestionsLoading(true);
       try {
-        const result = await fetchCatalyticSuggestions(content, pdbId, backendUrl);
+        const result = await fetchCatalyticSuggestions(content, pdbId, backendUrl, catalyticCutoff);
         setCatalyticSuggestions(result.residues, result.source);
       } catch (error) {
         console.error('Failed to fetch catalytic suggestions:', error);

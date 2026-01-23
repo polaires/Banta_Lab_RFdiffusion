@@ -14,15 +14,19 @@ interface SuggestionResponse {
 
 /**
  * Fetch catalytic residue suggestions for a PDB structure.
+ * Uses SMART detection: metals get tight 3.5 Å cutoff for direct coordinators,
+ * organic ligands use the provided cutoff for binding pocket residues.
  *
  * @param pdbContent - Full PDB file content
  * @param pdbId - Optional PDB ID if known (speeds up M-CSA lookup)
  * @param _backendUrl - Unused, kept for API compatibility
+ * @param cutoff - Distance cutoff for organic ligands only (default: 5.0 Å). Metals always use 3.5 Å.
  */
 export async function fetchCatalyticSuggestions(
   pdbContent: string,
   pdbId: string | null,
-  _backendUrl: string
+  _backendUrl: string,
+  cutoff?: number
 ): Promise<SuggestionResponse> {
   // Use local Next.js API route instead of Python backend
   const response = await fetch('/api/catalytic-suggestions', {
@@ -31,6 +35,7 @@ export async function fetchCatalyticSuggestions(
     body: JSON.stringify({
       pdb_id: pdbId,
       pdb_content: pdbContent,
+      cutoff,
     }),
   });
 

@@ -9,6 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 interface SuggestionRequest {
   pdb_id: string | null;
   pdb_content: string;
+  /** Distance cutoff for organic ligands only (default: 5.0 Å). Metals always use tight 3.5 Å. */
+  cutoff?: number;
 }
 
 interface CatalyticResidue {
@@ -28,8 +30,12 @@ interface SuggestionResponse {
 
 const MCSA_API_BASE = 'https://www.ebi.ac.uk/thornton-srv/m-csa/api';
 
-// Distance cutoff for binding pocket detection (Angstroms)
-const BINDING_POCKET_CUTOFF = 5.0;
+// Default distance cutoff for binding pocket detection around organic ligands (Angstroms)
+const DEFAULT_LIGAND_CUTOFF = 5.0;
+
+// Tight cutoff for direct metal coordination (Angstroms)
+// Metal-ligand bonds are typically 2.0-2.7 Å; 3.5 Å captures direct coordinators
+const METAL_COORDINATION_CUTOFF = 3.5;
 
 // Common solvent/ion residues to exclude from ligand detection
 const EXCLUDED_LIGANDS = new Set([
@@ -103,10 +109,13 @@ function distance(a1: Atom, a2: Atom): number {
 
 /**
  * Find binding pocket residues near ligands and metals.
+ * Uses SMART cutoffs: tight 3.5 Å for direct metal coordination, broader cutoff for organic ligands.
  * Only analyzes the first protein chain to avoid duplicates from multiple biological assemblies.
  * Tracks which ligand/metal each residue is associated with for filtering.
+ * @param pdbContent - PDB file content
+ * @param ligandCutoff - Distance cutoff for organic ligands (default: 5.0 Å)
  */
-function findBindingPocketResidues(pdbContent: string): CatalyticResidue[] {
+function findBindingPocketResidues(pdbContent: string, ligandCutoff: number = DEFAULT_LIGAND_CUTOFF): CatalyticResidue[] {
   const { proteinAtoms, ligandAtoms, metalAtoms } = parsePdbAtoms(pdbContent);
 
   if (proteinAtoms.length === 0) {
@@ -155,35 +164,69 @@ function findBindingPocketResidues(pdbContent: string): CatalyticResidue[] {
     return [];
   }
 
-  // Get unique ligand names for logging
-  const ligandNames = [...new Set(chainTargets.map(a => a.resName))];
-  console.log(`[Local] Chain ${targetChain} ligands/metals: ${ligandNames.join(', ')}`);
+  // Separate chain-associated metals from organic ligands
+  const chainMetals = chainTargets.filter(a => METAL_IONS.has(a.resName));
+  const chainLigands = chainTargets.filter(a => !METAL_IONS.has(a.resName));
 
-  // Find unique residues within cutoff distance of chain-associated targets
-  // Track which ligand/metal each residue is closest to
+  // Log what we found
+  const metalNames = [...new Set(chainMetals.map(a => a.resName))];
+  const ligandNames = [...new Set(chainLigands.map(a => a.resName))];
+  console.log(`[Local] Chain ${targetChain} - Metals: ${metalNames.join(', ') || 'none'}, Ligands: ${ligandNames.join(', ') || 'none'}`);
+  console.log(`[Local] Using cutoffs - Metals: ${METAL_COORDINATION_CUTOFF}Å (direct coordination), Ligands: ${ligandCutoff}Å`);
+
+  // Find unique residues with SMART cutoffs:
+  // - Metals: tight 3.5 Å for direct coordinators only
+  // - Ligands: broader cutoff for binding pocket
   const residueMap = new Map<string, {
     chain: string;
     residue: number;
     name: string;
     minDist: number;
-    ligandCode: string;  // The ligand/metal this residue is associated with
+    ligandCode: string;
+    isMetal: boolean;  // Track if this is a metal coordinator
   }>();
 
+  // First pass: find direct metal coordinators (tight cutoff)
   for (const proteinAtom of chainProteinAtoms) {
-    for (const targetAtom of chainTargets) {
-      const dist = distance(proteinAtom, targetAtom);
-      if (dist <= BINDING_POCKET_CUTOFF) {
+    for (const metalAtom of chainMetals) {
+      const dist = distance(proteinAtom, metalAtom);
+      if (dist <= METAL_COORDINATION_CUTOFF) {
         const key = `${proteinAtom.chainId}:${proteinAtom.resSeq}`;
         const existing = residueMap.get(key);
-        // Track the closest ligand for this residue
         if (!existing || dist < existing.minDist) {
           residueMap.set(key, {
             chain: proteinAtom.chainId,
             residue: proteinAtom.resSeq,
             name: proteinAtom.resName,
             minDist: dist,
-            ligandCode: targetAtom.resName,  // Track associated ligand/metal
+            ligandCode: metalAtom.resName,
+            isMetal: true,
           });
+        }
+      }
+    }
+  }
+
+  // Second pass: find ligand binding pocket residues (broader cutoff)
+  for (const proteinAtom of chainProteinAtoms) {
+    for (const ligandAtom of chainLigands) {
+      const dist = distance(proteinAtom, ligandAtom);
+      if (dist <= ligandCutoff) {
+        const key = `${proteinAtom.chainId}:${proteinAtom.resSeq}`;
+        const existing = residueMap.get(key);
+        // Only add if not already a metal coordinator, or if this is closer
+        if (!existing || (!existing.isMetal && dist < existing.minDist)) {
+          // Don't overwrite metal coordinators with ligand contacts
+          if (!existing?.isMetal) {
+            residueMap.set(key, {
+              chain: proteinAtom.chainId,
+              residue: proteinAtom.resSeq,
+              name: proteinAtom.resName,
+              minDist: dist,
+              ligandCode: ligandAtom.resName,
+              isMetal: false,
+            });
+          }
         }
       }
     }
@@ -192,16 +235,20 @@ function findBindingPocketResidues(pdbContent: string): CatalyticResidue[] {
   // Convert to array and sort by distance (closest first)
   const residues: CatalyticResidue[] = Array.from(residueMap.values())
     .sort((a, b) => a.minDist - b.minDist)
-    .slice(0, 15)  // Limit to top 15 closest residues
-    .map(r => ({
-      chain: r.chain,
-      residue: r.residue,
-      name: r.name,
-      role: 'binding pocket',
-      confidence: Math.max(0.5, 1.0 - (r.minDist / BINDING_POCKET_CUTOFF)),
-      source: 'local' as const,
-      ligandCode: r.ligandCode,  // Include the associated ligand/metal code
-    }));
+    .slice(0, 25)
+    .map(r => {
+      // Calculate confidence based on appropriate cutoff
+      const effectiveCutoff = r.isMetal ? METAL_COORDINATION_CUTOFF : ligandCutoff;
+      return {
+        chain: r.chain,
+        residue: r.residue,
+        name: r.name,
+        role: r.isMetal ? 'metal coordinator' : 'binding pocket',
+        confidence: Math.max(0.5, 1.0 - (r.minDist / effectiveCutoff)),
+        source: 'local' as const,
+        ligandCode: r.ligandCode,
+      };
+    });
 
   console.log(`[Local] Found ${residues.length} binding pocket residues for chain ${targetChain}`);
   return residues;
@@ -308,8 +355,8 @@ async function queryMcsa(pdbId: string): Promise<CatalyticResidue[]> {
       });
     }
 
-    // Limit to top 15 residues to avoid overwhelming the user
-    return residues.slice(0, 15);
+    // Limit to top 25 residues (increased from 15 for better coverage)
+    return residues.slice(0, 25);
   } catch (error) {
     console.error('[M-CSA] Query failed:', error);
     return [];
@@ -348,13 +395,16 @@ function extractPdbIdFromContent(pdbContent: string): string | null {
 export async function POST(request: NextRequest): Promise<NextResponse<SuggestionResponse>> {
   try {
     const body: SuggestionRequest = await request.json();
-    const { pdb_id, pdb_content } = body;
+    const { pdb_id, pdb_content, cutoff } = body;
 
-    console.log('[catalytic-suggestions] Processing request...');
+    // Cutoff only applies to organic ligands; metals always use tight 3.5 Å for direct coordination
+    const ligandCutoff = cutoff ?? DEFAULT_LIGAND_CUTOFF;
+    console.log(`[catalytic-suggestions] Processing request (metals: ${METAL_COORDINATION_CUTOFF}Å, ligands: ${ligandCutoff}Å)...`);
 
-    // Primary method: Local binding pocket detection
-    // This finds residues near ligands and metal ions in the structure
-    const localResidues = findBindingPocketResidues(pdb_content);
+    // Primary method: Local binding pocket detection with smart cutoffs
+    // - Metals: tight 3.5 Å for direct coordinators only
+    // - Ligands: broader cutoff for binding pocket
+    const localResidues = findBindingPocketResidues(pdb_content, ligandCutoff);
 
     if (localResidues.length > 0) {
       console.log(`[catalytic-suggestions] Found ${localResidues.length} binding pocket residues via local detection`);

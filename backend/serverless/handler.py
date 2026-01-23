@@ -227,6 +227,19 @@ except ImportError:
 from design_types import DesignType, infer_design_type, validate_bias_AA, validate_omit_AA
 from design_orchestrator import DesignOrchestrator
 
+# Import pipeline handlers for parameter sweeps and production runs
+try:
+    from pipeline_handler import (
+        handle_pipeline_design,
+        handle_pipeline_status,
+        handle_pipeline_cancel,
+        handle_pipeline_export,
+    )
+    PIPELINE_AVAILABLE = True
+except ImportError as e:
+    PIPELINE_AVAILABLE = False
+    print(f"[Handler] Warning: pipeline_handler not available: {e}")
+
 # ============== Ligand H-bond Presets ==============
 
 # Azobenzene RDKit atom naming (canonical SMILES: c1ccc(\N=N\c2ccccc2)cc1)
@@ -417,10 +430,27 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Unified design endpoint with intelligent tool selection
         elif task == "design":
             return handle_unified_design(job_input)
+        # Pipeline tasks for parameter sweeps and production runs
+        elif task == "pipeline_design":
+            if not PIPELINE_AVAILABLE:
+                return {"status": "failed", "error": "Pipeline handler not available"}
+            return handle_pipeline_design(job_input)
+        elif task == "pipeline_status":
+            if not PIPELINE_AVAILABLE:
+                return {"status": "failed", "error": "Pipeline handler not available"}
+            return handle_pipeline_status(job_input)
+        elif task == "pipeline_cancel":
+            if not PIPELINE_AVAILABLE:
+                return {"status": "failed", "error": "Pipeline handler not available"}
+            return handle_pipeline_cancel(job_input)
+        elif task == "pipeline_export":
+            if not PIPELINE_AVAILABLE:
+                return {"status": "failed", "error": "Pipeline handler not available"}
+            return handle_pipeline_export(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
             }
 
     except Exception as e:

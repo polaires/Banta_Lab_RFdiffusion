@@ -1445,6 +1445,212 @@ class FoundryAPI {
 
     return response.json();
   }
+
+  // ============== Pipeline Methods ==============
+
+  /**
+   * Start a pipeline design run (sweep or production mode).
+   */
+  async startPipeline(request: {
+    mode: 'sweep' | 'production';
+    metal: string;
+    ligand: string;
+    motif_pdb: string;
+    sweep_configs?: Array<{
+      name: string;
+      contig_size: string;
+      contig_range: string;
+      cfg_scale: number;
+      num_designs: number;
+    }>;
+    production_config?: {
+      contig_size: string;
+      contig_range: string;
+      cfg_scale: number;
+    };
+    num_designs?: number;
+    filters?: {
+      plddt: number;
+      ptm: number;
+      pae: number;
+    };
+    designs_per_config?: number;
+  }): Promise<{
+    session_id: string;
+    status: string;
+    mode: string;
+    total_configs: number;
+    designs_per_config?: number;
+    num_designs?: number;
+  }> {
+    console.log('[API] Starting pipeline:', request.mode);
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'pipeline_design', ...request }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to start pipeline: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Pipeline start failed');
+    }
+
+    return result.output?.result || result.output;
+  }
+
+  /**
+   * Poll pipeline status for progress updates.
+   */
+  async getPipelineStatus(sessionId: string): Promise<{
+    session_id: string;
+    status: 'running' | 'completed' | 'cancelled' | 'failed' | 'not_found';
+    mode: string;
+    current_config: number;
+    total_configs: number;
+    current_design: number;
+    designs_per_config: number;
+    total_generated: number;
+    total_passing: number;
+    total_review: number;
+    total_failed: number;
+    pass_rate: number;
+    best_design: {
+      name: string;
+      plddt: number;
+      ptm: number;
+      pae: number;
+    } | null;
+    results?: Array<{
+      name: string;
+      config_name: string;
+      plddt: number;
+      ptm: number;
+      pae: number;
+      status: string;
+    }>;
+    summary?: {
+      total_generated: number;
+      total_passing: number;
+      pass_rate: number;
+    };
+  }> {
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'pipeline_status', session_id: sessionId }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get pipeline status: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Pipeline status failed');
+    }
+
+    return result.output?.result || result.output;
+  }
+
+  /**
+   * Poll pipeline status at regular intervals until completion.
+   */
+  async pollPipelineStatus(
+    sessionId: string,
+    onProgress?: (status: Awaited<ReturnType<typeof this.getPipelineStatus>>) => void,
+    pollInterval: number = 2500,
+  ): Promise<Awaited<ReturnType<typeof this.getPipelineStatus>>> {
+    console.log(`[API] Starting to poll pipeline ${sessionId}...`);
+    const startTime = Date.now();
+    let pollCount = 0;
+
+    while (true) {
+      pollCount++;
+      const status = await this.getPipelineStatus(sessionId);
+
+      // Log every 10th poll
+      if (pollCount % 10 === 1) {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        console.log(`[API] Pipeline ${sessionId} status: ${status.status} (poll #${pollCount}, ${elapsed}s elapsed)`);
+      }
+
+      if (onProgress) {
+        onProgress(status);
+      }
+
+      if (status.status === 'completed' || status.status === 'cancelled' || status.status === 'failed') {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        console.log(`[API] Pipeline ${sessionId} finished with status: ${status.status} after ${elapsed}s`);
+        return status;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+  }
+
+  /**
+   * Cancel a running pipeline.
+   */
+  async cancelPipeline(sessionId: string): Promise<{ status: string; session_id: string }> {
+    console.log(`[API] Cancelling pipeline ${sessionId}`);
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'pipeline_cancel', session_id: sessionId }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to cancel pipeline: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.output?.result || result.output;
+  }
+
+  /**
+   * Export pipeline results as FASTA.
+   */
+  async exportPipelineFasta(
+    sessionId: string,
+    includeReview: boolean = false,
+  ): Promise<{ status: string; filename: string; content: string; num_sequences: number }> {
+    console.log(`[API] Exporting pipeline ${sessionId} to FASTA`);
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'pipeline_export',
+          session_id: sessionId,
+          include_review: includeReview,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to export pipeline: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Pipeline export failed');
+    }
+
+    return result.output?.result || result.output;
+  }
 }
 
 export const api = new FoundryAPI();

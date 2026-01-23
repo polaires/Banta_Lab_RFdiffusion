@@ -360,6 +360,73 @@ interface AppState {
   // Apply auto-suggestions from analysis
   applyEnzymeSuggestions: () => void;
   clearAllEnzymeConditioning: () => void;
+
+  // Pipeline state for parameter sweeps and production runs
+  pipelineState: PipelineState;
+  setPipelineMode: (mode: PipelineMode) => void;
+  startPipeline: (sessionId: string, mode: PipelineMode, totalConfigs: number, designsPerConfig: number) => void;
+  updatePipelineProgress: (progress: Partial<PipelineProgress>) => void;
+  setPipelineResults: (results: PipelineDesign[]) => void;
+  setPipelineFilters: (filters: Partial<PipelineFilters>) => void;
+  setSweepConfigs: (configs: SweepConfig[]) => void;
+  resetPipeline: () => void;
+  cancelPipeline: () => void;
+}
+
+// Pipeline types
+export type PipelineMode = 'single' | 'sweep' | 'production';
+
+export interface PipelineFilters {
+  plddt: number;
+  ptm: number;
+  pae: number;
+}
+
+export interface SweepConfig {
+  name: string;
+  contigSize: 'small' | 'medium' | 'large';
+  contigRange: string;
+  cfgScale: number;
+  numDesigns: number;
+}
+
+export interface PipelineDesign {
+  name: string;
+  config: string;
+  sequence: string;
+  plddt: number;
+  ptm: number;
+  pae: number;
+  status: 'pass' | 'review' | 'fail';
+  timestamp?: string;
+}
+
+export interface PipelineProgress {
+  currentConfig: number;
+  totalConfigs: number;
+  currentDesign: number;
+  designsPerConfig: number;
+  totalGenerated: number;
+  totalPassing: number;
+  totalReview: number;
+  totalFailed: number;
+  passRate: number;
+  bestDesign: {
+    name: string;
+    plddt: number;
+    ptm: number;
+    pae: number;
+  } | null;
+}
+
+export interface PipelineState {
+  mode: PipelineMode;
+  isRunning: boolean;
+  sessionId: string | null;
+  progress: PipelineProgress;
+  results: PipelineDesign[];
+  filters: PipelineFilters;
+  sweepConfigs: SweepConfig[];
 }
 
 // Default backend URL from environment or fallback
@@ -901,6 +968,118 @@ export const useStore = create<AppState>()(
     selectedHBondDonors: {},
     hbondOverridden: false,
   }),
+
+  // Pipeline state for parameter sweeps and production runs
+  pipelineState: {
+    mode: 'single' as PipelineMode,
+    isRunning: false,
+    sessionId: null,
+    progress: {
+      currentConfig: 0,
+      totalConfigs: 0,
+      currentDesign: 0,
+      designsPerConfig: 10,
+      totalGenerated: 0,
+      totalPassing: 0,
+      totalReview: 0,
+      totalFailed: 0,
+      passRate: 0,
+      bestDesign: null,
+    },
+    results: [],
+    filters: {
+      plddt: 0.80,
+      ptm: 0.80,
+      pae: 5.0,
+    },
+    sweepConfigs: [],
+  },
+
+  setPipelineMode: (mode) => set((state) => ({
+    pipelineState: { ...state.pipelineState, mode },
+  })),
+
+  startPipeline: (sessionId, mode, totalConfigs, designsPerConfig) => set((state) => ({
+    pipelineState: {
+      ...state.pipelineState,
+      mode,
+      isRunning: true,
+      sessionId,
+      progress: {
+        ...state.pipelineState.progress,
+        currentConfig: 0,
+        totalConfigs,
+        currentDesign: 0,
+        designsPerConfig,
+        totalGenerated: 0,
+        totalPassing: 0,
+        totalReview: 0,
+        totalFailed: 0,
+        passRate: 0,
+        bestDesign: null,
+      },
+      results: [],
+    },
+  })),
+
+  updatePipelineProgress: (progress) => set((state) => ({
+    pipelineState: {
+      ...state.pipelineState,
+      progress: { ...state.pipelineState.progress, ...progress },
+    },
+  })),
+
+  setPipelineResults: (results) => set((state) => ({
+    pipelineState: {
+      ...state.pipelineState,
+      isRunning: false,
+      results,
+    },
+  })),
+
+  setPipelineFilters: (filters) => set((state) => ({
+    pipelineState: {
+      ...state.pipelineState,
+      filters: { ...state.pipelineState.filters, ...filters },
+    },
+  })),
+
+  setSweepConfigs: (configs) => set((state) => ({
+    pipelineState: {
+      ...state.pipelineState,
+      sweepConfigs: configs,
+    },
+  })),
+
+  resetPipeline: () => set((state) => ({
+    pipelineState: {
+      mode: 'single' as PipelineMode,
+      isRunning: false,
+      sessionId: null,
+      progress: {
+        currentConfig: 0,
+        totalConfigs: 0,
+        currentDesign: 0,
+        designsPerConfig: 10,
+        totalGenerated: 0,
+        totalPassing: 0,
+        totalReview: 0,
+        totalFailed: 0,
+        passRate: 0,
+        bestDesign: null,
+      },
+      results: [],
+      filters: state.pipelineState.filters, // Keep filters
+      sweepConfigs: [], // Reset configs
+    },
+  })),
+
+  cancelPipeline: () => set((state) => ({
+    pipelineState: {
+      ...state.pipelineState,
+      isRunning: false,
+    },
+  })),
 }),
     {
       name: 'rfd3-design-history',

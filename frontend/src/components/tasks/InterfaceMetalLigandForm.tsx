@@ -2,6 +2,7 @@
 
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useState, useEffect } from 'react';
 import {
   Sparkles,
   Info,
@@ -11,6 +12,7 @@ import {
   Upload,
   Atom,
   FlaskConical,
+  Layers,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -26,6 +28,15 @@ import {
 } from '@/lib/validations/metal-ligand-form';
 import { QUALITY_PRESET_VALUES, type QualityPreset } from '@/lib/validations/metal-form';
 import { RFD3Request, TaskFormProps } from './shared/types';
+import { useStore, type PipelineMode, type SweepConfig } from '@/lib/store';
+import { api } from '@/lib/api';
+
+// Pipeline components
+import { PipelineModeSelector, PipelineModeDescription } from './shared/PipelineModeSelector';
+import { SweepConfigForm, generateDefaultSweepConfigs } from './SweepConfigForm';
+import { FilterThresholdEditor } from './FilterThresholdEditor';
+import { PipelineProgressPanel } from './PipelineProgressPanel';
+import { PipelineResultsView } from '../ai/PipelineResultsView';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -104,6 +115,186 @@ export function InterfaceMetalLigandForm({ onSubmit, isSubmitting, health }: Tas
   const watchUseHsabBias = form.watch('useHsabBias');
 
   const selectedTemplate = getTemplateById(watchTemplateId);
+
+  // Pipeline state from store
+  const {
+    pipelineState,
+    setPipelineMode,
+    startPipeline,
+    updatePipelineProgress,
+    setPipelineResults,
+    setPipelineFilters,
+    setSweepConfigs,
+    resetPipeline,
+    cancelPipeline,
+  } = useStore();
+
+  // Local pipeline state
+  const [designsPerConfig, setDesignsPerConfig] = useState(10);
+  const [productionDesigns, setProductionDesigns] = useState(100);
+
+  // Initialize sweep configs on mount
+  useEffect(() => {
+    if (pipelineState.sweepConfigs.length === 0) {
+      setSweepConfigs(generateDefaultSweepConfigs(designsPerConfig));
+    }
+  }, []);
+
+  // Handle pipeline mode change
+  const handleModeChange = (mode: PipelineMode) => {
+    setPipelineMode(mode);
+    if (mode === 'sweep' && pipelineState.sweepConfigs.length === 0) {
+      setSweepConfigs(generateDefaultSweepConfigs(designsPerConfig));
+    }
+  };
+
+  // Start pipeline run
+  const handleStartPipeline = async () => {
+    const template = getTemplateById(watchTemplateId);
+    if (!template && !watchUseCustomComplex) {
+      console.error('No template selected');
+      return;
+    }
+
+    // Build motif PDB (for now, use template or custom)
+    const motifPdb = watchUseCustomComplex
+      ? form.getValues('customPdb') || ''
+      : ''; // Template PDB would be fetched from backend
+
+    const metal = watchUseCustomComplex
+      ? form.getValues('customMetal') || 'TB'
+      : template?.metal || 'TB';
+
+    const ligand = watchUseCustomComplex
+      ? form.getValues('customLigandName') || 'CIT'
+      : template?.ligand || 'CIT';
+
+    try {
+      if (pipelineState.mode === 'sweep') {
+        // Convert sweep configs to backend format
+        const backendConfigs = pipelineState.sweepConfigs.map((c) => ({
+          name: c.name,
+          contig_size: c.contigSize,
+          contig_range: c.contigRange,
+          cfg_scale: c.cfgScale,
+          num_designs: c.numDesigns,
+        }));
+
+        const result = await api.startPipeline({
+          mode: 'sweep',
+          metal,
+          ligand,
+          motif_pdb: motifPdb,
+          sweep_configs: backendConfigs,
+          filters: pipelineState.filters,
+          designs_per_config: designsPerConfig,
+        });
+
+        // Start pipeline in store
+        startPipeline(
+          result.session_id,
+          'sweep',
+          result.total_configs,
+          result.designs_per_config || designsPerConfig
+        );
+
+        // Start polling
+        pollPipelineProgress(result.session_id);
+      } else if (pipelineState.mode === 'production') {
+        const result = await api.startPipeline({
+          mode: 'production',
+          metal,
+          ligand,
+          motif_pdb: motifPdb,
+          production_config: {
+            contig_size: 'medium',
+            contig_range: form.getValues('chainLength') || '70-90',
+            cfg_scale: 2.0,
+          },
+          num_designs: productionDesigns,
+          filters: pipelineState.filters,
+        });
+
+        startPipeline(result.session_id, 'production', 1, productionDesigns);
+        pollPipelineProgress(result.session_id);
+      }
+    } catch (error) {
+      console.error('Failed to start pipeline:', error);
+    }
+  };
+
+  // Poll pipeline progress
+  const pollPipelineProgress = async (sessionId: string) => {
+    try {
+      await api.pollPipelineStatus(sessionId, (status) => {
+        // Update store with progress
+        updatePipelineProgress({
+          currentConfig: status.current_config,
+          totalConfigs: status.total_configs,
+          currentDesign: status.current_design,
+          designsPerConfig: status.designs_per_config,
+          totalGenerated: status.total_generated,
+          totalPassing: status.total_passing,
+          totalReview: status.total_review,
+          totalFailed: status.total_failed,
+          passRate: status.pass_rate,
+          bestDesign: status.best_design,
+        });
+
+        // If completed, set results
+        if (status.status === 'completed' && status.results) {
+          setPipelineResults(
+            status.results.map((r) => ({
+              name: r.name,
+              config: r.config_name,
+              sequence: '', // Sequence not included in status
+              plddt: r.plddt,
+              ptm: r.ptm,
+              pae: r.pae,
+              status: r.status as 'pass' | 'review' | 'fail',
+            }))
+          );
+        }
+      });
+    } catch (error) {
+      console.error('Pipeline polling error:', error);
+    }
+  };
+
+  // Handle pipeline cancellation
+  const handleCancelPipeline = async () => {
+    if (pipelineState.sessionId) {
+      try {
+        await api.cancelPipeline(pipelineState.sessionId);
+        cancelPipeline();
+      } catch (error) {
+        console.error('Failed to cancel pipeline:', error);
+      }
+    }
+  };
+
+  // Export FASTA
+  const handleExportFasta = async (selectedIds: string[], includeReview: boolean) => {
+    if (!pipelineState.sessionId) return;
+
+    try {
+      const result = await api.exportPipelineFasta(
+        pipelineState.sessionId,
+        includeReview
+      );
+
+      // Download the FASTA file
+      const blob = new Blob([result.content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = result.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to export FASTA:', error);
+    }
+  };
 
   // Quality preset change
   const handleQualityPresetChange = (preset: QualityPreset) => {
@@ -193,6 +384,85 @@ export function InterfaceMetalLigandForm({ onSubmit, isSubmitting, health }: Tas
             <p className="text-sm text-muted-foreground">Design homodimers that bind metal-ligand complexes at the interface</p>
           </div>
         </div>
+
+        {/* Pipeline Mode Selector */}
+        <div className="space-y-2">
+          <PipelineModeSelector
+            mode={pipelineState.mode}
+            onModeChange={handleModeChange}
+            disabled={pipelineState.isRunning || isSubmitting}
+          />
+          <PipelineModeDescription mode={pipelineState.mode} />
+        </div>
+
+        {/* Pipeline Progress Panel (shown when running) */}
+        {pipelineState.isRunning && (
+          <PipelineProgressPanel
+            progress={pipelineState.progress}
+            mode={pipelineState.mode}
+            isRunning={pipelineState.isRunning}
+            onCancel={handleCancelPipeline}
+          />
+        )}
+
+        {/* Pipeline Results (shown when completed with results) */}
+        {!pipelineState.isRunning && pipelineState.results.length > 0 && (
+          <PipelineResultsView
+            results={pipelineState.results}
+            onExportFasta={handleExportFasta}
+          />
+        )}
+
+        {/* Sweep Configuration (only shown in sweep mode) */}
+        {pipelineState.mode === 'sweep' && !pipelineState.isRunning && (
+          <SweepConfigForm
+            configs={pipelineState.sweepConfigs}
+            onConfigsChange={setSweepConfigs}
+            designsPerConfig={designsPerConfig}
+            onDesignsPerConfigChange={setDesignsPerConfig}
+            disabled={pipelineState.isRunning}
+          />
+        )}
+
+        {/* Production Mode Config (only shown in production mode) */}
+        {pipelineState.mode === 'production' && !pipelineState.isRunning && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Layers className="w-4 h-4" />
+                Production Configuration
+              </CardTitle>
+              <CardDescription>
+                Run many designs with a single optimized configuration
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="productionDesigns">Number of Designs</Label>
+                <Input
+                  id="productionDesigns"
+                  type="number"
+                  min={10}
+                  max={1000}
+                  value={productionDesigns}
+                  onChange={(e) => setProductionDesigns(parseInt(e.target.value) || 100)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Generate {productionDesigns} designs with the selected configuration
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Filter Thresholds (shown in sweep and production modes) */}
+        {pipelineState.mode !== 'single' && !pipelineState.isRunning && (
+          <FilterThresholdEditor
+            filters={pipelineState.filters}
+            onFiltersChange={setPipelineFilters}
+            disabled={pipelineState.isRunning}
+          />
+        )}
 
         {/* Info Banner */}
         <Card className="bg-muted border-border">
@@ -736,26 +1006,57 @@ export function InterfaceMetalLigandForm({ onSubmit, isSubmitting, health }: Tas
 
         {/* Submit Button */}
         <div className="pt-4 border-t">
-          <Button
-            type="submit"
-            disabled={!form.formState.isValid || isSubmitting || !health}
-            className="w-full"
-            size="lg"
-          >
-            {isSubmitting ? (
-              <>
-                <span className="animate-spin mr-2">
-                  <Sparkles className="w-4 h-4" />
-                </span>
-                Designing Metal-Ligand Dimer...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 mr-2" />
-                Design {selectedTemplate?.name || 'Custom'} Dimer
-              </>
-            )}
-          </Button>
+          {pipelineState.mode === 'single' ? (
+            /* Single design mode - use form submission */
+            <Button
+              type="submit"
+              disabled={!form.formState.isValid || isSubmitting || !health}
+              className="w-full"
+              size="lg"
+            >
+              {isSubmitting ? (
+                <>
+                  <span className="animate-spin mr-2">
+                    <Sparkles className="w-4 h-4" />
+                  </span>
+                  Designing Metal-Ligand Dimer...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Design {selectedTemplate?.name || 'Custom'} Dimer
+                </>
+              )}
+            </Button>
+          ) : (
+            /* Pipeline mode - start sweep or production */
+            <Button
+              type="button"
+              onClick={handleStartPipeline}
+              disabled={pipelineState.isRunning || !health || (pipelineState.mode === 'sweep' && pipelineState.sweepConfigs.length === 0)}
+              className="w-full"
+              size="lg"
+            >
+              {pipelineState.isRunning ? (
+                <>
+                  <span className="animate-spin mr-2">
+                    <Sparkles className="w-4 h-4" />
+                  </span>
+                  Pipeline Running...
+                </>
+              ) : pipelineState.mode === 'sweep' ? (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Start Parameter Sweep ({pipelineState.sweepConfigs.length} configs × {designsPerConfig} designs)
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Start Production Run ({productionDesigns} designs)
+                </>
+              )}
+            </Button>
+          )}
           {!health && (
             <p className="text-center text-sm text-muted-foreground mt-2">
               Backend service unavailable

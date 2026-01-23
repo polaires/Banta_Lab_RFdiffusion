@@ -1,0 +1,89 @@
+{
+  "_meta": {
+    "round": "5",
+    "description": "CRITICAL FIX - Both TB AND citrate must be fixed to maintain coordination",
+    "date_created": "2026-01-22",
+    "lessons_from_r1_r4": [
+      "CRITICAL: Citrate was NOT fixed in R2b - it drifted 17A away from TB",
+      "Both TB and CIT must have select_fixed_atoms to maintain coordination",
+      "Original input has proper geometry: TB-O distances 2.35-2.5A",
+      "CFG helps but cannot fix unfixed atoms drifting apart"
+    ],
+    "fix_applied": [
+      "Added CIT to select_fixed_atoms with ALL atoms fixed",
+      "This keeps TB-citrate coordination intact during diffusion"
+    ],
+    "n_designs_per_config": 16
+  },
+
+  "r5_a_both_fixed_buried": {
+    "_description": "Both TB and CIT fixed + buried + CFG",
+    "_hypothesis": "Fixing both ligand and metal maintains coordination geometry",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "80-100",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "X": "ALL",
+      "L": "ALL"
+    },
+    "select_buried": {
+      "X": "ALL",
+      "L": "ALL"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r5_b_both_fixed_hbond": {
+    "_description": "Both fixed + buried + H-bond conditioning on citrate oxygens",
+    "_hypothesis": "H-bonds to citrate oxygens will recruit protein coordination",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "90-110",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "X": "ALL",
+      "L": "ALL"
+    },
+    "select_buried": {
+      "X": "ALL"
+    },
+    "select_partially_buried": {
+      "L": "O1,O2,O3,O4,O5,O6,O7"
+    },
+    "select_hbond_acceptor": {
+      "L": "O1,O2,O3,O4,O5,O6,O7"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r5_c_with_motif_residues": {
+    "_description": "Use full prepped input with coordinating residue motif",
+    "_hypothesis": "Including the motif residues provides coordination scaffold",
+    "input": "../inputs/3c9h_ln_prepped.pdb",
+    "contig": "E1,D3,D4,N5,5-20,L,X,5-20",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "X": "ALL",
+      "L": "ALL",
+      "E": "OE1,OE2",
+      "D": "OD1,OD2",
+      "N": "OD1"
+    },
+    "select_buried": {
+      "X": "ALL",
+      "L": "ALL"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  }
+}

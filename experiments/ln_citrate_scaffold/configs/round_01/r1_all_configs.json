@@ -1,0 +1,91 @@
+{
+  "_meta": {
+    "round": 1,
+    "description": "Baseline exploration: three fundamental strategies for Ln-citrate scaffold",
+    "date_created": "2026-01-21",
+    "n_designs_per_config": 8,
+    "total_expected": 24,
+    "notes": "Using de novo motif template with 5 coordinating residues (2 Glu, 2 Asp, 1 Asn)"
+  },
+
+  "r1a_denovo_short": {
+    "_description": "De novo scaffold (80-100 residues) around Ln-citrate-motif, TIP-fixed coordinators",
+    "input": "../inputs/coordinating_motif.pdb",
+    "contig": "80-100",
+    "ligand": "CIT,TB",
+    "unindex": "E1,E2,D3,D4,N5",
+    "select_fixed_atoms": {
+      "E1": "TIP",
+      "E2": "TIP",
+      "D3": "TIP",
+      "D4": "TIP",
+      "N5": "TIP",
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "ori_token": [0.0, 0.0, 0.0],
+    "infer_ori_strategy": "com",
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r1b_denovo_medium": {
+    "_description": "De novo scaffold (100-120 residues) around Ln-citrate-motif, TIP-fixed coordinators",
+    "input": "../inputs/coordinating_motif.pdb",
+    "contig": "100-120",
+    "ligand": "CIT,TB",
+    "unindex": "E1,E2,D3,D4,N5",
+    "select_fixed_atoms": {
+      "E1": "TIP",
+      "E2": "TIP",
+      "D3": "TIP",
+      "D4": "TIP",
+      "N5": "TIP",
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "ori_token": [0.0, 0.0, 0.0],
+    "infer_ori_strategy": "com",
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r1c_denovo_long": {
+    "_description": "De novo scaffold (120-140 residues) around Ln-citrate-motif, more flexibility",
+    "input": "../inputs/coordinating_motif.pdb",
+    "contig": "120-140",
+    "ligand": "CIT,TB",
+    "unindex": "E1,E2,D3,D4,N5",
+    "select_fixed_atoms": {
+      "E1": "TIP",
+      "E2": "TIP",
+      "D3": "TIP",
+      "D4": "TIP",
+      "N5": "TIP",
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "ori_token": [0.0, 0.0, 0.0],
+    "infer_ori_strategy": "com",
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  }
+}

@@ -1,0 +1,25 @@
+# Ln-Citrate Scaffold Experiment - Local Files (Not Tracked)
+
+# Generated PDB outputs (large, regenerable)
+outputs/
+*.pdb
+
+# Analysis JSON files (can be large)
+analysis/*.json
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Temporary files
+*.tmp
+*.bak
+
+# Keep these tracked:
+# - DESIGN_PLAN.md
+# - configs/**/*.json
+# - scripts/*.py
+# - analysis/cumulative_lessons.md
+# - final/production_config.json
+!analysis/cumulative_lessons.md
+!final/production_config.json

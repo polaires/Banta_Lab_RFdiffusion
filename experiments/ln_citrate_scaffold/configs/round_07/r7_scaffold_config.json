@@ -1,0 +1,105 @@
+{
+  "round_07_scaffold": {
+    "description": "Motif scaffolding: TB-citrate with H-bond donors fixed, explore additional TB coordination",
+    "rationale": "Previous de novo designs created pockets too small for citrate. Scaffolding preserves citrate contacts while building protein around them.",
+
+    "input": "inputs/tb_citrate_motif_scaffold.pdb",
+
+    "contig_strategy": "motif_scaffolding",
+    "contig_explanation": "Build scaffold segments between fixed motif residues. ~10-20 residues between each fixed residue to allow proper folding.",
+
+    "configs": [
+      {
+        "name": "r7a_scaffold_tight",
+        "description": "Tight scaffolding with shorter linkers",
+        "contig": "8-12,M1,8-12,M2,8-12,M3,8-12,M4,8-12,M5,8-12",
+        "select_fixed_atoms": {
+          "X": "all",
+          "L": "all",
+          "M": "all"
+        },
+        "select_hbond_acceptor": {
+          "L": "O1,O2,O3,O4,O5,O6"
+        },
+        "select_hbond_donor": {
+          "L": "O7"
+        },
+        "use_classifier_free_guidance": true,
+        "cfg_scale": 2.0,
+        "n_batches": 50,
+        "step_scale": 1.5,
+        "expected_length": "70-95 residues"
+      },
+      {
+        "name": "r7b_scaffold_loose",
+        "description": "Looser scaffolding with longer linkers for more burial",
+        "contig": "12-18,M1,12-18,M2,12-18,M3,12-18,M4,12-18,M5,12-18",
+        "select_fixed_atoms": {
+          "X": "all",
+          "L": "all",
+          "M": "all"
+        },
+        "select_hbond_acceptor": {
+          "L": "O1,O2,O3,O4,O5,O6"
+        },
+        "select_hbond_donor": {
+          "L": "O7"
+        },
+        "select_buried": {
+          "L": "all"
+        },
+        "use_classifier_free_guidance": true,
+        "cfg_scale": 2.0,
+        "n_batches": 50,
+        "step_scale": 1.5,
+        "expected_length": "95-130 residues"
+      },
+      {
+        "name": "r7c_scaffold_unindexed",
+        "description": "Unindexed motif scaffolding - let RFD3 place motif optimally",
+        "contig": "100-130",
+        "unindex": {
+          "M": "all"
+        },
+        "select_fixed_atoms": {
+          "X": "all",
+          "L": "all",
+          "M": "all"
+        },
+        "select_hbond_acceptor": {
+          "L": "O1,O2,O3,O4,O5,O6"
+        },
+        "select_hbond_donor": {
+          "L": "O7"
+        },
+        "select_buried": {
+          "L": "all"
+        },
+        "use_classifier_free_guidance": true,
+        "cfg_scale": 2.0,
+        "n_batches": 50,
+        "step_scale": 1.5,
+        "expected_length": "100-130 residues"
+      }
+    ],
+
+    "notes": {
+      "motif_composition": {
+        "chain_X": "TB (terbium ion)",
+        "chain_L": "Citrate with 7 oxygens (O1-O7)",
+        "chain_M": "5 motif residues (2 SER for H-bonds to citrate arms, 1 THR for hydroxyl H-bond, 2 GLU for TB coordination)"
+      },
+      "expected_coordination": {
+        "TB_from_citrate": "2-3 carboxylate O atoms from citrate",
+        "TB_from_protein": "2 GLU carboxylates + designed additional contacts",
+        "target_CN": "8-9",
+        "citrate_Hbonds": "SER/THR OG atoms to citrate carboxylates"
+      },
+      "key_parameters": {
+        "cfg_scale": "2.0 required for H-bond conditioning to work effectively",
+        "select_buried": "Ensures citrate is buried in protein core",
+        "step_scale": "1.5 for high designability"
+      }
+    }
+  }
+}

@@ -1,0 +1,135 @@
+{
+  "_meta": {
+    "round": "6",
+    "description": "Two approaches to achieve CN=8-9: partial diffusion and dimer design",
+    "date_created": "2026-01-22",
+    "lessons_from_r5": [
+      "Fixed TB-citrate complex successfully maintained coordination",
+      "Best design r5_b_hbond_011 achieved CN=2 at 4A (target: 6 from protein)",
+      "H-bond conditioning on citrate oxygens helped positioning",
+      "Need 4 more protein donors to reach CN=8-9"
+    ],
+    "strategy": {
+      "approach_a": "Partial diffusion from R5 best to add coordinating loops",
+      "approach_b": "Homodimer where each chain provides ~3 coordinating residues",
+      "approach_c": "Longer contigs with stricter H-bond conditioning"
+    },
+    "n_designs_per_config": 32,
+    "target": "CN >= 6 from protein (total CN=9 with citrate)",
+    "api_format_note": "select_fixed_atoms keys must be ChainIDResID format (e.g., X96, L96)"
+  },
+
+  "r6_a_partial_resample": {
+    "_description": "Partial diffusion from R5 best design - resample loops to add coordinators",
+    "_hypothesis": "Starting from working scaffold, partial_t allows adding more coordinating loops",
+    "_notes": "partial_t=0.5 keeps core structure, resamples 50% of backbone. R5 output has ligands at residue 96.",
+    "input": "../../outputs/round_05/r5_b_hbond_011.pdb",
+    "contig": "A1-95",
+    "ligand": "CIT,TB",
+    "partial_t": 0.5,
+    "select_fixed_atoms": {
+      "X96": "all",
+      "L96": "all"
+    },
+    "select_buried": {
+      "X96": "all"
+    },
+    "select_hbond_acceptor": {
+      "L96": "O1,O2,O3,O4,O5,O6,O7"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "is_non_loopy": false,
+    "plddt_enhanced": true
+  },
+
+  "r6_b_partial_aggressive": {
+    "_description": "More aggressive partial diffusion (partial_t=0.7) for larger changes",
+    "_hypothesis": "Allow more backbone resampling to enable larger loop insertions",
+    "input": "../../outputs/round_05/r5_b_hbond_011.pdb",
+    "contig": "A1-95",
+    "ligand": "CIT,TB",
+    "partial_t": 0.7,
+    "select_fixed_atoms": {
+      "X96": "all",
+      "L96": "all"
+    },
+    "select_buried": {
+      "X96": "all"
+    },
+    "select_hbond_acceptor": {
+      "L96": "O1,O2,O3,O4,O5,O6,O7"
+    },
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "infer_ori_strategy": "com",
+    "plddt_enhanced": true
+  },
+
+  "r6_c_dimer_symmetric": {
+    "_description": "Homodimer - each chain provides ~3 coordinating residues (total 6)",
+    "_hypothesis": "C2 symmetric dimer naturally places 6 donors around metal",
+    "_notes": "Two 50-70 residue chains, each contributing to coordination. Input has ligands at residue 1.",
+    "input": "../../inputs/citrate_ln_only.pdb",
+    "contig": "50-70,/0,50-70",
+    "ligand": "CIT,TB",
+    "sym": "C2",
+    "diffusion_batch_size": 1,
+    "select_fixed_atoms": {
+      "X1": "all",
+      "L1": "all"
+    },
+    "select_buried": {
+      "X1": "all",
+      "L1": "O2,O5,O7"
+    },
+    "select_hbond_acceptor": {
+      "L1": "O1,O3,O4,O6"
+    },
+    "hotspots": {
+      "X1": "all"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "plddt_enhanced": true
+  },
+
+  "r6_d_denovo_extended": {
+    "_description": "De novo with longer scaffold and aggressive H-bond conditioning",
+    "_hypothesis": "Longer scaffold (110-130) allows more space for coordinating residues",
+    "input": "../../inputs/citrate_ln_only.pdb",
+    "contig": "110-130",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "X1": "all",
+      "L1": "all"
+    },
+    "select_buried": {
+      "X1": "all"
+    },
+    "select_partially_buried": {
+      "L1": "O2,O5,O7"
+    },
+    "select_hbond_acceptor": {
+      "L1": "O1,O2,O3,O4,O5,O6,O7"
+    },
+    "select_hbond_donor": {
+      "L1": "O7"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.5,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  }
+}

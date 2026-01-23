@@ -1,0 +1,65 @@
+{
+  "name": "ln_citrate",
+  "description": "Optimized for lanthanide-citrate binder designs (3C9H repurposing)",
+  "project": "ln_citrate_scaffold",
+  "filters": {
+    "coordination": {
+      "coordination_number": {"min": 7, "ideal": 8, "direction": "higher_better"},
+      "protein_donors": {"min": 4, "ideal": 5, "direction": "higher_better"},
+      "citrate_contacts": {"min": 2, "ideal": 3, "direction": "higher_better"},
+      "geometry_rmsd": {"max": 1.5, "ideal": 0.8, "direction": "lower_better"},
+      "ln_o_distance": {"min": 2.3, "max": 2.6, "ideal": 2.35}
+    },
+    "burial": {
+      "metal_sasa": {"max": 10, "ideal": 2, "direction": "lower_better"},
+      "citrate_partially_buried": {"equals": true}
+    },
+    "structure_quality": {
+      "plddt": {"min": 0.7, "ideal": 0.85, "direction": "higher_better"},
+      "ss_content": {"min": 0.5, "ideal": 0.7, "direction": "higher_better"},
+      "no_clashes": {"equals": true}
+    },
+    "hsab": {
+      "compatible": {"equals": true},
+      "cys_excluded": {"equals": true}
+    }
+  },
+  "tier_thresholds": {
+    "S": {
+      "coordination_number": 8,
+      "geometry_rmsd": 0.8,
+      "metal_sasa": 2,
+      "citrate_contacts": 3
+    },
+    "A": {
+      "coordination_number": 8,
+      "geometry_rmsd": 1.2,
+      "metal_sasa": 5,
+      "citrate_contacts": 3
+    },
+    "B": {
+      "coordination_number": 7,
+      "geometry_rmsd": 1.5,
+      "metal_sasa": 10,
+      "citrate_contacts": 2
+    },
+    "C": {
+      "coordination_number": 6,
+      "geometry_rmsd": 2.0,
+      "metal_sasa": 20,
+      "citrate_contacts": 1
+    }
+  },
+  "scoring_weights": {
+    "coordination_number": 30,
+    "geometry_quality": 25,
+    "burial": 20,
+    "citrate_interface": 15,
+    "secondary_structure": 10
+  },
+  "proceed_to_mpnn_criteria": {
+    "min_tier": "B",
+    "min_pass_rate": 0.30,
+    "min_tier_a_count": 3
+  }
+}

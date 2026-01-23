@@ -1,0 +1,55 @@
+{
+  "_meta": {
+    "status": "TEMPLATE - Not yet derived from experiments",
+    "derived_from_rounds": [],
+    "total_designs_tested": 0,
+    "final_pass_rate": null,
+    "best_tier_achieved": null,
+    "date_finalized": null,
+    "key_lessons": []
+  },
+  "_instructions": {
+    "1": "This file will be populated after completing iterative RFD3 experiments",
+    "2": "Run rounds 1-5 using scripts/run_round.py",
+    "3": "Analyze each round with scripts/analyze_round.py",
+    "4": "Document lessons in analysis/cumulative_lessons.md",
+    "5": "Update this file when pass_rate >= 50% or Tier A designs achieved"
+  },
+  "production_config": {
+    "input": "inputs/[TO_BE_DETERMINED].pdb",
+    "contig": "[TO_BE_DETERMINED]",
+    "length": "[TO_BE_DETERMINED]",
+    "ligand": "CIT,TB",
+    "partial_t": null,
+    "unindex": null,
+    "select_fixed_atoms": {},
+    "select_buried": {},
+    "select_partially_buried": {},
+    "select_hbond_acceptor": {},
+    "ori_token": [0.0, 0.0, 0.0],
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+  "cli_args": {
+    "n_batches": 50,
+    "diffusion_batch_size": 8,
+    "inference_sampler.num_timesteps": 300,
+    "inference_sampler.step_scale": 1.8
+  },
+  "ligandmpnn_config": {
+    "model_type": "ligand_mpnn",
+    "temperature": 0.1,
+    "bias_AA": "E:3.0,D:3.0,N:2.4,Q:2.4,H:0.5,C:-5.0,A:-2.0",
+    "omit_AA": "C",
+    "fixed_positions": [],
+    "pack_side_chains": true,
+    "num_sequences": 16
+  },
+  "validation_pipeline": {
+    "af2_plddt_threshold": 70,
+    "af2_pae_threshold": 10,
+    "coordination_cn_min": 8,
+    "coordination_geometry_rmsd_max": 1.0,
+    "pyrosetta_fastrelax": true
+  }
+}

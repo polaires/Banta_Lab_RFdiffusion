@@ -1,0 +1,94 @@
+{
+  "_meta": {
+    "round": "2b",
+    "description": "Round 2 CORRECTED - Adding CFG and fixing origin parameter conflict",
+    "date_created": "2026-01-22",
+    "lessons_from_r2": [
+      "CRITICAL: Must use CFG (cfg_scale=2.0) with RASA/H-bond conditioning",
+      "ori_token AND infer_ori_strategy cannot be used together - pick one",
+      "Fixed metal (r2a/r2b) outperformed unfixed (r2c)",
+      "CN=5 achieved without CFG - expect better with CFG"
+    ],
+    "changes_from_r2": [
+      "Added use_classifier_free_guidance: true",
+      "Added cfg_scale: 2.0",
+      "Removed conflicting ori_token (keeping infer_ori_strategy only)",
+      "Increased designs to 16 per config for better statistics"
+    ],
+    "n_designs_per_config": 16,
+    "total_expected": 48
+  },
+
+  "r2b_a_cfg_buried": {
+    "_description": "Fixed metal + burial + CFG - should improve coordination",
+    "_hypothesis": "CFG will enforce burial conditioning, concentrating scaffold around metal",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "80-100",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r2b_b_cfg_hbond": {
+    "_description": "Fixed metal + burial + H-bond on citrate + CFG",
+    "_hypothesis": "CFG + H-bond conditioning should improve citrate binding",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "90-110",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "select_hbond_acceptor": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r2b_c_cfg_both_buried": {
+    "_description": "Both metal AND citrate buried with CFG",
+    "_hypothesis": "Burying both should keep them close together",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "80-100",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL",
+      "CIT": "C1,C2,C3,C4,C5,C6"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "infer_ori_strategy": "com",
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  }
+}

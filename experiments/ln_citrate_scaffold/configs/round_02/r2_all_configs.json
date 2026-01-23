@@ -1,0 +1,83 @@
+{
+  "_meta": {
+    "round": 2,
+    "description": "Revised approach after R1 failure - metal displaced from scaffold",
+    "date_created": "2026-01-21",
+    "lessons_from_r1": [
+      "Metal stayed at origin while scaffold moved away",
+      "Disconnected motif chains (E1, E2, D3, D4, N5) not properly scaffolded",
+      "Need simpler approach: just metal+ligand with burial conditioning"
+    ],
+    "n_designs_per_config": 8,
+    "total_expected": 24
+  },
+
+  "r2a_simple_buried_metal": {
+    "_description": "Simplest approach: just TB+CIT, strong burial, let RFD3 decide coordination",
+    "_hypothesis": "RFD3 should naturally place coordinating residues around buried metal",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "80-100",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "ori_token": [0.0, 0.0, 0.0],
+    "infer_ori_strategy": "com",
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r2b_hbond_citrate": {
+    "_description": "Add H-bond acceptor conditioning on citrate oxygens",
+    "_hypothesis": "Force protein to H-bond with citrate, improving interaction",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "90-110",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "TB": "ALL",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "select_hbond_acceptor": {
+      "CIT": "O1,O2,O3,O4,O5,O6"
+    },
+    "ori_token": [0.0, 0.0, 0.0],
+    "infer_ori_strategy": "com",
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  },
+
+  "r2c_unfixed_citrate": {
+    "_description": "Unfix both metal and citrate for co-diffusion",
+    "_hypothesis": "Let citrate move with scaffold to find optimal position",
+    "input": "../inputs/citrate_ln_only.pdb",
+    "contig": "80-100",
+    "ligand": "CIT,TB",
+    "select_fixed_atoms": {
+      "TB": "",
+      "CIT": ""
+    },
+    "select_buried": {
+      "TB": "ALL"
+    },
+    "select_partially_buried": {
+      "CIT": "ALL"
+    },
+    "ori_token": [0.0, 0.0, 0.0],
+    "infer_ori_strategy": "com",
+    "is_non_loopy": true,
+    "plddt_enhanced": true
+  }
+}

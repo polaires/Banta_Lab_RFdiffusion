@@ -36,7 +36,7 @@ import { PipelineModeSelector, PipelineModeDescription } from './shared/Pipeline
 import { SweepConfigForm, generateDefaultSweepConfigs } from './SweepConfigForm';
 import { FilterThresholdEditor } from './FilterThresholdEditor';
 import { PipelineProgressPanel } from './PipelineProgressPanel';
-import { PipelineResultsView } from '../ai/PipelineResultsView';
+import { PipelineResultsView } from './PipelineResultsView';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

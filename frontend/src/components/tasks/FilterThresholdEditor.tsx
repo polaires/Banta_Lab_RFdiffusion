@@ -132,7 +132,7 @@ export function FilterThresholdEditor({
             <span className="flex items-center gap-1">
               <span className={cn(
                 "inline-block w-2 h-2 rounded-full",
-                filters.plddt >= 0.80 ? "bg-green-500" : filters.plddt >= 0.70 ? "bg-yellow-500" : "bg-red-500"
+                filters.plddt >= 0.80 ? "bg-success" : filters.plddt >= 0.70 ? "bg-warning" : "bg-destructive"
               )} />
               {filters.plddt >= 0.80 ? 'Confident' : filters.plddt >= 0.70 ? 'Marginal' : 'Low'}
             </span>
@@ -166,7 +166,7 @@ export function FilterThresholdEditor({
             <span className="flex items-center gap-1">
               <span className={cn(
                 "inline-block w-2 h-2 rounded-full",
-                filters.ptm >= 0.80 ? "bg-green-500" : filters.ptm >= 0.65 ? "bg-yellow-500" : "bg-red-500"
+                filters.ptm >= 0.80 ? "bg-success" : filters.ptm >= 0.65 ? "bg-warning" : "bg-destructive"
               )} />
               {filters.ptm >= 0.80 ? 'Good match' : filters.ptm >= 0.65 ? 'Borderline' : 'Poor'}
             </span>
@@ -200,7 +200,7 @@ export function FilterThresholdEditor({
             <span className="flex items-center gap-1">
               <span className={cn(
                 "inline-block w-2 h-2 rounded-full",
-                filters.pae <= 5.0 ? "bg-green-500" : filters.pae <= 10.0 ? "bg-yellow-500" : "bg-red-500"
+                filters.pae <= 5.0 ? "bg-success" : filters.pae <= 10.0 ? "bg-warning" : "bg-destructive"
               )} />
               {filters.pae <= 5.0 ? 'Low error' : filters.pae <= 10.0 ? 'Moderate' : 'High'}
             </span>
@@ -210,7 +210,7 @@ export function FilterThresholdEditor({
 
         {/* Warning for very relaxed settings */}
         {(filters.plddt < 0.70 || filters.ptm < 0.65 || filters.pae > 10.0) && (
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-yellow-600 dark:text-yellow-400">
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-warning/10 border border-warning/20 text-warning">
             <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <p className="text-xs">
               Very relaxed thresholds may include low-quality designs that are unlikely to fold correctly.

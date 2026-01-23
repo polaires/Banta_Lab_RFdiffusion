@@ -389,6 +389,30 @@ Results are displayed below.`;
 // Demo mode execution functions
 
 /**
+ * Workflow type for unified demo execution
+ */
+export type WorkflowType = 'metal' | 'ligand' | 'binder';
+
+/**
+ * Unified demo workflow execution interface
+ * Provides a single entry point for executing demo workflows
+ */
+export async function executeDemoWorkflow(
+  type: WorkflowType,
+  onProgress: (progress: number) => void,
+  onStage?: (stage: string) => void
+): Promise<MetalWorkflowResult | LigandWorkflowResult | BinderWorkflowResult> {
+  switch (type) {
+    case 'metal':
+      return executeDemoMetalDesign(onProgress);
+    case 'ligand':
+      return executeDemoLigandDesign(onProgress, onStage);
+    case 'binder':
+      return executeDemoBinderDesign(onProgress, onStage);
+  }
+}
+
+/**
  * Execute metal design in demo mode
  */
 export async function executeDemoMetalDesign(

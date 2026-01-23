@@ -103,7 +103,7 @@ export function ConnectionModal() {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-bold text-foreground flex items-center gap-2">
-            {isConnected ? <Wifi className="w-5 h-5 text-emerald-600" /> : <WifiOff className="w-5 h-5 text-red-500" />}
+            {isConnected ? <Wifi className="w-5 h-5 text-success" /> : <WifiOff className="w-5 h-5 text-destructive" />}
             Backend Connection
           </h2>
           <button
@@ -202,12 +202,12 @@ export function ConnectionModal() {
           {/* Serverless Info */}
           {connectionMode === 'serverless' && (
             <div className="space-y-4">
-              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <div className="p-4 bg-success/10 border border-success/20 rounded-xl">
                 <div className="flex items-center gap-2 mb-1">
-                  <Zap className="w-4 h-4 text-emerald-600" />
-                  <p className="text-sm font-semibold text-emerald-700">Serverless Mode</p>
+                  <Zap className="w-4 h-4 text-success" />
+                  <p className="text-sm font-semibold text-success">Serverless Mode</p>
                 </div>
-                <p className="text-xs text-emerald-600">
+                <p className="text-xs text-success/80">
                   Using RunPod Serverless via Vercel Edge Function. Cold start: ~60-90 seconds.
                 </p>
               </div>
@@ -234,8 +234,8 @@ export function ConnectionModal() {
               {/* Connection status */}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Status</span>
-                <span className={`text-sm font-semibold flex items-center gap-1.5 ${isConnected ? 'text-emerald-600' : 'text-red-600'}`}>
-                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                <span className={`text-sm font-semibold flex items-center gap-1.5 ${isConnected ? 'text-success' : 'text-destructive'}`}>
+                  <span className={`w-2 h-2 rounded-full ${isConnected ? 'bg-success' : 'bg-destructive'}`} />
                   {isConnected ? 'Connected' : 'Disconnected'}
                 </span>
               </div>
@@ -244,7 +244,7 @@ export function ConnectionModal() {
               {health.mode && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Mode</span>
-                  <span className={`text-sm font-semibold flex items-center gap-1.5 ${isMockMode ? 'text-amber-600' : 'text-emerald-600'}`}>
+                  <span className={`text-sm font-semibold flex items-center gap-1.5 ${isMockMode ? 'text-warning' : 'text-success'}`}>
                     {isMockMode ? <AlertTriangle className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
                     {isMockMode ? 'Mock (Demo)' : 'Real (Foundry)'}
                   </span>
@@ -255,13 +255,13 @@ export function ConnectionModal() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">GPU</span>
                 {health.gpu_available ? (
-                  <span className="text-sm font-semibold text-emerald-600 flex items-center gap-1.5">
+                  <span className="text-sm font-semibold text-success flex items-center gap-1.5">
                     <Cpu className="w-4 h-4" />
                     {health.gpu_name || 'Available'}
                     {health.gpu_memory_gb && ` (${Math.round(health.gpu_memory_gb)}GB)`}
                   </span>
                 ) : (
-                  <span className="text-sm text-red-600 font-medium">Not Available</span>
+                  <span className="text-sm text-destructive font-medium">Not Available</span>
                 )}
               </div>
 
@@ -275,9 +275,9 @@ export function ConnectionModal() {
 
           {/* Not connected warning */}
           {!health && !checking && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-              <p className="text-sm text-red-700">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-4 flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0" />
+              <p className="text-sm text-destructive">
                 Unable to connect to backend. Make sure your RunPod pod is running.
               </p>
             </div>
@@ -341,13 +341,13 @@ export function ConnectionModal() {
                   <h3 className="font-semibold text-foreground">Troubleshooting</h3>
                   <ul className="space-y-1.5 text-muted-foreground text-xs">
                     <li>
-                      <span className="text-amber-600 font-medium">Connection refused:</span> Re-run setup cell
+                      <span className="text-warning font-medium">Connection refused:</span> Re-run setup cell
                     </li>
                     <li>
-                      <span className="text-amber-600 font-medium">CORS error:</span> Check port 8000 is exposed
+                      <span className="text-warning font-medium">CORS error:</span> Check port 8000 is exposed
                     </li>
                     <li>
-                      <span className="text-amber-600 font-medium">Mock mode:</span> Checkpoints still downloading
+                      <span className="text-warning font-medium">Mock mode:</span> Checkpoints still downloading
                     </li>
                   </ul>
                 </div>

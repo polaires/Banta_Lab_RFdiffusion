@@ -108,25 +108,25 @@ export function PipelineProgressPanel({
         <div className="grid grid-cols-2 gap-4">
           <StatBox
             icon={CheckCircle}
-            iconColor="text-green-500"
+            iconColor="text-success"
             label="Passing"
             value={progress.totalPassing}
           />
           <StatBox
             icon={AlertTriangle}
-            iconColor="text-yellow-500"
+            iconColor="text-warning"
             label="Review"
             value={progress.totalReview}
           />
           <StatBox
             icon={XCircle}
-            iconColor="text-red-500"
+            iconColor="text-destructive"
             label="Failed"
             value={progress.totalFailed}
           />
           <StatBox
             icon={TrendingUp}
-            iconColor="text-blue-500"
+            iconColor="text-info"
             label="Pass Rate"
             value={`${(progress.passRate * 100).toFixed(1)}%`}
           />

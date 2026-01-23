@@ -14,8 +14,8 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
     switch (status) {
       case 'pending':
         return {
-          color: 'text-blue-500',
-          bgColor: 'bg-blue-50 border-blue-200',
+          color: 'text-info',
+          bgColor: 'bg-info/10 border-info/20',
           label: 'Queued',
         };
       case 'running':
@@ -26,14 +26,14 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
         };
       case 'completed':
         return {
-          color: 'text-green-500',
-          bgColor: 'bg-green-50 border-green-200',
+          color: 'text-success',
+          bgColor: 'bg-success/10 border-success/20',
           label: 'Completed',
         };
       case 'failed':
         return {
-          color: 'text-red-500',
-          bgColor: 'bg-red-50 border-red-200',
+          color: 'text-destructive',
+          bgColor: 'bg-destructive/10 border-destructive/20',
           label: 'Failed',
         };
     }
@@ -68,9 +68,9 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
             <span className="font-medium text-foreground">RFD3 Design</span>
             <span className={`text-xs px-2 py-0.5 rounded-full ${
               status === 'running' ? 'bg-primary/10 text-primary' :
-              status === 'completed' ? 'bg-green-100 text-green-700' :
-              status === 'failed' ? 'bg-red-100 text-red-700' :
-              'bg-blue-100 text-blue-700'
+              status === 'completed' ? 'bg-success/10 text-success' :
+              status === 'failed' ? 'bg-destructive/10 text-destructive' :
+              'bg-info/10 text-info'
             }`}>
               {config.label}
             </span>
@@ -105,7 +105,7 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
 
       {/* Completed message */}
       {status === 'completed' && (
-        <div className="mt-2 text-sm text-green-700 flex items-center gap-1">
+        <div className="mt-2 text-sm text-success flex items-center gap-1">
           <Info className="h-4 w-4" />
           Design complete! View results in the structure viewer.
         </div>
@@ -113,7 +113,7 @@ export function JobProgressCard({ jobId, status, progress, message }: JobProgres
 
       {/* Error message */}
       {status === 'failed' && message && (
-        <div className="mt-2 text-sm text-red-600 bg-red-100/50 p-2 rounded-lg">
+        <div className="mt-2 text-sm text-destructive bg-destructive/10 p-2 rounded-lg">
           {message}
         </div>
       )}

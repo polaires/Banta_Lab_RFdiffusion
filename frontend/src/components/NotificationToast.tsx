@@ -25,15 +25,15 @@ function NotificationItem({ notification }: { notification: Notification }) {
   };
 
   const iconMap = {
-    success: <CheckCircle className="w-5 h-5 text-green-400" />,
-    error: <AlertCircle className="w-5 h-5 text-red-400" />,
-    info: <Info className="w-5 h-5 text-blue-400" />,
+    success: <CheckCircle className="w-5 h-5 text-success" />,
+    error: <AlertCircle className="w-5 h-5 text-destructive" />,
+    info: <Info className="w-5 h-5 text-info" />,
   };
 
   const bgMap = {
-    success: 'bg-green-900/90 border-green-700',
-    error: 'bg-red-900/90 border-red-700',
-    info: 'bg-blue-900/90 border-blue-700',
+    success: 'bg-success/90 border-success/70',
+    error: 'bg-destructive/90 border-destructive/70',
+    info: 'bg-info/90 border-info/70',
   };
 
   return (

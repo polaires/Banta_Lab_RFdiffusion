@@ -70,22 +70,22 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
   return (
     <div className={`rounded-xl p-5 border shadow-sm ${
       overallPass
-        ? 'bg-green-50 border-green-200'
-        : 'bg-amber-50 border-amber-200'
+        ? 'bg-success/10 border-success/20'
+        : 'bg-warning/10 border-warning/20'
     }`}>
       {/* Header with score */}
       <div className="flex items-center justify-between mb-4">
         <h4 className="font-semibold text-foreground flex items-center gap-2">
           {overallPass
-            ? <BadgeCheck className="h-5 w-5 text-green-600" />
-            : <Clock className="h-5 w-5 text-amber-600" />
+            ? <BadgeCheck className="h-5 w-5 text-success" />
+            : <Clock className="h-5 w-5 text-warning" />
           }
           Design Evaluation
         </h4>
         <span className={`px-3 py-1 rounded-full text-xs font-bold ${
           overallPass
-            ? 'bg-green-500 text-white'
-            : 'bg-amber-500 text-white'
+            ? 'bg-success text-success-foreground'
+            : 'bg-warning text-warning-foreground'
         }`}>
           {passCount}/{criteria.length} PASS
         </span>
@@ -103,7 +103,7 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
             <div className="flex items-center gap-3">
               {(() => {
                 const IconComponent = CRITERIA_ICONS[c.icon];
-                return IconComponent ? <IconComponent className={`h-4 w-4 ${c.pass ? 'text-green-500' : 'text-amber-500'}`} /> : null;
+                return IconComponent ? <IconComponent className={`h-4 w-4 ${c.pass ? 'text-success' : 'text-warning'}`} /> : null;
               })()}
               <div>
                 <div className="text-sm font-medium text-foreground">{c.label}</div>
@@ -113,8 +113,8 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm text-foreground">{c.value}</span>
               {c.pass
-                ? <CheckCircle className="h-5 w-5 text-green-500" />
-                : <AlertCircle className="h-5 w-5 text-amber-500" />
+                ? <CheckCircle className="h-5 w-5 text-success" />
+                : <AlertCircle className="h-5 w-5 text-warning" />
               }
             </div>
           </div>
@@ -124,8 +124,8 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
       {/* Overall assessment */}
       <div className={`p-3 rounded-lg text-sm ${
         overallPass
-          ? 'bg-green-100 text-green-800'
-          : 'bg-amber-100 text-amber-800'
+          ? 'bg-success/20 text-success'
+          : 'bg-warning/20 text-warning'
       }`}>
         <div className="flex items-start gap-2">
           {overallPass ? <ThumbsUp className="h-4 w-4 mt-0.5" /> : <Lightbulb className="h-4 w-4 mt-0.5" />}
@@ -155,7 +155,7 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
           <ul className="text-xs text-muted-foreground space-y-1">
             {evaluation.suggestions.map((s, i) => (
               <li key={i} className="flex items-start gap-2">
-                <span className="text-amber-500">•</span>
+                <span className="text-warning">•</span>
                 <span>{s}</span>
               </li>
             ))}
@@ -167,7 +167,7 @@ export function EvaluationCard({ evaluation, targetMetal, onRetry }: EvaluationC
       {onRetry && !overallPass && (
         <button
           onClick={onRetry}
-          className="mt-4 w-full py-2.5 bg-white border border-amber-300 text-amber-700 rounded-lg font-medium hover:bg-amber-50 transition-all flex items-center justify-center gap-2"
+          className="mt-4 w-full py-2.5 bg-white border border-warning/30 text-warning rounded-lg font-medium hover:bg-warning/10 transition-all flex items-center justify-center gap-2"
         >
           <RefreshCw className="h-4 w-4" />
           Try Different Settings

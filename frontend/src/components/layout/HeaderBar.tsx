@@ -29,12 +29,12 @@ export function HeaderBar({
         >
           {connectionStatus === 'connected' ? (
             <>
-              <Wifi className="h-4 w-4 text-green-600" />
+              <Wifi className="h-4 w-4 text-success" />
               <span className="text-muted-foreground">Connected</span>
             </>
           ) : connectionStatus === 'connecting' ? (
             <>
-              <Wifi className="h-4 w-4 text-amber-500 animate-pulse" />
+              <Wifi className="h-4 w-4 text-warning animate-pulse" />
               <span className="text-muted-foreground">Connecting...</span>
             </>
           ) : (

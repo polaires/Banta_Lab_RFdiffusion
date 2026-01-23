@@ -144,14 +144,14 @@ export function PipelineResultsView({
     switch (status) {
       case 'pass':
         return (
-          <Badge variant="default" className="bg-green-500">
+          <Badge variant="default" className="bg-success">
             <CheckCircle className="w-3 h-3 mr-1" />
             Pass
           </Badge>
         );
       case 'review':
         return (
-          <Badge variant="secondary" className="bg-yellow-500/20 text-yellow-600">
+          <Badge variant="secondary" className="bg-warning/20 text-warning">
             <AlertTriangle className="w-3 h-3 mr-1" />
             Review
           </Badge>
@@ -238,19 +238,19 @@ export function PipelineResultsView({
               </SelectItem>
               <SelectItem value="pass">
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <CheckCircle className="w-4 h-4 text-success" />
                   Pass ({statusCounts.pass})
                 </div>
               </SelectItem>
               <SelectItem value="review">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-yellow-500" />
+                  <AlertTriangle className="w-4 h-4 text-warning" />
                   Review ({statusCounts.review})
                 </div>
               </SelectItem>
               <SelectItem value="fail">
                 <div className="flex items-center gap-2">
-                  <XCircle className="w-4 h-4 text-red-500" />
+                  <XCircle className="w-4 h-4 text-destructive" />
                   Fail ({statusCounts.fail})
                 </div>
               </SelectItem>
@@ -482,9 +482,9 @@ function MetricCell({
     <span
       className={cn(
         'font-medium',
-        isGood && 'text-green-600 dark:text-green-400',
-        isWarn && 'text-yellow-600 dark:text-yellow-400',
-        !isGood && !isWarn && 'text-red-600 dark:text-red-400'
+        isGood && 'text-success',
+        isWarn && 'text-warning',
+        !isGood && !isWarn && 'text-destructive'
       )}
     >
       {displayValue}

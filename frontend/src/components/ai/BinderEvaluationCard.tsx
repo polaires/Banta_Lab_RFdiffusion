@@ -67,30 +67,30 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
     const isMedium = higherIsBetter ? value >= thresholds.medium : value <= thresholds.medium;
 
     if (isGood) {
-      return <span className="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full">Excellent</span>;
+      return <span className="text-xs px-2 py-0.5 bg-success/10 text-success rounded-full">Excellent</span>;
     } else if (isMedium) {
-      return <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">Good</span>;
+      return <span className="text-xs px-2 py-0.5 bg-warning/10 text-warning rounded-full">Good</span>;
     } else {
-      return <span className="text-xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full">Low</span>;
+      return <span className="text-xs px-2 py-0.5 bg-destructive/10 text-destructive rounded-full">Low</span>;
     }
   };
 
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden shadow-sm">
       {/* Header */}
-      <div className={`px-4 py-3 border-b ${evaluation.overall_pass ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+      <div className={`px-4 py-3 border-b ${evaluation.overall_pass ? 'bg-success/10 border-success/10' : 'bg-destructive/10 border-destructive/10'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {evaluation.overall_pass
-              ? <CheckCircle className="h-5 w-5 text-emerald-600" />
-              : <XCircle className="h-5 w-5 text-red-600" />
+              ? <CheckCircle className="h-5 w-5 text-success" />
+              : <XCircle className="h-5 w-5 text-destructive" />
             }
             <h4 className="font-semibold text-foreground text-sm">
               {evaluation.overall_pass ? 'Binder Design Successful' : 'Design Needs Improvement'}
             </h4>
           </div>
           {evaluation.overall_pass && stats && (
-            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+            <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded-full">
               {stats.returned}/{stats.generated} passed
             </span>
           )}
@@ -106,16 +106,16 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
               <div className="text-lg font-bold text-foreground">{stats.generated}</div>
               <div className="text-xs text-muted-foreground">Generated</div>
             </div>
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <div className="text-lg font-bold text-blue-600">{stats.mpnn_designed}</div>
+            <div className="p-2 bg-info/10 rounded-lg">
+              <div className="text-lg font-bold text-info">{stats.mpnn_designed}</div>
               <div className="text-xs text-muted-foreground">MPNN</div>
             </div>
             <div className="p-2 bg-primary/5 rounded-lg">
               <div className="text-lg font-bold text-primary">{stats.esm_passed}</div>
               <div className="text-xs text-muted-foreground">ESM Pass</div>
             </div>
-            <div className="p-2 bg-green-50 rounded-lg">
-              <div className="text-lg font-bold text-green-600">{stats.returned}</div>
+            <div className="p-2 bg-success/10 rounded-lg">
+              <div className="text-lg font-bold text-success">{stats.returned}</div>
               <div className="text-xs text-muted-foreground">Returned</div>
             </div>
           </div>
@@ -273,15 +273,15 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
           {/* AI Recommendations */}
           {evaluation.recommendations && evaluation.recommendations.length > 0 && expanded && (
-            <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
+            <div className="mt-4 p-3 bg-warning/10 rounded-lg border border-warning/20">
               <div className="flex items-center gap-2 mb-2">
-                <Lightbulb className="h-4 w-4 text-amber-600" />
-                <span className="text-xs font-medium text-amber-700 uppercase">Suggestions for Improvement</span>
+                <Lightbulb className="h-4 w-4 text-warning" />
+                <span className="text-xs font-medium text-warning uppercase">Suggestions for Improvement</span>
               </div>
               <ul className="space-y-1">
                 {evaluation.recommendations.map((rec, idx) => (
-                  <li key={idx} className="text-sm text-amber-800 flex items-start gap-2">
-                    <span className="text-amber-500 mt-0.5">•</span>
+                  <li key={idx} className="text-sm text-warning flex items-start gap-2">
+                    <span className="text-warning/70 mt-0.5">•</span>
                     {rec}
                   </li>
                 ))}
@@ -331,12 +331,12 @@ export function BinderEvaluationCard({ evaluation, expanded = false, onViewDetai
 
       {/* Error State */}
       {evaluation.error && (
-        <div className="px-4 py-4 bg-red-50">
+        <div className="px-4 py-4 bg-destructive/10">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 text-red-500" />
+            <AlertCircle className="h-5 w-5 text-destructive" />
             <div>
-              <p className="text-sm font-medium text-red-800">Design Failed</p>
-              <p className="text-xs text-red-600 mt-1">{evaluation.error}</p>
+              <p className="text-sm font-medium text-destructive">Design Failed</p>
+              <p className="text-xs text-destructive/80 mt-1">{evaluation.error}</p>
             </div>
           </div>
         </div>

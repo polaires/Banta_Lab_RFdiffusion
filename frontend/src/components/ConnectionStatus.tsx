@@ -75,9 +75,9 @@ export function ConnectionStatus() {
     <div className="bg-gray-800 rounded-lg p-4 space-y-4">
       <h2 className="text-lg font-semibold flex items-center gap-2">
         {isConnected ? (
-          <Wifi className="w-5 h-5 text-green-400" />
+          <Wifi className="w-5 h-5 text-success" />
         ) : (
-          <WifiOff className="w-5 h-5 text-red-400" />
+          <WifiOff className="w-5 h-5 text-destructive" />
         )}
         Backend Connection
       </h2>
@@ -105,12 +105,12 @@ export function ConnectionStatus() {
           {health.mode && (
             <div className="flex items-center gap-2">
               {isMockMode ? (
-                <AlertCircle className="w-4 h-4 text-yellow-400" />
+                <AlertCircle className="w-4 h-4 text-warning" />
               ) : (
-                <Sparkles className="w-4 h-4 text-green-400" />
+                <Sparkles className="w-4 h-4 text-success" />
               )}
               <span>Mode:</span>
-              <span className={isMockMode ? 'text-yellow-400' : 'text-green-400'}>
+              <span className={isMockMode ? 'text-warning' : 'text-success'}>
                 {isMockMode ? 'Mock (Demo)' : 'Real (Foundry)'}
               </span>
             </div>
@@ -121,13 +121,13 @@ export function ConnectionStatus() {
             <Cpu className="w-4 h-4" />
             <span>GPU:</span>
             {health.gpu_available ? (
-              <span className="text-green-400 flex items-center gap-1">
+              <span className="text-success flex items-center gap-1">
                 <Check className="w-4 h-4" />
                 {health.gpu_name || 'Available'}
                 {health.gpu_memory_gb && ` (${Math.round(health.gpu_memory_gb)}GB)`}
               </span>
             ) : (
-              <span className="text-red-400 flex items-center gap-1">
+              <span className="text-destructive flex items-center gap-1">
                 <X className="w-4 h-4" /> Not Available
               </span>
             )}
@@ -143,7 +143,7 @@ export function ConnectionStatus() {
 
       {!health && !checking && (
         <div className="space-y-2">
-          <p className="text-sm text-red-400">
+          <p className="text-sm text-destructive">
             Unable to connect to backend. Make sure your RunPod pod is running.
           </p>
           <button
@@ -192,9 +192,9 @@ export function ConnectionStatus() {
             <div className="bg-gray-700/50 rounded p-3 space-y-2">
               <h3 className="font-medium text-gray-200">Troubleshooting</h3>
               <ul className="space-y-1 text-gray-400">
-                <li><span className="text-yellow-400">Connection refused:</span> Re-run the setup cell in Jupyter</li>
-                <li><span className="text-yellow-400">CORS error:</span> Check that port 8000 is in HTTP Ports</li>
-                <li><span className="text-yellow-400">Mock mode:</span> Checkpoints may still be downloading</li>
+                <li><span className="text-warning">Connection refused:</span> Re-run the setup cell in Jupyter</li>
+                <li><span className="text-warning">CORS error:</span> Check that port 8000 is in HTTP Ports</li>
+                <li><span className="text-warning">Mock mode:</span> Checkpoints may still be downloading</li>
               </ul>
             </div>
 

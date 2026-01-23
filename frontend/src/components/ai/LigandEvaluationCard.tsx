@@ -65,14 +65,14 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
   const [isExpanded, setIsExpanded] = useState(expanded);
   const [activeTab, setActiveTab] = useState<'overview' | 'chain_a' | 'chain_b' | 'energy'>('overview');
 
-  const passColor = evaluation.overall_pass ? 'text-green-600' : 'text-red-600';
-  const passBg = evaluation.overall_pass ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200';
+  const passColor = evaluation.overall_pass ? 'text-success' : 'text-destructive';
+  const passBg = evaluation.overall_pass ? 'bg-success/10 border-success/20' : 'bg-destructive/10 border-destructive/20';
 
   const getAffinityQuality = (affinity: number) => {
-    if (affinity < -5) return { label: 'Excellent', color: 'text-green-600 bg-green-100' };
-    if (affinity < -3) return { label: 'Good', color: 'text-emerald-600 bg-emerald-100' };
-    if (affinity < -1.5) return { label: 'Moderate', color: 'text-amber-600 bg-amber-100' };
-    return { label: 'Weak', color: 'text-red-600 bg-red-100' };
+    if (affinity < -5) return { label: 'Excellent', color: 'text-success bg-success/10' };
+    if (affinity < -3) return { label: 'Good', color: 'text-success bg-success/10' };
+    if (affinity < -1.5) return { label: 'Moderate', color: 'text-warning bg-warning/10' };
+    return { label: 'Weak', color: 'text-destructive bg-destructive/10' };
   };
 
   return (
@@ -106,7 +106,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
             {evaluation.approach}
           </span>
           {evaluation.gnina_score && (
-            <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+            <span className="px-2 py-0.5 bg-info/10 text-info rounded text-xs font-medium">
               GNINA Scored
             </span>
           )}
@@ -140,7 +140,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
             )}
             {/* Status */}
             <div className="bg-white/70 rounded-lg p-2 text-center">
-              <div className={`text-lg font-bold ${evaluation.dimer.separable && !evaluation.dimer.has_clashes ? 'text-green-600' : 'text-red-600'}`}>
+              <div className={`text-lg font-bold ${evaluation.dimer.separable && !evaluation.dimer.has_clashes ? 'text-success' : 'text-destructive'}`}>
                 {evaluation.dimer.separable && !evaluation.dimer.has_clashes ? '✓' : '✗'}
               </div>
               <div className="text-[10px] text-muted-foreground uppercase">Valid</div>
@@ -191,9 +191,9 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
                   <div className="mt-2 h-2 bg-muted rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all ${
-                        evaluation.dimer.affinity < -5 ? 'bg-green-500' :
-                        evaluation.dimer.affinity < -3 ? 'bg-emerald-500' :
-                        evaluation.dimer.affinity < -1.5 ? 'bg-amber-500' : 'bg-red-500'
+                        evaluation.dimer.affinity < -5 ? 'bg-success' :
+                        evaluation.dimer.affinity < -3 ? 'bg-success' :
+                        evaluation.dimer.affinity < -1.5 ? 'bg-warning' : 'bg-destructive'
                       }`}
                       style={{ width: `${Math.min(100, Math.max(0, (Math.abs(evaluation.dimer.affinity) / 8) * 100))}%` }}
                     />
@@ -242,7 +242,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Steric Clashes</span>
                       <span className={`flex items-center gap-1 text-sm font-medium ${
-                        evaluation.dimer.has_clashes ? 'text-red-600' : 'text-green-600'
+                        evaluation.dimer.has_clashes ? 'text-destructive' : 'text-success'
                       }`}>
                         {evaluation.dimer.has_clashes ? <XCircle className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                         {evaluation.dimer.has_clashes ? 'Detected' : 'None'}
@@ -251,7 +251,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted-foreground">Chain Separability</span>
                       <span className={`flex items-center gap-1 text-sm font-medium ${
-                        evaluation.dimer.separable ? 'text-green-600' : 'text-red-600'
+                        evaluation.dimer.separable ? 'text-success' : 'text-destructive'
                       }`}>
                         {evaluation.dimer.separable ? <Unlink className="h-4 w-4" /> : <Link className="h-4 w-4" />}
                         {evaluation.dimer.separable ? 'Separable' : 'Entangled'}
@@ -463,11 +463,11 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
                           <div className="flex items-center gap-2">
                             <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
                               <div
-                                className={`h-full rounded-full ${isNegative ? 'bg-green-500' : 'bg-red-500'}`}
+                                className={`h-full rounded-full ${isNegative ? 'bg-success' : 'bg-destructive'}`}
                                 style={{ width: `${Math.min(100, Math.abs(value) / 5 * 100)}%` }}
                               />
                             </div>
-                            <span className={`text-sm font-medium w-16 text-right ${isNegative ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`text-sm font-medium w-16 text-right ${isNegative ? 'text-success' : 'text-destructive'}`}>
                               {value.toFixed(2)}
                             </span>
                           </div>
@@ -479,7 +479,7 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
                   {/* Total */}
                   <div className="mt-3 pt-3 border-t border-border flex items-center justify-between">
                     <span className="text-sm font-medium text-foreground">Total Binding Energy</span>
-                    <span className={`text-lg font-bold ${evaluation.dimer.affinity < 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    <span className={`text-lg font-bold ${evaluation.dimer.affinity < 0 ? 'text-success' : 'text-destructive'}`}>
                       {evaluation.dimer.affinity.toFixed(2)} kcal/mol
                     </span>
                   </div>
@@ -499,15 +499,15 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
 
         {/* Warnings */}
         {evaluation.warnings && evaluation.warnings.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-            <div className="flex items-center gap-2 text-amber-700 text-sm font-medium mb-1">
+          <div className="bg-warning/10 border border-warning/20 rounded-lg p-3">
+            <div className="flex items-center gap-2 text-warning text-sm font-medium mb-1">
               <AlertTriangle className="h-4 w-4" />
               Warnings
             </div>
             <ul className="space-y-1">
               {evaluation.warnings.map((warning, idx) => (
-                <li key={idx} className="text-xs text-amber-600 flex items-start gap-1">
-                  <span className="text-amber-400">•</span>
+                <li key={idx} className="text-xs text-warning flex items-start gap-1">
+                  <span className="text-warning/70">•</span>
                   {warning}
                 </li>
               ))}
@@ -562,10 +562,10 @@ export function LigandEvaluationCard({ evaluation, expanded = false }: LigandEva
             {evaluation.dimer && (
               <div className="mt-2 flex items-center justify-center gap-1 text-xs">
                 {evaluation.dimer.separable
-                  ? <CheckCircle className="h-4 w-4 text-green-500" />
-                  : <XCircle className="h-4 w-4 text-red-500" />
+                  ? <CheckCircle className="h-4 w-4 text-success" />
+                  : <XCircle className="h-4 w-4 text-destructive" />
                 }
-                <span className={evaluation.dimer.separable ? 'text-green-600' : 'text-red-600'}>
+                <span className={evaluation.dimer.separable ? 'text-success' : 'text-destructive'}>
                   {evaluation.dimer.separable ? 'Chains can separate' : 'Chains entangled'}
                 </span>
               </div>

@@ -1229,6 +1229,10 @@ export function AIDesignAssistantPanel() {
       }
 
       // Real backend mode - fetch reference structure and run sweep
+      // Generate session ID upfront for progress tracking
+      const sessionId = `sweep-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      setAiCaseStudy({ pendingJobId: sessionId });
+
       addAiMessage({
         role: 'assistant',
         content: `Backend connected! Fetching reference Tb-citrate structure (3C9H)...`,
@@ -1247,8 +1251,51 @@ export function AIDesignAssistantPanel() {
       const metalLigandKey = `${metalScaffoldPreferences.metal}-${metalScaffoldPreferences.ligand}`;
       const referencePdbId = REFERENCE_PDBS[metalLigandKey] || '3C9H';
 
+      // Progress simulation for long-running sweep
+      // Each design takes ~90s (RFD3: 50s, MPNN: 10s, RF3: 30s)
+      const totalDesigns = metalScaffoldPreferences.numDesigns;
+      const estimatedTimePerDesign = 90; // seconds
+      const totalEstimatedTime = totalDesigns * estimatedTimePerDesign;
+      let progressInterval: NodeJS.Timeout | null = null;
+      let currentProgress = 5;
+      let currentDesign = 0;
+      const startTime = Date.now();
+
+      // Start progress simulation
+      const startProgressSimulation = () => {
+        // Set initial stage
+        setAiCaseStudy({ currentStage: 'Initializing parameter sweep...' });
+
+        progressInterval = setInterval(() => {
+          const elapsed = (Date.now() - startTime) / 1000;
+          const estimatedDesignsComplete = Math.floor(elapsed / estimatedTimePerDesign);
+
+          if (estimatedDesignsComplete > currentDesign) {
+            currentDesign = estimatedDesignsComplete;
+            const configNum = Math.floor(currentDesign / metalScaffoldPreferences.designsPerConfig) + 1;
+            const totalConfigs = metalScaffoldPreferences.optimizationMode === 'sweep' ? 9 : 1;
+            const designInConfig = (currentDesign % metalScaffoldPreferences.designsPerConfig) + 1;
+
+            // Update progress message
+            if (configNum <= totalConfigs) {
+              const stageMessage = `Config ${configNum}/${totalConfigs}: Design ${designInConfig}/${metalScaffoldPreferences.designsPerConfig}`;
+              setAiCaseStudy({ currentStage: stageMessage });
+              addAiMessage({
+                role: 'system',
+                content: `${stageMessage} complete...`
+              });
+            }
+          }
+
+          // Calculate progress (10% for setup, 85% for designs, 5% for filtering)
+          currentProgress = Math.min(95, 10 + (elapsed / totalEstimatedTime) * 85);
+          setAiCaseStudy({ jobProgress: Math.round(currentProgress) });
+        }, 5000); // Update every 5 seconds
+      };
+
       try {
         // Fetch the reference structure from RCSB
+        setAiCaseStudy({ currentStage: `Fetching ${referencePdbId} from RCSB...` });
         addAiMessage({ role: 'system', content: `Fetching reference structure ${referencePdbId} from RCSB...` });
         const pdbResult = await api.fetchPdb(referencePdbId);
         const motifPdbContent = pdbResult.content;
@@ -1257,8 +1304,11 @@ export function AIDesignAssistantPanel() {
           throw new Error(`Failed to fetch reference structure ${referencePdbId}`);
         }
 
+        setAiCaseStudy({ currentStage: 'Starting parameter sweep...', jobProgress: 10 });
         addAiMessage({ role: 'system', content: `Reference structure loaded. Starting parameter sweep...` });
-        setAiCaseStudy({ jobProgress: 10 });
+
+        // Start progress simulation
+        startProgressSimulation();
 
         // Call the actual backend API
         const response = await api.startMetalBindingSweep({
@@ -1269,8 +1319,22 @@ export function AIDesignAssistantPanel() {
           filters: { plddt: 0.70, ptm: 0.60, pae: 10.0 },
         });
 
+        // Stop progress simulation
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+
         if (response.status === 'completed' && response.result) {
           const result = response.result;
+
+          // Update with real session ID from backend
+          if (result.session_id) {
+            setAiCaseStudy({ pendingJobId: result.session_id });
+          }
+
+          setAiCaseStudy({ currentStage: 'Filtering and ranking designs...', jobProgress: 95 });
+          addAiMessage({ role: 'system', content: `Sweep complete! Filtering and ranking ${result.total_generated} designs...` });
 
           // Convert backend result to frontend format
           // API returns: config_rankings with tier_distribution
@@ -1294,7 +1358,7 @@ export function AIDesignAssistantPanel() {
           };
 
           setMetalScaffoldSweepResults(backendResults);
-          setAiCaseStudy({ workflowPhase: 'complete', jobProgress: 100 });
+          setAiCaseStudy({ workflowPhase: 'complete', jobProgress: 100, currentStage: null });
 
           const best = backendResults.configs[0] || { name: 'unknown', passRate: 0, avgPlddt: 0, avgPtm: 0, tierCounts: { S: 0, A: 0, B: 0, C: 0, F: 0 } };
           addAiMessage({
@@ -1305,6 +1369,12 @@ export function AIDesignAssistantPanel() {
           throw new Error(`Backend returned status: ${response.status}`);
         }
       } catch (backendError) {
+        // Stop progress simulation on error
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+
         console.error('[AIPanel] Backend sweep error:', backendError);
         addAiMessage({
           role: 'assistant',
@@ -1325,7 +1395,7 @@ export function AIDesignAssistantPanel() {
         };
 
         setMetalScaffoldSweepResults(simulatedResults);
-        setAiCaseStudy({ workflowPhase: 'complete' });
+        setAiCaseStudy({ workflowPhase: 'complete', currentStage: null });
 
         const best = simulatedResults.configs[0];
         addAiMessage({
@@ -1339,7 +1409,7 @@ export function AIDesignAssistantPanel() {
         role: 'assistant',
         content: `Error running metal scaffold design: ${error instanceof Error ? error.message : 'Unknown error'}\n\nPlease try again or check the backend connection.`,
       });
-      setAiCaseStudy({ workflowPhase: 'error' });
+      setAiCaseStudy({ workflowPhase: 'error', pendingJobId: undefined, currentStage: null });
     }
   };
 
@@ -1584,10 +1654,10 @@ export function AIDesignAssistantPanel() {
         {workflowPhase === 'running' && (
           <div className="pl-11">
             <JobProgressCard
-              jobId={aiCaseStudy.pendingJobId || 'demo-job'}
+              jobId={aiCaseStudy.pendingJobId || 'sweep-pending'}
               status="running"
               progress={aiCaseStudy.jobProgress || workflowState.progress}
-              message={workflowState.currentStage || 'Processing...'}
+              message={aiCaseStudy.currentStage || workflowState.currentStage || 'Processing...'}
             />
           </div>
         )}

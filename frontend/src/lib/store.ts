@@ -133,6 +133,7 @@ export interface AICaseStudyState {
   pendingJobId: string | null;
   evaluationResult: DesignEvaluation | null;
   jobProgress: number;
+  currentStage: string | null;  // Current stage message for progress display
 }
 
 // Notification types for workflow guidance
@@ -599,6 +600,7 @@ export const useStore = create<AppState>()(
     pendingJobId: null,
     evaluationResult: null,
     jobProgress: 0,
+    currentStage: null,
   },
   setAiCaseStudy: (updates) => set((state) => ({
     aiCaseStudy: { ...state.aiCaseStudy, ...updates },

@@ -643,8 +643,8 @@ def _generate_fallback_pdb(
             f"HETATM   22  C9X PQQ L   1    {atoms['C9X'][0]:8.3f}{atoms['C9X'][1]:8.3f}{atoms['C9X'][2]:8.3f}  1.00  0.00           C",
             f"HETATM   23  O9A PQQ L   1    {atoms['O9A'][0]:8.3f}{atoms['O9A'][1]:8.3f}{atoms['O9A'][2]:8.3f}  1.00  0.00           O",
             f"HETATM   24  O9B PQQ L   1    {atoms['O9B'][0]:8.3f}{atoms['O9B'][1]:8.3f}{atoms['O9B'][2]:8.3f}  1.00  0.00           O",
-            # Metal at coordination center
-            f"HETATM   25 CA   CA  M   2    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          CA",
+            # Metal at coordination center - use chain X to match Round7b convention
+            f"HETATM   25 CA   CA  X   1    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          CA",
             "END",
         ]
     elif "citrate" in template_name.lower():
@@ -707,15 +707,15 @@ def _generate_fallback_pdb(
             f"HETATM   11  C6  CIT L   1    {atoms['C6'][0]:8.3f}{atoms['C6'][1]:8.3f}{atoms['C6'][2]:8.3f}  1.00  0.00           C",
             f"HETATM   12  O5  CIT L   1    {atoms['O5'][0]:8.3f}{atoms['O5'][1]:8.3f}{atoms['O5'][2]:8.3f}  1.00  0.00           O",
             f"HETATM   13  O6  CIT L   1    {atoms['O6'][0]:8.3f}{atoms['O6'][1]:8.3f}{atoms['O6'][2]:8.3f}  1.00  0.00           O",
-            # Metal at coordination center
-            f"HETATM   14 {metal_code:4s} {metal_code:3s} M   2    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          {metal_code[:2]:>2s}",
+            # Metal at coordination center - use chain X to match Round7b convention
+            f"HETATM   14 {metal_code:4s} {metal_code:3s} X   1    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00          {metal_code[:2]:>2s}",
             "END",
         ]
     else:
-        # Generic fallback
+        # Generic fallback - use chain X for metal, chain L for ligand
         lines = [
-            f"HETATM    1  X1  LIG L   1    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           C",
-            f"HETATM    2 {metal_code:4s} {metal_code:3s} M   2    {cx:8.3f}{cy:8.3f}{cz+2.4:8.3f}  1.00  0.00          {metal_code[:2]:>2s}",
+            f"HETATM    1  C1  LIG L   1    {cx:8.3f}{cy:8.3f}{cz:8.3f}  1.00  0.00           C",
+            f"HETATM    2 {metal_code:4s} {metal_code:3s} X   1    {cx:8.3f}{cy:8.3f}{cz+2.4:8.3f}  1.00  0.00          {metal_code[:2]:>2s}",
             "END",
         ]
 

@@ -3,6 +3,25 @@ export { PreferenceSummaryCard } from './PreferenceSummaryCard';
 export { EvaluationCard } from './EvaluationCard';
 export { JobProgressCard } from './JobProgressCard';
 
+// Metal scaffold design (Round 7b monomer workflow)
+export { MetalScaffoldInterviewMode } from './MetalScaffoldInterviewMode';
+export type { MetalScaffoldPreferences } from './MetalScaffoldInterviewMode';
+export { MetalScaffoldDesignGallery } from './MetalScaffoldDesignGallery';
+
+// Metal scaffold design result type
+export interface MetalScaffoldDesignResult {
+  id: string;
+  name: string;
+  configName: string;
+  sequence: string;
+  tier: 'S' | 'A' | 'B' | 'C' | 'F';
+  plddt: number;
+  ptm: number;
+  pae: number;
+  status: 'passed' | 'failed';
+  pdbContent?: string;
+}
+
 // Ligand interface design components
 export { LigandInterviewMode } from './LigandInterviewMode';
 export type { LigandPreferences } from './LigandInterviewMode';

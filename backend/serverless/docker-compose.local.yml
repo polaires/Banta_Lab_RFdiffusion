@@ -45,6 +45,8 @@ services:
       # Metal-ligand complex design modules
       - ./metal_ligand_templates.py:/app/metal_ligand_templates.py
       - ./test_metal_ligand_complex.py:/app/test_metal_ligand_complex.py
+      # Metal binding pipeline (Round 7b monomer workflow)
+      - ./metal_binding_pipeline.py:/app/metal_binding_pipeline.py
       - ./tebl_analysis.py:/app/tebl_analysis.py
       - ./hbplus_utils.py:/app/hbplus_utils.py
       # Mount utils directory for SASA calculations

@@ -1843,6 +1843,9 @@ def run_rfd3_inference(
     guiding_potentials: Optional[List[str]] = None,
     guide_scale: Optional[float] = None,
     guide_decay: Optional[str] = None,
+    # Classifier-free guidance (CFG) for enhanced conditioning
+    use_classifier_free_guidance: Optional[bool] = None,
+    cfg_scale: Optional[float] = None,
     # Mock mode
     use_mock: bool = False
 ) -> Dict[str, Any]:
@@ -2187,6 +2190,10 @@ def run_rfd3_inference(
             sampler_config["step_scale"] = step_scale
         if gamma_0 is not None:
             sampler_config["gamma_0"] = gamma_0
+        if use_classifier_free_guidance is not None:
+            sampler_config["use_classifier_free_guidance"] = use_classifier_free_guidance
+        if cfg_scale is not None:
+            sampler_config["cfg_scale"] = cfg_scale
 
         # Symmetry requires special sampler kind
         # But NOT when using post-processing symmetry (apply_symmetry_post is set)

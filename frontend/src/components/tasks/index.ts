@@ -9,8 +9,10 @@ export { RefinementForm } from './RefinementForm';
 export { InterfaceLigandForm } from './InterfaceLigandForm';
 export { InterfaceMetalForm } from './InterfaceMetalForm';
 export { InterfaceMetalLigandForm } from './InterfaceMetalLigandForm';
+export { MetalBindingForm } from './MetalBindingForm';
 
 // Results panels
+export { SweepResultsPanel } from './SweepResultsPanel';
 export { InterfaceLigandResultsPanel } from './InterfaceLigandResultsPanel';
 export type { InterfaceLigandDesign, InterfaceLigandJobResult } from './InterfaceLigandResultsPanel';
 

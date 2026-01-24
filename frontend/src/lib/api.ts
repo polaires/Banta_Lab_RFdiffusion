@@ -1651,6 +1651,218 @@ class FoundryAPI {
 
     return result.output?.result || result.output;
   }
+
+  // ============== Metal Binding Design Methods (Round 7b Style) ==============
+
+  /**
+   * Analyze a PDB structure for metal binding site design potential.
+   */
+  async analyzeMetalBindingSite(request: {
+    pdb_content?: string;
+    pdb_id?: string;
+  }): Promise<{
+    status: string;
+    result: {
+      metals: Array<{ element: string; chain: string; res_num: string }>;
+      ligands: Array<{ name: string; chain: string; res_num: string }>;
+      num_metals: number;
+      num_ligands: number;
+      suitable_for_design: boolean;
+      recommended_workflow: string | null;
+      suggestions: string[];
+      recommended_hsab_bias?: string;
+    };
+  }> {
+    console.log('[API] Analyzing metal binding site');
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'metal_binding_design',
+          mode: 'analyze',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to analyze structure: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Analysis failed');
+    }
+
+    return result.output || result;
+  }
+
+  /**
+   * Run parameter sweep for metal binding design (9 configs: 3 sizes x 3 CFG scales).
+   */
+  async startMetalBindingSweep(request: {
+    motif_pdb: string;
+    metal: string;
+    ligand?: string;
+    sizes?: string[];
+    cfg_scales?: number[];
+    designs_per_config?: number;
+    filters?: { plddt: number; ptm: number; pae: number };
+    seed?: number;
+  }): Promise<{
+    status: string;
+    result: {
+      session_id: string;
+      mode: string;
+      total_configs: number;
+      designs_per_config: number;
+      total_generated: number;
+      total_passing: number;
+      total_review: number;
+      pass_rate: number;
+      best_design: {
+        name: string;
+        plddt: number;
+        ptm: number;
+        tier: string;
+      } | null;
+      config_rankings: Array<{
+        rank: number;
+        config_name: string;
+        contig_range: string;
+        cfg_scale: number;
+        pass_rate: number;
+        avg_plddt: number;
+        avg_ptm: number;
+        tier_distribution: Record<string, number>;
+      }>;
+      results: Array<{
+        name: string;
+        config_name: string;
+        sequence: string;
+        plddt: number;
+        ptm: number;
+        pae: number;
+        tier: string;
+        status: string;
+      }>;
+    };
+  }> {
+    console.log('[API] Starting metal binding sweep');
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'metal_binding_design',
+          mode: 'sweep',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to start sweep: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Sweep failed');
+    }
+
+    return result.output || result;
+  }
+
+  /**
+   * Run production mode for metal binding design with best or specified config.
+   */
+  async startMetalBindingProduction(request: {
+    motif_pdb: string;
+    metal: string;
+    ligand?: string;
+    session_id?: string;
+    config?: { contig_range: string; cfg_scale: number };
+    num_designs?: number;
+  }): Promise<{
+    status: string;
+    result: {
+      session_id: string;
+      mode: string;
+      config: { contig_range: string; cfg_scale: number };
+      num_designs: number;
+      message: string;
+    };
+  }> {
+    console.log('[API] Starting metal binding production');
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'metal_binding_design',
+          mode: 'production',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to start production: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Production start failed');
+    }
+
+    return result.output || result;
+  }
+
+  /**
+   * Get status of a metal binding design session.
+   */
+  async getMetalBindingStatus(sessionId: string): Promise<{
+    status: string;
+    result: {
+      session_id: string;
+      mode: string;
+      status: string;
+      current_config: number;
+      total_configs: number;
+      current_design: number;
+      designs_per_config: number;
+      total_generated: number;
+      total_passing: number;
+      total_review: number;
+      total_failed: number;
+      pass_rate: number;
+      best_design: { name: string; plddt: number } | null;
+      config_rankings: Array<{ rank: number; config_name: string; pass_rate: number }>;
+    };
+  }> {
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'metal_binding_design',
+          mode: 'status',
+          session_id: sessionId,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get status: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.output || result;
+  }
 }
 
 export const api = new FoundryAPI();

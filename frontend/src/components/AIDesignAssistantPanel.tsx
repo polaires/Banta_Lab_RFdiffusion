@@ -48,12 +48,16 @@ import {
   DesignGallery,
   BinderInterviewMode,
   BinderEvaluationCard,
+  MetalScaffoldInterviewMode,
+  MetalScaffoldDesignGallery,
   type LigandPreferences,
   type LigandAnalysis,
   type LigandEvaluation,
   type DesignResult,
   type BinderPreferences,
   type BinderEvaluation,
+  type MetalScaffoldPreferences,
+  type MetalScaffoldDesignResult,
 } from './ai';
 import {
   BinderResultsPanel,
@@ -287,6 +291,74 @@ function BinderPreferenceSummaryCard({
   );
 }
 
+// Preference Summary Card for Metal Scaffold Design
+function MetalScaffoldPreferenceSummaryCard({
+  preferences,
+  onConfirm,
+  onEdit,
+  isRunning,
+}: {
+  preferences: MetalScaffoldPreferences;
+  onConfirm: () => void;
+  onEdit: () => void;
+  isRunning: boolean;
+}) {
+  return (
+    <div className="bg-muted rounded-2xl p-6 border border-border shadow-sm">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+          <Gem className="h-4 w-4 text-primary-foreground" />
+        </div>
+        <h4 className="font-semibold text-foreground">Metal Scaffold Configuration</h4>
+      </div>
+
+      <div className="space-y-2 mb-6">
+        <PreferenceRow label="Target Metal" value={preferences.metalLabel} />
+        <PreferenceRow label="Ligand" value={preferences.ligandLabel} />
+        <PreferenceRow label="Scaffold Size" value={`${preferences.scaffoldSizeLabel} (${preferences.contigRange} aa)`} />
+        <PreferenceRow label="Optimization" value={preferences.optimizationModeLabel} />
+        <PreferenceRow label="Total Designs" value={String(preferences.numDesigns)} isLast />
+      </div>
+
+      {preferences.optimizationMode === 'sweep' && (
+        <div className="mb-4 p-3 bg-card rounded-lg border border-border">
+          <div className="text-xs text-muted-foreground mb-1">Parameter Sweep Details</div>
+          <div className="text-sm text-foreground">
+            9 configs (3 sizes × 3 CFG) × {preferences.designsPerConfig} designs = {preferences.numDesigns} total
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-3">
+        <button
+          onClick={onEdit}
+          disabled={isRunning}
+          className="flex-1 px-4 py-2.5 text-primary bg-card border border-border rounded-xl font-medium text-sm hover:bg-muted transition-all disabled:opacity-50"
+        >
+          Edit
+        </button>
+        <button
+          onClick={onConfirm}
+          disabled={isRunning}
+          className="flex-1 px-4 py-2.5 bg-primary text-primary-foreground rounded-xl font-medium text-sm hover:bg-primary/90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+        >
+          {isRunning ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Running...
+            </>
+          ) : (
+            <>
+              <Play className="h-4 w-4" />
+              Run Design
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Shared preference row component
 function PreferenceRow({ label, value, isLast = false }: { label: string; value: string; isLast?: boolean }) {
   return (
@@ -378,6 +450,24 @@ export function AIDesignAssistantPanel() {
   const [showHotspotSelector, setShowHotspotSelector] = useState(false);
   const [hotspotPdbContent, setHotspotPdbContent] = useState<string | null>(null);
 
+  // Metal scaffold design state (Round 7b monomer workflow)
+  const [isMetalScaffoldDesign, setIsMetalScaffoldDesign] = useState(false);
+  const [metalScaffoldPreferences, setMetalScaffoldPreferences] = useState<MetalScaffoldPreferences | null>(null);
+  const [metalScaffoldSweepResults, setMetalScaffoldSweepResults] = useState<{
+    configs: Array<{
+      name: string;
+      passRate: number;
+      avgPlddt: number;
+      avgPtm: number;
+      tierCounts: Record<string, number>;
+    }>;
+    bestConfig: string | null;
+    totalDesigns: number;
+    passingDesigns: number;
+  } | null>(null);
+  const [metalScaffoldDesigns, setMetalScaffoldDesigns] = useState<MetalScaffoldDesignResult[]>([]);
+  const [selectedMetalDesignId, setSelectedMetalDesignId] = useState<string | null>(null);
+
   // Multiple design results state
   const [designResults, setDesignResults] = useState<DesignResult[]>([]);
   const [selectedDesignId, setSelectedDesignId] = useState<string | null>(null);
@@ -415,6 +505,11 @@ export function AIDesignAssistantPanel() {
 
     if (pdbId === 'BIND') {
       await handleBinderDemo();
+      return;
+    }
+
+    if (pdbId === 'METAL') {
+      await handleMetalScaffoldDemo();
       return;
     }
 
@@ -460,6 +555,25 @@ export function AIDesignAssistantPanel() {
     addAiMessage({
       role: 'assistant',
       content: `Pipeline ready!\n\n- Structure Generation: RFdiffusion 3\n- Sequence Design: ProteinMPNN\n- Sequence Scoring: ESM-3 confidence\n- Interface Analysis: Contact counting, H-bonds\n\nThis pipeline achieves ~50% binder success rate. Let me ask you a few questions about your design preferences...`,
+    });
+  }
+
+  // Handle metal scaffold design (Round 7b monomer workflow)
+  async function handleMetalScaffoldDemo() {
+    setIsMetalScaffoldDesign(true);
+    setAiCaseStudy({ pdbId: 'METAL', workflowPhase: 'analyzing' });
+
+    addAiMessage({
+      role: 'assistant',
+      content: `Excellent choice! You want to design a metal binding scaffold.\n\n- Design Type: **Monomer** (single chain) scaffold\n- Pipeline: RFD3 → LigandMPNN → RF3 validation\n- Optimization: Parameter sweep (3 sizes × 3 CFG scales)\n- Filtering: Quality tiers (S/A/B/C/F)\n\nPreparing the design workflow...`,
+    });
+
+    await delay(2000);
+    setAiCaseStudy({ workflowPhase: 'interview', isProcessing: false });
+
+    addAiMessage({
+      role: 'assistant',
+      content: `Round 7b-style workflow ready!\n\n**Key Features:**\n- **Monomer focus**: Single-chain scaffolds (100-150 residues)\n- **Parameter sweep**: Test 9 configurations automatically\n- **Quality tiers**: S-tier (best) → F-tier (fail)\n- **HSAB compliance**: Hard acid donors for lanthanides\n\nLet me ask you a few questions to configure your metal binding scaffold design...`,
     });
   }
 
@@ -633,6 +747,23 @@ export function AIDesignAssistantPanel() {
     addAiMessage({
       role: 'assistant',
       content: `Excellent! Here's your interface dimer design configuration:\n\n- Ligand: ${prefs.ligandLabel} (${prefs.ligandSmiles})\n- Chain Length: ${prefs.chainLengthLabel}\n- Number of Designs: ${prefs.numDesigns}\n- Priority: ${prefs.priorityLabel}\n\nThis will use the two-step workflow:\n1. Design Chain A (one-sided binding)\n2. Design Chain B (complementary binding)\n\nClick "Run Design" when ready!`,
+    });
+  };
+
+  // Handle metal scaffold interview completion
+  const handleMetalScaffoldInterviewComplete = async (prefs: MetalScaffoldPreferences) => {
+    setMetalScaffoldPreferences(prefs);
+    setAiCaseStudy({ workflowPhase: 'confirming' });
+
+    const sweepInfo = prefs.optimizationMode === 'sweep'
+      ? `\n\n**Parameter Sweep:**\n- 3 scaffold sizes × 3 CFG scales = 9 configurations\n- ${prefs.designsPerConfig} designs per config = ${prefs.numDesigns} total designs`
+      : prefs.optimizationMode === 'quick'
+      ? `\n\n**Quick Exploration:**\n- Single configuration: ${prefs.scaffoldSizeLabel}\n- ${prefs.numDesigns} designs total`
+      : `\n\n**Production Run:**\n- Use best config from previous sweep\n- ${prefs.numDesigns} designs total`;
+
+    addAiMessage({
+      role: 'assistant',
+      content: `Here's your metal scaffold design configuration:\n\n- **Metal**: ${prefs.metalLabel}\n- **Ligand**: ${prefs.ligandLabel}\n- **Scaffold Size**: ${prefs.scaffoldSizeLabel} (${prefs.contigRange} residues)\n- **Optimization**: ${prefs.optimizationModeLabel}${sweepInfo}\n\nThe pipeline will:\n1. Generate backbone scaffolds (RFD3 with RASA + H-bond conditioning)\n2. Design sequences (LigandMPNN with HSAB biases)\n3. Validate structures (RF3)\n4. Filter by quality tiers (S/A/B/C/F)\n\nClick "Run Design" when ready!`,
     });
   };
 
@@ -920,6 +1051,298 @@ export function AIDesignAssistantPanel() {
     }
   };
 
+  // Helper function to generate random amino acid sequence
+  const generateRandomSequence = (length: number): string => {
+    const aminoAcids = 'ACDEFGHIKLMNPQRSTVWY';
+    let sequence = '';
+    for (let i = 0; i < length; i++) {
+      sequence += aminoAcids[Math.floor(Math.random() * aminoAcids.length)];
+    }
+    return sequence;
+  };
+
+  // Helper function to generate simulated individual designs for demo mode
+  const generateSimulatedDesigns = (
+    configs: Array<{ name: string; tierCounts: Record<string, number> }>,
+    designsPerConfig: number
+  ): MetalScaffoldDesignResult[] => {
+    const designs: MetalScaffoldDesignResult[] = [];
+    const tiers: Array<'S' | 'A' | 'B' | 'C' | 'F'> = ['S', 'A', 'B', 'C', 'F'];
+
+    for (const config of configs) {
+      // Generate designs based on tier distribution
+      let designIndex = 0;
+      for (const tier of tiers) {
+        const count = config.tierCounts[tier] || 0;
+        for (let i = 0; i < count; i++) {
+          // Generate realistic metrics based on tier
+          const tierMetrics = {
+            S: { plddtRange: [0.88, 0.95], ptmRange: [0.82, 0.92], paeRange: [2.0, 4.0] },
+            A: { plddtRange: [0.82, 0.88], ptmRange: [0.75, 0.82], paeRange: [4.0, 6.0] },
+            B: { plddtRange: [0.75, 0.82], ptmRange: [0.68, 0.75], paeRange: [6.0, 8.0] },
+            C: { plddtRange: [0.68, 0.75], ptmRange: [0.60, 0.68], paeRange: [8.0, 10.0] },
+            F: { plddtRange: [0.55, 0.68], ptmRange: [0.45, 0.60], paeRange: [10.0, 15.0] },
+          };
+
+          const metrics = tierMetrics[tier];
+          const plddt = metrics.plddtRange[0] + Math.random() * (metrics.plddtRange[1] - metrics.plddtRange[0]);
+          const ptm = metrics.ptmRange[0] + Math.random() * (metrics.ptmRange[1] - metrics.ptmRange[0]);
+          const pae = metrics.paeRange[0] + Math.random() * (metrics.paeRange[1] - metrics.paeRange[0]);
+
+          // Generate scaffold length based on config name
+          const lengthMap: Record<string, [number, number]> = {
+            small: [100, 120],
+            medium: [110, 130],
+            large: [130, 150],
+          };
+          const sizeMatch = config.name.match(/^(small|medium|large)/);
+          const sizeKey = sizeMatch ? sizeMatch[1] : 'medium';
+          const [minLen, maxLen] = lengthMap[sizeKey] || [110, 130];
+          const seqLength = Math.floor(minLen + Math.random() * (maxLen - minLen));
+
+          designs.push({
+            id: `${config.name}-${designIndex}`,
+            name: `${config.name}_design_${designIndex}`,
+            configName: config.name,
+            sequence: generateRandomSequence(seqLength),
+            tier,
+            plddt,
+            ptm,
+            pae,
+            status: ['S', 'A', 'B'].includes(tier) ? 'passed' : 'failed',
+          });
+          designIndex++;
+        }
+      }
+    }
+
+    // Sort by tier (S first) then by pLDDT descending
+    const tierOrder: Record<string, number> = { S: 0, A: 1, B: 2, C: 3, F: 4 };
+    return designs.sort((a, b) => {
+      const tierDiff = tierOrder[a.tier] - tierOrder[b.tier];
+      if (tierDiff !== 0) return tierDiff;
+      return b.plddt - a.plddt;
+    });
+  };
+
+  // Export FASTA for metal scaffold designs
+  const handleExportMetalDesignsFasta = (designs: MetalScaffoldDesignResult[]) => {
+    const passingDesigns = designs.filter(d => d.status === 'passed');
+    if (passingDesigns.length === 0) return;
+
+    const fastaContent = passingDesigns
+      .map(d => `>${d.name}|tier=${d.tier}|plddt=${d.plddt.toFixed(2)}|ptm=${d.ptm.toFixed(2)}|pae=${d.pae.toFixed(1)}\n${d.sequence}`)
+      .join('\n\n');
+
+    const blob = new Blob([fastaContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `metal_scaffold_designs_${Date.now()}.fasta`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Handle metal design selection from gallery
+  const handleSelectMetalDesign = (design: MetalScaffoldDesignResult) => {
+    setSelectedMetalDesignId(design.id);
+    if (design.pdbContent) {
+      setViewerPdbContent(design.pdbContent);
+    }
+  };
+
+  // Run metal scaffold design
+  const handleRunMetalScaffoldDesign = async () => {
+    if (!metalScaffoldPreferences) return;
+
+    setAiCaseStudy({ workflowPhase: 'running' });
+
+    const modeDescription = metalScaffoldPreferences.optimizationMode === 'sweep'
+      ? `Starting parameter sweep with 9 configurations (3 sizes × 3 CFG scales)...\nGenerating ${metalScaffoldPreferences.numDesigns} total designs...`
+      : metalScaffoldPreferences.optimizationMode === 'quick'
+      ? `Starting quick exploration with single configuration...\nGenerating ${metalScaffoldPreferences.numDesigns} designs...`
+      : `Starting production run with optimized configuration...\nGenerating ${metalScaffoldPreferences.numDesigns} designs...`;
+
+    addAiMessage({
+      role: 'assistant',
+      content: `${modeDescription}\n\nPipeline stages:\n1. RFD3 backbone generation (RASA conditioning for metal burial)\n2. LigandMPNN sequence design (HSAB-biased amino acids)\n3. RF3 structure validation\n4. Quality tier assignment (S/A/B/C/F)\n\nThis may take several minutes...`,
+    });
+
+    try {
+      // Demo mode - show simulated results
+      if (!isBackendConnected) {
+        const demoSessionId = `demo-${Date.now()}`;
+        setAiCaseStudy({ pendingJobId: demoSessionId });
+
+        await delay(3000);
+        addAiMessage({ role: 'system', content: 'Stage 1/4: Generating backbones...' });
+        setAiCaseStudy({ jobProgress: 25 });
+
+        await delay(2000);
+        addAiMessage({ role: 'system', content: 'Stage 2/4: Running LigandMPNN...' });
+        setAiCaseStudy({ jobProgress: 50 });
+
+        await delay(2000);
+        addAiMessage({ role: 'system', content: 'Stage 3/4: Validating with RF3...' });
+        setAiCaseStudy({ jobProgress: 75 });
+
+        await delay(2000);
+        addAiMessage({ role: 'system', content: 'Stage 4/4: Filtering and ranking...' });
+        setAiCaseStudy({ jobProgress: 100 });
+
+        // Simulated sweep results
+        const simulatedResults = {
+          configs: [
+            { name: 'medium_cfg2.0', passRate: 0.67, avgPlddt: 0.84, avgPtm: 0.78, tierCounts: { S: 2, A: 4, B: 2, C: 1, F: 1 } },
+            { name: 'large_cfg2.0', passRate: 0.56, avgPlddt: 0.82, avgPtm: 0.76, tierCounts: { S: 1, A: 3, B: 3, C: 2, F: 1 } },
+            { name: 'small_cfg2.5', passRate: 0.44, avgPlddt: 0.81, avgPtm: 0.75, tierCounts: { S: 1, A: 2, B: 3, C: 3, F: 1 } },
+            { name: 'medium_cfg1.5', passRate: 0.44, avgPlddt: 0.80, avgPtm: 0.74, tierCounts: { S: 0, A: 3, B: 4, C: 2, F: 1 } },
+            { name: 'small_cfg2.0', passRate: 0.33, avgPlddt: 0.79, avgPtm: 0.73, tierCounts: { S: 0, A: 2, B: 4, C: 3, F: 1 } },
+          ],
+          bestConfig: 'medium_cfg2.0',
+          totalDesigns: metalScaffoldPreferences.numDesigns,
+          passingDesigns: Math.floor(metalScaffoldPreferences.numDesigns * 0.45),
+        };
+
+        // Generate individual designs for the gallery
+        const individualDesigns = generateSimulatedDesigns(
+          simulatedResults.configs,
+          metalScaffoldPreferences.designsPerConfig
+        );
+
+        setMetalScaffoldSweepResults(simulatedResults);
+        setMetalScaffoldDesigns(individualDesigns);
+        setAiCaseStudy({ workflowPhase: 'complete' });
+
+        const best = simulatedResults.configs[0];
+        const totalPassing = individualDesigns.filter(d => d.status === 'passed').length;
+        const sTierCount = individualDesigns.filter(d => d.tier === 'S').length;
+        const aTierCount = individualDesigns.filter(d => d.tier === 'A').length;
+
+        addAiMessage({
+          role: 'assistant',
+          content: `Design complete! Parameter sweep finished with ${individualDesigns.length} total designs.\n\n**Best Configuration: ${best.name}**\n- Pass Rate: ${(best.passRate * 100).toFixed(0)}%\n- Avg pLDDT: ${best.avgPlddt.toFixed(2)}\n- Avg pTM: ${best.avgPtm.toFixed(2)}\n- Tier Distribution: ${best.tierCounts.S}× S, ${best.tierCounts.A}× A, ${best.tierCounts.B}× B\n\n**Summary:**\n- ${totalPassing} designs passed (tier B or better)\n- ${sTierCount + aTierCount} high-quality (S/A tier) designs\n\nBrowse the **Individual Design Results** below to view, compare, and export passing designs.`,
+        });
+        return;
+      }
+
+      // Real backend mode - fetch reference structure and run sweep
+      addAiMessage({
+        role: 'assistant',
+        content: `Backend connected! Fetching reference Tb-citrate structure (3C9H)...`,
+      });
+
+      // Reference PDB IDs for common metal-ligand combinations
+      const REFERENCE_PDBS: Record<string, string> = {
+        'TB-CIT': '3C9H',  // Terbium-citrate reference
+        'EU-CIT': '3C9H',  // Europium uses similar coordination
+        'GD-CIT': '3C9H',  // Gadolinium uses similar coordination
+        'CA-CIT': '1L3J',  // Calcium-citrate
+        'ZN-CIT': '1CA2',  // Zinc - carbonic anhydrase
+      };
+
+      // Get reference PDB based on metal-ligand selection
+      const metalLigandKey = `${metalScaffoldPreferences.metal}-${metalScaffoldPreferences.ligand}`;
+      const referencePdbId = REFERENCE_PDBS[metalLigandKey] || '3C9H';
+
+      try {
+        // Fetch the reference structure from RCSB
+        addAiMessage({ role: 'system', content: `Fetching reference structure ${referencePdbId} from RCSB...` });
+        const pdbResult = await api.fetchPdb(referencePdbId);
+        const motifPdbContent = pdbResult.content;
+
+        if (!motifPdbContent) {
+          throw new Error(`Failed to fetch reference structure ${referencePdbId}`);
+        }
+
+        addAiMessage({ role: 'system', content: `Reference structure loaded. Starting parameter sweep...` });
+        setAiCaseStudy({ jobProgress: 10 });
+
+        // Call the actual backend API
+        const response = await api.startMetalBindingSweep({
+          motif_pdb: motifPdbContent,
+          metal: metalScaffoldPreferences.metal,
+          ligand: metalScaffoldPreferences.ligand !== 'none' ? metalScaffoldPreferences.ligand : undefined,
+          designs_per_config: metalScaffoldPreferences.designsPerConfig,
+          filters: { plddt: 0.70, ptm: 0.60, pae: 10.0 },
+        });
+
+        if (response.status === 'completed' && response.result) {
+          const result = response.result;
+
+          // Convert backend result to frontend format
+          // API returns: config_rankings with tier_distribution
+          const backendResults = {
+            configs: result.config_rankings?.map((cfg) => ({
+              name: cfg.config_name,
+              passRate: cfg.pass_rate,
+              avgPlddt: cfg.avg_plddt,
+              avgPtm: cfg.avg_ptm,
+              tierCounts: {
+                S: cfg.tier_distribution?.['S'] || 0,
+                A: cfg.tier_distribution?.['A'] || 0,
+                B: cfg.tier_distribution?.['B'] || 0,
+                C: cfg.tier_distribution?.['C'] || 0,
+                F: cfg.tier_distribution?.['F'] || 0,
+              },
+            })) || [],
+            bestConfig: result.config_rankings?.[0]?.config_name || 'medium_cfg2.0',
+            totalDesigns: result.total_generated || metalScaffoldPreferences.numDesigns,
+            passingDesigns: result.total_passing || 0,
+          };
+
+          setMetalScaffoldSweepResults(backendResults);
+          setAiCaseStudy({ workflowPhase: 'complete', jobProgress: 100 });
+
+          const best = backendResults.configs[0] || { name: 'unknown', passRate: 0, avgPlddt: 0, avgPtm: 0, tierCounts: { S: 0, A: 0, B: 0, C: 0, F: 0 } };
+          addAiMessage({
+            role: 'assistant',
+            content: `Design complete! Parameter sweep finished with ${backendResults.totalDesigns} total designs.\n\n**Best Configuration: ${best.name}**\n- Pass Rate: ${(best.passRate * 100).toFixed(0)}%\n- Avg pLDDT: ${best.avgPlddt.toFixed(2)}\n- Avg pTM: ${best.avgPtm.toFixed(2)}\n- Tier Distribution: ${best.tierCounts.S}× S, ${best.tierCounts.A}× A, ${best.tierCounts.B}× B\n\n**Summary:**\n- ${backendResults.passingDesigns} designs passed (tier B or better)`,
+          });
+        } else {
+          throw new Error(`Backend returned status: ${response.status}`);
+        }
+      } catch (backendError) {
+        console.error('[AIPanel] Backend sweep error:', backendError);
+        addAiMessage({
+          role: 'assistant',
+          content: `Backend error: ${backendError instanceof Error ? backendError.message : 'Unknown error'}\n\nFalling back to demo mode...`,
+        });
+
+        // Fallback to demo results
+        await delay(2000);
+        const simulatedResults = {
+          configs: [
+            { name: 'medium_cfg2.0', passRate: 0.67, avgPlddt: 0.84, avgPtm: 0.78, tierCounts: { S: 2, A: 4, B: 2, C: 1, F: 1 } },
+            { name: 'large_cfg2.0', passRate: 0.56, avgPlddt: 0.82, avgPtm: 0.76, tierCounts: { S: 1, A: 3, B: 3, C: 2, F: 1 } },
+            { name: 'small_cfg2.5', passRate: 0.44, avgPlddt: 0.81, avgPtm: 0.75, tierCounts: { S: 1, A: 2, B: 3, C: 3, F: 1 } },
+          ],
+          bestConfig: 'medium_cfg2.0',
+          totalDesigns: metalScaffoldPreferences.numDesigns,
+          passingDesigns: Math.floor(metalScaffoldPreferences.numDesigns * 0.45),
+        };
+
+        setMetalScaffoldSweepResults(simulatedResults);
+        setAiCaseStudy({ workflowPhase: 'complete' });
+
+        const best = simulatedResults.configs[0];
+        addAiMessage({
+          role: 'assistant',
+          content: `(Demo mode) Design complete! Parameter sweep finished with ${simulatedResults.totalDesigns} total designs.\n\n**Best Configuration: ${best.name}**\n- Pass Rate: ${(best.passRate * 100).toFixed(0)}%\n- Avg pLDDT: ${best.avgPlddt.toFixed(2)}\n- Avg pTM: ${best.avgPtm.toFixed(2)}\n- Tier Distribution: ${best.tierCounts.S}× S, ${best.tierCounts.A}× A, ${best.tierCounts.B}× B`,
+        });
+      }
+    } catch (error) {
+      console.error('[AIPanel] Metal scaffold design error:', error);
+      addAiMessage({
+        role: 'assistant',
+        content: `Error running metal scaffold design: ${error instanceof Error ? error.message : 'Unknown error'}\n\nPlease try again or check the backend connection.`,
+      });
+      setAiCaseStudy({ workflowPhase: 'error' });
+    }
+  };
+
   // Handle design selection from gallery
   const handleSelectDesign = (design: DesignResult) => {
     setSelectedDesignId(design.id);
@@ -966,6 +1389,11 @@ export function AIDesignAssistantPanel() {
     setBinderDesigns([]);
     setBinderStatistics(null);
     setSelectedBinderDesign(null);
+    setIsMetalScaffoldDesign(false);
+    setMetalScaffoldPreferences(null);
+    setMetalScaffoldSweepResults(null);
+    setMetalScaffoldDesigns([]);
+    setSelectedMetalDesignId(null);
     setDesignResults([]);
     setSelectedDesignId(null);
     setViewerPdbContent(null);
@@ -1016,13 +1444,20 @@ export function AIDesignAssistantPanel() {
 
       {/* Quick Start Section */}
       {workflowPhase === 'idle' && aiCaseStudy.conversation.length === 0 && (
-        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <QuickStartCard
             icon="token"
             title="Metal Binding Redesign"
             description="Convert iron-binding Rubredoxin (1BRF) to bind terbium."
             buttonText="Try 1BRF"
             onClick={handleQuickStart}
+          />
+          <QuickStartCard
+            icon="token"
+            title="Metal Scaffold Design"
+            description="Design monomer scaffolds with parameter sweep optimization."
+            buttonText="Try METAL"
+            onClick={() => { setPdbInput('METAL'); delay(100).then(handleStructureInput); }}
           />
           <QuickStartCard
             icon="science"
@@ -1063,7 +1498,7 @@ export function AIDesignAssistantPanel() {
         )}
 
         {/* Interview Modes */}
-        {workflowPhase === 'interview' && !isLigandDesign && !isBinderDesign && (
+        {workflowPhase === 'interview' && !isLigandDesign && !isBinderDesign && !isMetalScaffoldDesign && (
           <div className="pl-11">
             <InterviewMode onComplete={handleInterviewComplete} onCancel={handleStartNew} />
           </div>
@@ -1081,6 +1516,12 @@ export function AIDesignAssistantPanel() {
           </div>
         )}
 
+        {workflowPhase === 'interview' && isMetalScaffoldDesign && (
+          <div className="pl-11">
+            <MetalScaffoldInterviewMode onComplete={handleMetalScaffoldInterviewComplete} onCancel={handleStartNew} />
+          </div>
+        )}
+
         {/* Hotspot Selector */}
         {showHotspotSelector && hotspotPdbContent && (
           <div className="pl-11">
@@ -1095,7 +1536,7 @@ export function AIDesignAssistantPanel() {
         )}
 
         {/* Preference Summaries */}
-        {workflowPhase === 'confirming' && userPreferences && !isLigandDesign && !isBinderDesign && (
+        {workflowPhase === 'confirming' && userPreferences && !isLigandDesign && !isBinderDesign && !isMetalScaffoldDesign && (
           <div className="pl-11">
             <PreferenceSummaryCard
               preferences={userPreferences}
@@ -1128,6 +1569,17 @@ export function AIDesignAssistantPanel() {
           </div>
         )}
 
+        {workflowPhase === 'confirming' && metalScaffoldPreferences && isMetalScaffoldDesign && (
+          <div className="pl-11">
+            <MetalScaffoldPreferenceSummaryCard
+              preferences={metalScaffoldPreferences}
+              onConfirm={handleRunMetalScaffoldDesign}
+              onEdit={handleEditPreferences}
+              isRunning={isRunningJob}
+            />
+          </div>
+        )}
+
         {/* Job Progress */}
         {workflowPhase === 'running' && (
           <div className="pl-11">
@@ -1141,7 +1593,7 @@ export function AIDesignAssistantPanel() {
         )}
 
         {/* Results - Metal Binding */}
-        {workflowPhase === 'complete' && evaluationResult && userPreferences && !isLigandDesign && !isBinderDesign && (
+        {workflowPhase === 'complete' && evaluationResult && userPreferences && !isLigandDesign && !isBinderDesign && !isMetalScaffoldDesign && (
           <div className="pl-11 space-y-4">
             <EvaluationCard
               evaluation={evaluationResult}
@@ -1277,6 +1729,152 @@ export function AIDesignAssistantPanel() {
           </div>
         )}
 
+        {/* Results - Metal Scaffold Design */}
+        {workflowPhase === 'complete' && metalScaffoldSweepResults && isMetalScaffoldDesign && (
+          <div className="pl-11 space-y-4">
+            {/* Sweep Results Summary */}
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <div className="bg-muted px-4 py-3 border-b border-border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Gem className="h-5 w-5 text-primary" />
+                    <h4 className="font-semibold text-foreground text-sm">Parameter Sweep Results</h4>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                      {metalScaffoldSweepResults.passingDesigns}/{metalScaffoldSweepResults.totalDesigns} passed
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">
+                      {((metalScaffoldSweepResults.passingDesigns / metalScaffoldSweepResults.totalDesigns) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 space-y-3">
+                {metalScaffoldSweepResults.configs.map((config, idx) => (
+                  <div
+                    key={config.name}
+                    className={`p-3 rounded-lg border transition-all ${
+                      config.name === metalScaffoldSweepResults.bestConfig
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                          idx === 0 ? 'bg-amber-100 text-amber-700' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {idx + 1}
+                        </span>
+                        <span className="font-medium text-foreground">{config.name}</span>
+                        {config.name === metalScaffoldSweepResults.bestConfig && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-primary text-primary-foreground">
+                            Best
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-sm font-medium text-foreground">
+                        {(config.passRate * 100).toFixed(0)}% pass
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-4 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Avg pLDDT:</span>
+                        <span className="ml-1 font-medium text-foreground">{config.avgPlddt.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Avg pTM:</span>
+                        <span className="ml-1 font-medium text-foreground">{config.avgPtm.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-full bg-green-500" title="S-tier" />
+                        <span>{config.tierCounts.S || 0}</span>
+                        <span className="w-2 h-2 rounded-full bg-blue-500 ml-1" title="A-tier" />
+                        <span>{config.tierCounts.A || 0}</span>
+                        <span className="w-2 h-2 rounded-full bg-yellow-500 ml-1" title="B-tier" />
+                        <span>{config.tierCounts.B || 0}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Structure Viewer for selected design */}
+            <StructureViewerSection
+              pdbContent={viewerPdbContent}
+              title="Structure Viewer"
+              badge={
+                selectedMetalDesignId
+                  ? `${metalScaffoldDesigns.find(d => d.id === selectedMetalDesignId)?.name || 'Design'}`
+                  : undefined
+              }
+              colorLegend={
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <span className="w-3 h-3 rounded-full bg-primary/60" />
+                  <span>Scaffold</span>
+                  <span className="ml-2 w-3 h-3 rounded-full bg-amber-400" />
+                  <span>Metal Site</span>
+                </div>
+              }
+              emptyMessage="Select a design to view structure (demo mode - no PDB available)"
+            />
+
+            {/* Individual Design Results Gallery */}
+            {metalScaffoldDesigns.length > 0 && (
+              <MetalScaffoldDesignGallery
+                designs={metalScaffoldDesigns}
+                selectedDesignId={selectedMetalDesignId}
+                onSelectDesign={handleSelectMetalDesign}
+                onExportFasta={handleExportMetalDesignsFasta}
+              />
+            )}
+
+            {/* Quality Tier Legend */}
+            <div className="bg-muted rounded-xl p-4 border border-border">
+              <h5 className="font-medium text-foreground text-sm mb-2">Quality Tier Legend</h5>
+              <div className="grid grid-cols-5 gap-2 text-xs">
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="text-foreground font-medium">S</span>
+                  <span className="text-muted-foreground">Excellent</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-blue-500" />
+                  <span className="text-foreground font-medium">A</span>
+                  <span className="text-muted-foreground">Good</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-yellow-500" />
+                  <span className="text-foreground font-medium">B</span>
+                  <span className="text-muted-foreground">Pass</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-orange-500" />
+                  <span className="text-foreground font-medium">C</span>
+                  <span className="text-muted-foreground">Marginal</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-red-500" />
+                  <span className="text-foreground font-medium">F</span>
+                  <span className="text-muted-foreground">Fail</span>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={handleRetry}
+              className="w-full px-4 py-2.5 text-primary bg-card border border-border rounded-xl font-medium text-sm hover:bg-muted transition-all flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Try Different Settings
+            </button>
+          </div>
+        )}
+
         {/* Loading indicator */}
         {aiCaseStudy.isProcessing && workflowPhase !== 'interview' && (
           <div className="flex gap-3">
@@ -1286,12 +1884,14 @@ export function AIDesignAssistantPanel() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>
                 {workflowPhase === 'fetching' && 'Fetching structure from RCSB...'}
-                {workflowPhase === 'analyzing' && !isLigandDesign && !isBinderDesign && 'Analyzing metal binding site...'}
+                {workflowPhase === 'analyzing' && !isLigandDesign && !isBinderDesign && !isMetalScaffoldDesign && 'Analyzing metal binding site...'}
                 {workflowPhase === 'analyzing' && isLigandDesign && 'Analyzing ligand topology...'}
                 {workflowPhase === 'analyzing' && isBinderDesign && 'Preparing binder design pipeline...'}
-                {workflowPhase === 'evaluating' && !isLigandDesign && !isBinderDesign && 'Evaluating design results...'}
+                {workflowPhase === 'analyzing' && isMetalScaffoldDesign && 'Preparing metal scaffold design pipeline...'}
+                {workflowPhase === 'evaluating' && !isLigandDesign && !isBinderDesign && !isMetalScaffoldDesign && 'Evaluating design results...'}
                 {workflowPhase === 'evaluating' && isLigandDesign && 'Evaluating dimer metrics...'}
                 {workflowPhase === 'evaluating' && isBinderDesign && 'Evaluating binder designs...'}
+                {workflowPhase === 'evaluating' && isMetalScaffoldDesign && 'Evaluating metal scaffold designs...'}
               </span>
             </div>
           </div>
@@ -1310,10 +1910,10 @@ export function AIDesignAssistantPanel() {
               value={pdbInput || ''}
               onChange={(e) => setPdbInput(e.target.value.toUpperCase())}
               onKeyDown={(e) => e.key === 'Enter' && handleStructureInput()}
-              placeholder="Enter PDB code (e.g., 1BRF) or AZOB for demo"
+              placeholder="Enter PDB code (e.g., 1BRF) or METAL/AZOB/BIND for demos"
               className="flex-1 px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all font-mono uppercase"
               disabled={aiCaseStudy.isProcessing}
-              maxLength={4}
+              maxLength={5}
             />
             <button
               onClick={handleStructureInput}

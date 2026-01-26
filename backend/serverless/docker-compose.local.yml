@@ -39,6 +39,10 @@ services:
       - ./topology_validation.py:/app/topology_validation.py
       - ./esm_utils.py:/app/esm_utils.py
       - ./esmfold_utils.py:/app/esmfold_utils.py
+      # Design analysis
+      - ./unified_analyzer.py:/app/unified_analyzer.py
+      - ./analysis_types.py:/app/analysis_types.py
+      - ./design_validation_pipeline.py:/app/design_validation_pipeline.py
       # Lanthanide design modules (Caldwell et al. 2020)
       - ./lanthanide_templates.py:/app/lanthanide_templates.py
       - ./metal_validation.py:/app/metal_validation.py
@@ -49,11 +53,21 @@ services:
       - ./metal_binding_pipeline.py:/app/metal_binding_pipeline.py
       - ./tebl_analysis.py:/app/tebl_analysis.py
       - ./hbplus_utils.py:/app/hbplus_utils.py
+      # AI Design Pipeline (Natural Language -> RFD3 -> MPNN -> Validation)
+      - ./nl_design_parser.py:/app/nl_design_parser.py
+      - ./ligand_resolver.py:/app/ligand_resolver.py
+      - ./rfd3_config_generator.py:/app/rfd3_config_generator.py
+      - ./ai_design_pipeline.py:/app/ai_design_pipeline.py
+      - ./metal_chemistry.py:/app/metal_chemistry.py
+      - ./ligand_donors.py:/app/ligand_donors.py
+      - ./design_rules.py:/app/design_rules.py
       # Mount utils directory for SASA calculations
       - ../utils:/app/utils
       - ../utils/dssp.py:/app/dssp.py
       # Mount shared package (interaction analysis module)
       - ./shared:/app/shared
+      # Mount experiments directory for testing
+      - /mnt/g/Github_local_repo/Banta_Lab_RFdiffusion/experiments:/experiments
       # Mount CCD data for LigandMPNN
       - /home/polaire/pdbsum1/data:/data/ccd
     environment:

@@ -315,6 +315,24 @@ METAL_DATABASE: Dict[str, Dict[str, Any]] = {
         "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
         "description": "Hard acid lanthanide, smallest lanthanide, O preferred, His allowed",
     },
+
+    "DY": {
+        "name": "Dysprosium",
+        "hsab_class": {3: "hard"},
+        "default_oxidation": 3,
+        "preferred_donors": {
+            3: {
+                "catalytic": {"O": 3.0, "N": 0.5, "S": -5.0},
+                "structural": {"O": 3.0, "N": 0.5, "S": -5.0},
+            }
+        },
+        "bond_distances": {
+            3: {"O": (2.28, 2.58), "N": (2.38, 2.68)}
+        },
+        "coordination_numbers": {3: (8, 9)},
+        "common_residues": ["GLU", "ASP", "ASN", "GLN", "HIS"],
+        "description": "Hard acid lanthanide, SMM applications, O preferred, His allowed",
+    },
 }
 
 
@@ -686,7 +704,36 @@ def validate_coordination_chemistry(
 
 def is_lanthanide(metal: str) -> bool:
     """Check if a metal is a lanthanide."""
-    return metal.upper() in ["TB", "EU", "GD", "LA", "CE", "SM", "YB"]
+    return metal.upper() in ["TB", "EU", "GD", "LA", "CE", "SM", "YB", "DY"]
+
+
+def get_hsab_class_simple(metal: str) -> str:
+    """
+    Get HSAB classification for a metal using default oxidation state.
+
+    Simplified version for the design decision engine.
+
+    Args:
+        metal: Metal element symbol (e.g., "ZN", "FE", "TB")
+
+    Returns:
+        HSAB class: "hard", "borderline", or "soft"
+    """
+    metal = metal.upper()
+
+    if metal not in METAL_DATABASE:
+        # Fallback logic for unknown metals
+        if metal in ["TB", "EU", "GD", "DY", "LA", "CE", "SM", "YB", "CA", "MG"]:
+            return "hard"
+        elif metal in ["CU", "AG", "AU", "HG"]:
+            return "soft"
+        return "borderline"
+
+    entry = METAL_DATABASE[metal]
+    default_ox = entry.get("default_oxidation", 2)
+    hsab_data = entry.get("hsab_class", {})
+
+    return hsab_data.get(default_ox, "borderline")
 
 
 def get_common_residues(metal: str) -> List[str]:

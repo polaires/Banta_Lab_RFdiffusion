@@ -1831,6 +1831,7 @@ def run_rfd3_inference(
     select_partially_buried: Optional[Dict[str, str]] = None,
     # Protein binder design
     hotspots: Optional[List[str]] = None,
+    select_hotspots: Optional[Dict[str, str]] = None,  # Atom-level hotspots: {"L1": "C4,C5,C6"}
     infer_ori_strategy: Optional[str] = None,
     # Nucleic acid binder design
     na_chains: Optional[str] = None,
@@ -2116,7 +2117,11 @@ def run_rfd3_inference(
             spec["partial_t"] = partial_t
 
         # Hotspots -> select_hotspots in SPEC
-        if hotspots:
+        # select_hotspots takes priority (atom-level), then hotspots (residue-level)
+        if select_hotspots:
+            # Direct dict format: {"L1": "C4,C5,C6"} or {"L1": "ALL"}
+            spec["select_hotspots"] = select_hotspots
+        elif hotspots:
             # Convert list to dict format: ["A15", "M2"] -> {"A15": "ALL", "M2": "ALL"}
             spec["select_hotspots"] = {h: "ALL" for h in hotspots}
 

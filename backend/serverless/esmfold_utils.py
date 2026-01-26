@@ -11,9 +11,9 @@ Key Thresholds (from BindCraft):
 - pLDDT > 0.7: Acceptable binder (BindCraft uses 0.8)
 - RMSD < 2.0 Å: Structure matches design intent
 
-ESMFold is available via:
-1. Local model: esm.pretrained.esmfold_v1() (requires ~8GB GPU RAM)
-2. Hugging Face API: https://api-inference.huggingface.co/models/facebook/esmfold_v1
+ESMFold is available via HuggingFace Transformers:
+- transformers.EsmForProteinFolding (requires ~8GB GPU RAM)
+- Model: facebook/esmfold_v1
 """
 
 import os
@@ -26,7 +26,23 @@ logger = logging.getLogger(__name__)
 
 # Global model cache
 _esmfold_model = None
+_esmfold_tokenizer = None
 _esmfold_device = None
+
+# Check if ESMFold is available via transformers
+def _check_esmfold_available() -> bool:
+    """Check if ESMFold can be loaded via HuggingFace Transformers."""
+    try:
+        from transformers import EsmForProteinFolding, EsmTokenizer
+        return True
+    except ImportError:
+        return False
+
+
+ESMFOLD_AVAILABLE = _check_esmfold_available()
+if ESMFOLD_AVAILABLE:
+    logger.info("ESMFold available via HuggingFace Transformers")
+
 
 # ESMFold validation thresholds (inspired by BindCraft)
 ESMFOLD_THRESHOLDS = {
@@ -42,6 +58,13 @@ ESMFOLD_THRESHOLDS = {
         "plddt_min": 0.60,
         "rmsd_max": 3.0,     # Å
     },
+    # Exploratory threshold for initial testing / debugging
+    # High RMSD tolerance for designs that may not fold exactly as designed
+    # but still have good predicted confidence
+    "exploratory": {
+        "plddt_min": 0.70,   # Still require decent confidence
+        "rmsd_max": 25.0,    # Very lenient RMSD for early-stage designs
+    },
 }
 
 
@@ -50,45 +73,108 @@ def _get_esmfold_model():
     Get or initialize the ESMFold model (cached singleton).
 
     Returns:
-        Tuple of (model, device)
+        Tuple of (model, tokenizer, device)
     """
-    global _esmfold_model, _esmfold_device
+    global _esmfold_model, _esmfold_tokenizer, _esmfold_device
 
     if _esmfold_model is not None:
-        return _esmfold_model, _esmfold_device
+        return _esmfold_model, _esmfold_tokenizer, _esmfold_device
 
     try:
         import torch
-        import esm
+        from transformers import EsmForProteinFolding, EsmTokenizer
 
         # Determine device
         if torch.cuda.is_available():
-            _esmfold_device = "cuda"
+            _esmfold_device = torch.device("cuda")
             # Check GPU memory - ESMFold needs ~8GB
             gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
             if gpu_mem < 7.0:
                 logger.warning(f"GPU has only {gpu_mem:.1f}GB - ESMFold may OOM")
         else:
-            _esmfold_device = "cpu"
+            _esmfold_device = torch.device("cpu")
             logger.warning("CUDA not available, using CPU for ESMFold (will be very slow)")
 
-        # Load model
+        # Load model and tokenizer from HuggingFace
         logger.info(f"Loading ESMFold model on {_esmfold_device}...")
-        _esmfold_model = esm.pretrained.esmfold_v1()
+        _esmfold_tokenizer = EsmTokenizer.from_pretrained("facebook/esmfold_v1")
+        _esmfold_model = EsmForProteinFolding.from_pretrained("facebook/esmfold_v1")
         _esmfold_model = _esmfold_model.eval().to(_esmfold_device)
 
-        # Set chunk size for memory efficiency
-        _esmfold_model.set_chunk_size(128)
+        # Set chunk size for memory efficiency (if supported)
+        if hasattr(_esmfold_model, 'trunk') and hasattr(_esmfold_model.trunk, 'set_chunk_size'):
+            _esmfold_model.trunk.set_chunk_size(64)
 
         logger.info("ESMFold model loaded successfully")
-        return _esmfold_model, _esmfold_device
+        return _esmfold_model, _esmfold_tokenizer, _esmfold_device
 
     except ImportError as e:
-        logger.error(f"ESM package not installed or ESMFold not available: {e}")
-        raise RuntimeError("ESMFold not available. Install with: pip install esm")
+        logger.error(f"transformers package not installed or ESMFold not available: {e}")
+        raise RuntimeError("ESMFold not available. Install with: pip install transformers accelerate")
     except Exception as e:
         logger.error(f"Failed to load ESMFold model: {e}")
         raise
+
+
+def _convert_outputs_to_pdb(outputs, sequence: str) -> str:
+    """Convert ESMFold outputs to PDB format string."""
+    import torch
+
+    # Get atom positions from model output
+    # positions shape: [num_recycles, batch, seq_len, atom14, 3]
+    positions = outputs["positions"][-1][0].cpu()  # Final recycling, first batch: [seq_len, 14, 3]
+
+    # Get pLDDT - shape: [batch, seq_len, 37]
+    plddt_raw = outputs["plddt"][0].cpu()  # [seq_len, 37]
+    atom_mask = outputs["atom37_atom_exists"][0].cpu()  # [seq_len, 37]
+    # Compute per-residue pLDDT as mean over existing atoms
+    masked_plddt = plddt_raw * atom_mask
+    plddt = masked_plddt.sum(dim=-1) / atom_mask.sum(dim=-1).clamp(min=1)  # [seq_len]
+
+    # Build PDB lines
+    pdb_lines = []
+    atom_idx = 1
+
+    # Atom14 representation: N, CA, C, O, CB, and sidechains
+    # We'll output the first 4 backbone atoms + CB if present
+    atom_names = ["N", "CA", "C", "O", "CB"]
+    atom_elements = ["N", "C", "C", "O", "C"]
+
+    # 3-letter amino acid codes
+    aa_3letter = {
+        'A': 'ALA', 'C': 'CYS', 'D': 'ASP', 'E': 'GLU', 'F': 'PHE',
+        'G': 'GLY', 'H': 'HIS', 'I': 'ILE', 'K': 'LYS', 'L': 'LEU',
+        'M': 'MET', 'N': 'ASN', 'P': 'PRO', 'Q': 'GLN', 'R': 'ARG',
+        'S': 'SER', 'T': 'THR', 'V': 'VAL', 'W': 'TRP', 'Y': 'TYR',
+    }
+
+    for res_idx, aa in enumerate(sequence):
+        res_num = res_idx + 1
+        res_plddt = float(plddt[res_idx]) * 100  # Convert to 0-100 scale
+        res_name = aa_3letter.get(aa, 'UNK')
+
+        # Get coordinates for this residue: [14, 3]
+        res_coords = positions[res_idx]
+
+        # Output backbone atoms (indices 0-3) and CB (index 4) if not Glycine
+        num_atoms = 4 if aa == 'G' else 5
+        for atom_local_idx in range(min(num_atoms, len(atom_names))):
+            atom_name = atom_names[atom_local_idx]
+            element = atom_elements[atom_local_idx]
+            x, y, z = res_coords[atom_local_idx].tolist()
+
+            # Skip if coordinates are zero (missing atom)
+            if x == 0.0 and y == 0.0 and z == 0.0:
+                continue
+
+            pdb_lines.append(
+                f"ATOM  {atom_idx:5d}  {atom_name:<3s} {res_name:>3s} A{res_num:4d}    "
+                f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00{res_plddt:6.2f}           {element:>2s}"
+            )
+            atom_idx += 1
+
+    pdb_lines.append("END")
+    return "\n".join(pdb_lines)
 
 
 def predict_structure_esmfold(
@@ -96,7 +182,7 @@ def predict_structure_esmfold(
     return_pdb: bool = True,
 ) -> Dict[str, Any]:
     """
-    Predict protein structure from sequence using ESMFold.
+    Predict protein structure from sequence using ESMFold via HuggingFace Transformers.
 
     Args:
         sequence: Single-letter amino acid sequence
@@ -110,37 +196,62 @@ def predict_structure_esmfold(
         - pdb_content: Predicted structure as PDB string (if return_pdb)
         - ca_coords: CA atom coordinates (N x 3)
     """
+    # Validate sequence first
+    sequence = sequence.upper().strip()
+    valid_aa = set("ACDEFGHIKLMNPQRSTVWY")
+    invalid = set(sequence) - valid_aa
+    if invalid:
+        return {
+            "status": "error",
+            "error": f"Invalid amino acids: {invalid}"
+        }
+
+    if len(sequence) < 10:
+        return {
+            "status": "error",
+            "error": "Sequence too short (minimum 10 residues)"
+        }
+
+    if len(sequence) > 400:
+        logger.warning(f"Long sequence ({len(sequence)} residues) - may be slow/OOM")
+
+    # Model inference using HuggingFace Transformers
     try:
         import torch
 
-        # Validate sequence
-        sequence = sequence.upper().strip()
-        valid_aa = set("ACDEFGHIKLMNPQRSTVWY")
-        invalid = set(sequence) - valid_aa
-        if invalid:
-            return {
-                "status": "error",
-                "error": f"Invalid amino acids: {invalid}"
-            }
+        # Get model, tokenizer, and device
+        model, tokenizer, device = _get_esmfold_model()
 
-        if len(sequence) < 10:
-            return {
-                "status": "error",
-                "error": "Sequence too short (minimum 10 residues)"
-            }
+        logger.info(f"Predicting structure for {len(sequence)} residues...")
 
-        if len(sequence) > 400:
-            logger.warning(f"Long sequence ({len(sequence)} residues) - may be slow/OOM")
+        # Tokenize sequence
+        inputs = tokenizer([sequence], return_tensors="pt", add_special_tokens=False)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
-        # Get model
-        model, device = _get_esmfold_model()
-
+        # Predict structure
         with torch.no_grad():
-            output = model.infer_pdb(sequence)
+            outputs = model(**inputs)
 
-        # Parse the PDB output to extract pLDDT and coordinates
-        pdb_content = output
-        plddt, ca_coords = _parse_esmfold_pdb(pdb_content)
+        # Extract pLDDT (per-residue confidence)
+        # plddt shape: [batch, seq_len, 37] (37 atom types)
+        # Take mean across atom types or just CA atom (index 1)
+        plddt_raw = outputs["plddt"][0].cpu()  # Shape: [seq_len, 37]
+        # Use atom14_atom_exists mask to only average over existing atoms
+        atom_mask = outputs["atom37_atom_exists"][0].cpu()  # Shape: [seq_len, 37]
+        # Compute masked mean per residue
+        masked_plddt = plddt_raw * atom_mask
+        plddt = (masked_plddt.sum(dim=-1) / atom_mask.sum(dim=-1).clamp(min=1)).numpy()
+
+        # Extract CA coordinates from atom positions
+        # positions shape: [num_recycles+1, batch, seq_len, atom14, 3]
+        # In atom14 representation: 0=N, 1=CA, 2=C, 3=O
+        positions = outputs["positions"][-1][0].cpu().numpy()  # Final recycling step, shape: [seq_len, 14, 3]
+        ca_coords = positions[:, 1, :]  # CA atom coordinates (index 1)
+
+        # Convert to PDB format if requested
+        pdb_content = None
+        if return_pdb:
+            pdb_content = _convert_outputs_to_pdb(outputs, sequence)
 
         result = {
             "status": "completed",
@@ -153,6 +264,7 @@ def predict_structure_esmfold(
         if return_pdb:
             result["pdb_content"] = pdb_content
 
+        logger.info(f"Prediction complete: mean pLDDT = {result['mean_plddt']:.2f}")
         return result
 
     except Exception as e:
@@ -408,7 +520,8 @@ def validate_structure_esmfold(
                 reasons.append(f"RMSD {rmsd:.2f}Å > {thresholds['rmsd_max']}Å")
             result["failure_reasons"] = reasons
 
-        logger.info(f"Validation: pLDDT={mean_plddt:.2f}, RMSD={rmsd:.2f if rmsd else 'N/A'}Å, passed={validation_passed}")
+        rmsd_str = f"{rmsd:.2f}" if rmsd is not None else "N/A"
+        logger.info(f"Validation: pLDDT={mean_plddt:.2f}, RMSD={rmsd_str}Å, passed={validation_passed}")
         return result
 
     except Exception as e:
@@ -462,12 +575,14 @@ def validate_binder_batch(
 
 def clear_esmfold_cache():
     """Clear the cached ESMFold model to free GPU memory."""
-    global _esmfold_model, _esmfold_device
+    global _esmfold_model, _esmfold_tokenizer, _esmfold_device
 
     if _esmfold_model is not None:
         import torch
         del _esmfold_model
+        del _esmfold_tokenizer
         _esmfold_model = None
+        _esmfold_tokenizer = None
         _esmfold_device = None
 
         if torch.cuda.is_available():
@@ -478,17 +593,8 @@ def clear_esmfold_cache():
 
 # Utility function to check if ESMFold is available
 def is_esmfold_available() -> bool:
-    """Check if ESMFold can be loaded.
+    """Check if ESMFold can be loaded via HuggingFace Transformers.
 
-    Note: ESM-3 package has a different API than the original ESM package.
-    We check for the esm.pretrained module which is only in the original ESM package.
+    Returns the pre-computed availability flag.
     """
-    try:
-        import esm
-        # Check if this is the original ESM package (has pretrained module)
-        # ESM-3 package doesn't have this attribute
-        if not hasattr(esm, 'pretrained'):
-            return False
-        return hasattr(esm.pretrained, 'esmfold_v1')
-    except (ImportError, AttributeError):
-        return False
+    return ESMFOLD_AVAILABLE

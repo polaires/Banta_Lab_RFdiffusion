@@ -14,6 +14,7 @@ Uses Claude API for semantic understanding and metal_chemistry.py for validation
 
 import logging
 import json
+import re
 import requests
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -33,6 +34,34 @@ logger = logging.getLogger(__name__)
 # Data Classes
 # =============================================================================
 
+# =============================================================================
+# PDB ID and Scaffolding Detection
+# =============================================================================
+
+# PDB ID pattern: 4 characters starting with a digit (e.g., 4CVB, 1ABC, 7XYZ)
+PDB_ID_PATTERN = re.compile(r'\b([0-9][A-Za-z0-9]{3})\b')
+
+# Keywords that indicate scaffolding intent (rather than de novo design)
+SCAFFOLD_KEYWORDS = [
+    "scaffold", "scaffolding", "motif", "pocket of", "site of",
+    "from structure", "from pdb", "active site of", "binding site of",
+    "extract from", "based on", "template from"
+]
+
+# Keywords that indicate user wants ALL interacting residues (not just metal coordination)
+FULL_POCKET_KEYWORDS = [
+    "all interacting", "all residues", "keep all", "preserve all",
+    "full pocket", "complete pocket", "entire pocket", "whole pocket",
+    "all contacts", "all interactions", "binding pocket"
+]
+
+# Keywords that indicate stability optimization
+STABILITY_KEYWORDS = [
+    "more stable", "stable", "stability", "stabilize", "stabilization",
+    "robust", "thermostable", "thermal stability", "improve stability"
+]
+
+
 @dataclass
 class DesignIntent:
     """
@@ -50,6 +79,15 @@ class DesignIntent:
     chain_length_min: int = 80             # Minimum residue count
     chain_length_max: int = 120            # Maximum residue count
 
+    # Scaffolding parameters
+    design_mode: str = "de_novo"           # "de_novo" | "scaffold"
+    source_pdb_id: Optional[str] = None    # e.g., "4CVB" for scaffold mode
+    pocket_description: Optional[str] = None  # e.g., "PQQ-Ca pocket"
+
+    # Extended pocket and stability options
+    include_all_contacts: bool = False     # If True, include all ligand-contacting residues
+    stability_focus: bool = False          # If True, optimize for protein stability
+
     # Confidence and metadata
     confidence: float = 0.0                # Parser confidence (0-1)
     raw_query: str = ""                    # Original user query
@@ -60,6 +98,11 @@ class DesignIntent:
 
     # Parsed entities for debugging
     parsed_entities: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_scaffolding(self) -> bool:
+        """Check if this is a scaffolding request."""
+        return self.design_mode == "scaffold" and self.source_pdb_id is not None
 
     @property
     def chain_length_range(self) -> str:
@@ -515,6 +558,22 @@ class SimpleFallbackParser:
         intent = DesignIntent(raw_query=query)
         query_lower = query.lower()
 
+        # Detect PDB ID (4 characters starting with digit, e.g., 4CVB)
+        pdb_match = PDB_ID_PATTERN.search(query.upper())
+        if pdb_match:
+            intent.source_pdb_id = pdb_match.group(1)
+            intent.parsed_entities["pdb_id"] = intent.source_pdb_id
+
+        # Detect scaffolding intent
+        is_scaffold = any(kw in query_lower for kw in SCAFFOLD_KEYWORDS)
+        if is_scaffold and intent.source_pdb_id:
+            intent.design_mode = "scaffold"
+            intent.parsed_entities["design_mode"] = "scaffold"
+            # Try to extract pocket description (text between ligand/metal and PDB ID)
+            intent.pocket_description = self._extract_pocket_description(query)
+        else:
+            intent.design_mode = "de_novo"
+
         # Extract metal
         for alias, metal in METAL_ALIASES.items():
             if alias in query_lower:
@@ -545,18 +604,57 @@ class SimpleFallbackParser:
         elif any(word in query_lower for word in ["symmetric", "symmetry", "c3", "c4"]):
             intent.target_topology = "symmetric"
 
+        # Detect full pocket request (keep all interacting residues)
+        if any(kw in query_lower for kw in FULL_POCKET_KEYWORDS):
+            intent.include_all_contacts = True
+            intent.parsed_entities["include_all_contacts"] = True
+
+        # Detect stability optimization request
+        if any(kw in query_lower for kw in STABILITY_KEYWORDS):
+            intent.stability_focus = True
+            intent.parsed_entities["stability_focus"] = True
+
         # Set confidence based on matches
         matches = sum([
             intent.has_metal,
             intent.has_ligand,
             intent.design_goal != "binding",
             intent.target_topology != "monomer",
+            intent.is_scaffolding,  # Scaffolding detection
+            intent.include_all_contacts,  # Full pocket detection
+            intent.stability_focus,  # Stability detection
         ])
         intent.confidence = 0.3 + (matches * 0.15)
 
         intent.warnings.append("Used fallback parser (API unavailable)")
 
         return intent
+
+    def _extract_pocket_description(self, query: str) -> Optional[str]:
+        """
+        Extract pocket description from query.
+
+        Examples:
+        - "scaffold the PQQ-Ca pocket of 4CVB" -> "PQQ-Ca pocket"
+        - "scaffold the active site of 1ABC" -> "active site"
+        """
+        query_lower = query.lower()
+
+        # Try common patterns
+        patterns = [
+            r'the\s+(\S+-\S+\s+pocket)',     # "the PQQ-Ca pocket"
+            r'the\s+(\S+\s+pocket)',          # "the zinc pocket"
+            r'(active\s+site)',               # "active site"
+            r'(binding\s+site)',              # "binding site"
+            r'(coordination\s+site)',         # "coordination site"
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                return match.group(1)
+
+        return None
 
 
 # =============================================================================
@@ -594,11 +692,16 @@ def create_parser(
 def test_parser():
     """Test the parser with example queries."""
     test_queries = [
+        # De novo design queries
         "Design a protein to bind citrate with terbium",
         "Create a zinc finger DNA-binding protein",
         "I want a PQQ-binding dehydrogenase with calcium",
         "Make a luminescent sensor for europium",
         "Design a dimer interface with lanthanide binding",
+        # Scaffolding queries (NEW)
+        "Scaffold the PQQ-Ca pocket of 4CVB",
+        "Scaffold the active site of 1ABC with zinc",
+        "Extract the citrate binding site from 3XYZ",
     ]
 
     # Use fallback parser for testing without API
@@ -607,6 +710,11 @@ def test_parser():
     for query in test_queries:
         print(f"\nQuery: {query}")
         intent = parser.parse(query)
+        print(f"  Design Mode: {intent.design_mode}")
+        if intent.source_pdb_id:
+            print(f"  Source PDB: {intent.source_pdb_id}")
+        if intent.pocket_description:
+            print(f"  Pocket: {intent.pocket_description}")
         print(f"  Metal: {intent.metal_type}")
         print(f"  Ligand: {intent.ligand_name}")
         print(f"  Goal: {intent.design_goal}")

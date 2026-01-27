@@ -37,6 +37,15 @@ from rfd3_config_generator import (
 # Import inference utilities
 from inference_utils import run_rfd3_inference, run_mpnn_inference
 
+# Import scaffolding workflow for motif-based design
+try:
+    from scaffolding_workflow import ScaffoldingWorkflow, ScaffoldResult
+    SCAFFOLDING_AVAILABLE = True
+except ImportError:
+    SCAFFOLDING_AVAILABLE = False
+    ScaffoldingWorkflow = None
+    ScaffoldResult = None
+
 # Import ESMFold validation
 try:
     from esmfold_utils import validate_structure_esmfold, is_esmfold_available
@@ -248,6 +257,11 @@ class AIDesignPipeline:
         if ANALYZER_AVAILABLE:
             self.analyzer = UnifiedDesignAnalyzer()
 
+        # Initialize scaffolding workflow
+        self.scaffolding_workflow = None
+        if SCAFFOLDING_AVAILABLE:
+            self.scaffolding_workflow = ScaffoldingWorkflow()
+
     def run(
         self,
         query: str,
@@ -282,6 +296,20 @@ class AIDesignPipeline:
             if intent.confidence < 0.3:
                 result.error = f"Low confidence parsing: {intent.warnings}"
                 logger.warning(f"Low confidence parsing: {intent.confidence}")
+
+            # === DESIGN MODE ROUTER ===
+            # Route to scaffolding workflow if PDB ID and scaffolding intent detected
+            if intent.is_scaffolding and self.scaffolding_workflow:
+                logger.info(f"Routing to scaffolding workflow: PDB={intent.source_pdb_id}")
+                return self._run_scaffolding_pipeline(
+                    intent=intent,
+                    result=result,
+                    start_time=start_time,
+                    num_designs=num_designs,
+                    num_sequences=num_sequences,
+                    validate_sequences=validate_sequences,
+                )
+            # Otherwise continue with de novo design workflow
 
             # Stage 2: Resolve ligand
             stage_start = time.time()
@@ -405,6 +433,268 @@ class AIDesignPipeline:
         config = self.config_generator.generate_mpnn_config(intent, ligand)
         config.num_sequences = num_sequences
         return config
+
+    def _run_scaffolding_pipeline(
+        self,
+        intent: DesignIntent,
+        result: PipelineResult,
+        start_time: float,
+        num_designs: int = 4,
+        num_sequences: int = 8,
+        validate_sequences: bool = True,
+    ) -> PipelineResult:
+        """
+        Run scaffolding workflow for motif-based design.
+
+        This is called when the query requests scaffolding from an existing PDB
+        (e.g., "scaffold the PQQ-Ca pocket of 4CVB").
+
+        Args:
+            intent: Parsed design intent with source_pdb_id
+            result: PipelineResult to populate
+            start_time: Pipeline start time
+            num_designs: Number of scaffold designs to generate
+            num_sequences: Number of sequences per design
+            validate_sequences: Whether to validate with ESMFold
+
+        Returns:
+            Populated PipelineResult
+        """
+        import asyncio
+
+        try:
+            # Stage 2: Fetch and extract scaffold
+            stage_start = time.time()
+            logger.info(f"Fetching scaffold from PDB: {intent.source_pdb_id}")
+
+            # Run async scaffolding workflow
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                scaffold_result = loop.run_until_complete(
+                    self.scaffolding_workflow.run(
+                        pdb_id=intent.source_pdb_id,
+                        metal=intent.metal_type,
+                        ligand_code=intent.ligand_name,
+                        include_all_ligand_contacts=intent.include_all_contacts,  # Full pocket
+                    )
+                )
+            finally:
+                loop.close()
+
+            result.timings["scaffold_fetch"] = time.time() - stage_start
+
+            if not scaffold_result.success:
+                result.error = f"Scaffolding failed: {scaffold_result.error_message}"
+                return self._finalize_result(result, start_time)
+
+            # Log pocket size
+            pocket_mode = "full pocket" if intent.include_all_contacts else "metal coordination"
+            logger.info(f"Scaffold extracted ({pocket_mode}): {len(scaffold_result.coordinating_residues)} residues")
+            logger.info(f"Contig: {scaffold_result.contig}")
+
+            # Stage 3: Build RFD3 config from scaffold
+            stage_start = time.time()
+
+            # Build RFD3 parameters directly from scaffold result
+            # Apply stability-focused settings if requested
+            cfg_scale = 3.0 if intent.stability_focus else 2.5
+            step_scale = 1.5
+
+            rfd3_params = {
+                "pdb_content": scaffold_result.motif_pdb,
+                "contig": scaffold_result.contig,
+                "num_designs": num_designs,
+                "select_fixed_atoms": scaffold_result.fixed_atoms,
+                "select_buried": scaffold_result.rasa_targets,
+                "use_classifier_free_guidance": True,
+                "cfg_scale": cfg_scale,
+                "step_scale": step_scale,
+            }
+
+            # Add H-bond conditioning if available
+            if scaffold_result.hbond_acceptors:
+                rfd3_params["select_hbond_acceptor"] = scaffold_result.hbond_acceptors
+            if scaffold_result.hbond_donors:
+                rfd3_params["select_hbond_donor"] = scaffold_result.hbond_donors
+
+            # Log stability settings
+            if intent.stability_focus:
+                logger.info(f"Stability focus enabled: cfg_scale={cfg_scale}")
+
+            result.timings["config"] = time.time() - stage_start
+
+            # Stage 4: Run RFD3 backbone generation
+            stage_start = time.time()
+            logger.info(f"Running RFD3 scaffolding with contig: {scaffold_result.contig}")
+
+            if self.use_mock:
+                backbone_pdbs = [scaffold_result.motif_pdb] * num_designs
+            else:
+                rfd3_result = run_rfd3_inference(**rfd3_params)
+                if rfd3_result.get("status") == "completed":
+                    designs = rfd3_result.get("result", {}).get("designs", [])
+                    backbone_pdbs = [d.get("content", "") for d in designs if d.get("content")]
+                else:
+                    backbone_pdbs = []
+
+            result.backbone_pdbs = backbone_pdbs
+            result.num_backbones = len(backbone_pdbs)
+            result.timings["rfd3"] = time.time() - stage_start
+
+            if not backbone_pdbs:
+                result.error = "RFD3 scaffolding failed"
+                return self._finalize_result(result, start_time)
+
+            # Stage 5: Run LigandMPNN sequence design
+            stage_start = time.time()
+            all_sequences = []
+
+            # Build MPNN config
+            mpnn_params = {
+                "num_seqs": num_sequences,
+                "temperature": 0.1,
+                "ligand_mpnn_use_atom_context": 1,
+            }
+
+            # Add metal-specific bias if applicable
+            if intent.metal_type:
+                from metal_chemistry import get_amino_acid_bias, is_lanthanide
+                try:
+                    bias = get_amino_acid_bias(intent.metal_type, 3)
+                    if bias:
+                        mpnn_params["bias_AA"] = bias
+                    if is_lanthanide(intent.metal_type):
+                        mpnn_params["omit_AA"] = "C"
+                except Exception as e:
+                    logger.warning(f"Could not get metal bias: {e}")
+
+            for backbone_pdb in backbone_pdbs:
+                if self.use_mock:
+                    all_sequences.append(SequenceResult(
+                        sequence="MOCK" * 25,
+                        confidence=0.9,
+                    ))
+                    continue
+
+                mpnn_params["pdb_content"] = backbone_pdb
+                mpnn_result = run_mpnn_inference(**mpnn_params)
+
+                if mpnn_result.get("status") == "completed":
+                    sequences_data = mpnn_result.get("result", {}).get("sequences", [])
+                    for seq_data in sequences_data:
+                        content = seq_data.get("content", "")
+                        for line in content.split('\n'):
+                            if line and not line.startswith('>'):
+                                all_sequences.append(SequenceResult(
+                                    sequence=line.strip(),
+                                    confidence=seq_data.get("confidence", 0.8),
+                                    filename=seq_data.get("filename", ""),
+                                ))
+
+            result.sequences = all_sequences
+            result.num_sequences = len(all_sequences)
+            result.timings["mpnn"] = time.time() - stage_start
+
+            if not all_sequences:
+                result.error = "LigandMPNN sequence design failed"
+                return self._finalize_result(result, start_time)
+
+            # Stage 6: Validate with ESMFold
+            if validate_sequences and ESMFOLD_AVAILABLE:
+                stage_start = time.time()
+                validation_results = self._validate_sequences(
+                    all_sequences,
+                    backbone_pdbs,
+                    intent,
+                )
+                result.validation_results = validation_results
+                result.timings["validation"] = time.time() - stage_start
+
+                passed = sum(1 for v in validation_results if v.passed)
+                result.pass_rate = passed / len(validation_results) if validation_results else 0.0
+
+                self._find_best_result(result, validation_results, all_sequences)
+
+            # Stage 7: Run unified analysis
+            if self.analyzer and result.best_sequence_pdb:
+                stage_start = time.time()
+                analysis = self._run_analysis(result.best_sequence_pdb, intent)
+                result.analysis_results = analysis
+                result.timings["analysis"] = time.time() - stage_start
+
+            # Stage 8: Generate report
+            result.report = self._generate_scaffolding_report(result, scaffold_result)
+            result.recommendations = self._generate_recommendations(result)
+
+            # Add scaffolding info to analysis
+            result.analysis_results["scaffolding_info"] = scaffold_result.source_info
+
+            result.success = True
+
+        except Exception as e:
+            logger.exception(f"Scaffolding pipeline error: {e}")
+            result.error = str(e)
+            result.success = False
+
+        return self._finalize_result(result, start_time)
+
+    def _generate_scaffolding_report(
+        self,
+        result: PipelineResult,
+        scaffold_result: 'ScaffoldResult',
+    ) -> str:
+        """Generate report for scaffolding workflow."""
+        lines = ["# AI Design Pipeline Report (Scaffolding Mode)\n"]
+
+        # Scaffold source
+        lines.append("## Scaffold Source")
+        info = scaffold_result.source_info
+        lines.append(f"- PDB ID: {info.get('pdb_id', 'N/A')}")
+        lines.append(f"- Metal: {info.get('metal', 'N/A')}")
+        lines.append(f"- Ligand: {info.get('ligand', 'N/A')}")
+        lines.append(f"- Coordination number: {info.get('coordination_number', 0)}")
+
+        if info.get('protein_donors'):
+            lines.append(f"- Protein donors: {', '.join(info['protein_donors'][:5])}")
+        if info.get('ligand_donors'):
+            lines.append(f"- Ligand donors: {', '.join(info['ligand_donors'][:5])}")
+        lines.append("")
+
+        # Contig
+        lines.append("## Scaffolding Configuration")
+        lines.append(f"- Contig: `{scaffold_result.contig}`")
+        lines.append(f"- Motif residues: {', '.join(scaffold_result.motif_residues)}")
+        lines.append("")
+
+        # Results (same as standard report)
+        lines.append("## Results Summary")
+        lines.append(f"- Backbones generated: {result.num_backbones}")
+        lines.append(f"- Sequences designed: {result.num_sequences}")
+
+        if result.validation_results:
+            lines.append(f"- Validation pass rate: {result.pass_rate:.1%}")
+
+        if result.best_rmsd and result.best_rmsd < float('inf'):
+            lines.append(f"- Best RMSD: {result.best_rmsd:.2f}Å")
+            lines.append(f"- Best pLDDT: {result.best_plddt:.2f}")
+        lines.append("")
+
+        # Best sequence
+        if result.best_sequence:
+            lines.append("## Best Sequence")
+            lines.append("```")
+            lines.append(result.best_sequence.sequence)
+            lines.append("```")
+            lines.append("")
+
+        # Timing
+        lines.append("## Timing")
+        for stage, duration in result.timings.items():
+            lines.append(f"- {stage}: {duration:.1f}s")
+        lines.append(f"- Total: {result.total_time:.1f}s")
+
+        return "\n".join(lines)
 
     def _run_rfd3(self, config: RFD3Config) -> List[str]:
         """Run RFD3 backbone generation."""
@@ -814,6 +1104,11 @@ def test_pipeline():
         use_mock=True,
     )
 
+    # Test 1: De novo design query
+    print("\n" + "=" * 60)
+    print("Test 1: De Novo Design")
+    print("=" * 60)
+
     result = pipeline.run(
         query="Design a protein to bind citrate with terbium",
         num_designs=2,
@@ -821,16 +1116,30 @@ def test_pipeline():
         validate_sequences=True,
     )
 
-    print("\n" + "=" * 60)
-    print("Pipeline Test Results")
-    print("=" * 60)
     print(f"Success: {result.success}")
+    print(f"Design Mode: {result.design_intent.design_mode if result.design_intent else 'N/A'}")
     print(f"Error: {result.error}")
     print(f"Backbones: {result.num_backbones}")
     print(f"Sequences: {result.num_sequences}")
-    print(f"Pass rate: {result.pass_rate:.1%}")
     print(f"Total time: {result.total_time:.1f}s")
-    print("\n" + result.report)
+
+    # Test 2: Scaffolding query
+    print("\n" + "=" * 60)
+    print("Test 2: Scaffolding Query")
+    print("=" * 60)
+
+    result2 = pipeline.run(
+        query="Scaffold the PQQ-Ca pocket of 4CVB",
+        num_designs=2,
+        num_sequences=4,
+        validate_sequences=False,  # Skip validation for speed
+    )
+
+    print(f"Success: {result2.success}")
+    print(f"Design Mode: {result2.design_intent.design_mode if result2.design_intent else 'N/A'}")
+    print(f"Source PDB: {result2.design_intent.source_pdb_id if result2.design_intent else 'N/A'}")
+    print(f"Error: {result2.error}")
+    print(f"Total time: {result2.total_time:.1f}s")
 
 
 if __name__ == "__main__":

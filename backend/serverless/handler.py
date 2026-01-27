@@ -97,6 +97,19 @@ from rosetta_utils import (
     score_interface as rosetta_score_interface,
 )
 
+# Import design validation pipeline (MPNN + ESMFold)
+try:
+    from design_validation_pipeline import (
+        DesignValidationPipeline,
+        validate_design as run_validation_pipeline,
+    )
+    VALIDATION_PIPELINE_AVAILABLE = True
+except ImportError:
+    VALIDATION_PIPELINE_AVAILABLE = False
+    DesignValidationPipeline = None
+    run_validation_pipeline = None
+    print("[Handler] Warning: design_validation_pipeline not available")
+
 # Import hotspot detection for auto-detecting binding sites
 from hotspot_detection import (
     detect_hotspots_sasa,
@@ -105,6 +118,15 @@ from hotspot_detection import (
     filter_wrap_around_designs,
     format_hotspots_for_rfd3,
 )
+
+# Import conservation analysis (ConSurf-style)
+try:
+    from conservation_analyzer import ConservationAnalyzer
+    CONSERVATION_AVAILABLE = True
+except ImportError:
+    CONSERVATION_AVAILABLE = False
+    ConservationAnalyzer = None
+    print("[Handler] Warning: conservation_analyzer not available")
 
 # Import lanthanide template generators and validation
 try:
@@ -267,6 +289,19 @@ try:
 except ImportError as e:
     METAL_BINDING_PIPELINE_AVAILABLE = False
     print(f"[Handler] Warning: metal_binding_pipeline not available: {e}")
+
+# Import AI design pipeline for natural language driven design
+try:
+    from ai_design_pipeline import (
+        AIDesignPipeline,
+        PipelineResult,
+        handle_ai_design,
+    )
+    AI_DESIGN_PIPELINE_AVAILABLE = True
+except ImportError as e:
+    AI_DESIGN_PIPELINE_AVAILABLE = False
+    handle_ai_design = None
+    print(f"[Handler] Warning: ai_design_pipeline not available: {e}")
 
 # ============== Ligand H-bond Presets ==============
 
@@ -457,6 +492,11 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Hotspot detection for binder design
         elif task == "detect_hotspots":
             return handle_detect_hotspots(job_input)
+        # Conservation analysis (ConSurf-style)
+        elif task == "analyze_conservation":
+            if not CONSERVATION_AVAILABLE:
+                return {"status": "failed", "error": "Conservation analyzer not available"}
+            return handle_analyze_conservation(job_input)
         # Interaction analysis (PLIP or distance-based)
         elif task == "interaction_analysis":
             return handle_interaction_analysis(job_input)
@@ -480,10 +520,18 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             if not PIPELINE_AVAILABLE:
                 return {"status": "failed", "error": "Pipeline handler not available"}
             return handle_pipeline_export(job_input)
+        # Design validation pipeline (MPNN + ESMFold)
+        elif task == "validate_design":
+            return handle_validate_design(job_input)
+        # AI design pipeline (natural language driven)
+        elif task == "ai_design":
+            if not AI_DESIGN_PIPELINE_AVAILABLE:
+                return {"status": "failed", "error": "AI design pipeline not available"}
+            return handle_ai_design(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, ai_design, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -715,6 +763,10 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     gamma_0 = job_input.get("gamma_0")
     is_non_loopy = job_input.get("is_non_loopy")
 
+    # Classifier-free guidance (CFG) for enhanced conditioning
+    use_classifier_free_guidance = job_input.get("use_classifier_free_guidance")
+    cfg_scale = job_input.get("cfg_scale")
+
     # Symmetry
     symmetry = job_input.get("symmetry")
 
@@ -793,6 +845,9 @@ def handle_rfd3(job_input: Dict[str, Any]) -> Dict[str, Any]:
         guiding_potentials=guiding_potentials,
         guide_scale=guide_scale,
         guide_decay=guide_decay,
+        # Classifier-free guidance (CFG)
+        use_classifier_free_guidance=use_classifier_free_guidance,
+        cfg_scale=cfg_scale,
         # Mock mode
         use_mock=not FOUNDRY_AVAILABLE
     )
@@ -1086,6 +1141,95 @@ def handle_analyze(job_input: Dict[str, Any]) -> Dict[str, Any]:
     result = analyze_structure(pdb_content, target_ligands)
 
     return result
+
+
+# ============== Design Validation Pipeline Handler ==============
+
+def handle_validate_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run full design validation pipeline: MPNN sequence design + ESMFold structure prediction.
+
+    This validates if an RFD3 backbone design is "designable" - whether MPNN-designed
+    sequences fold back to the intended structure.
+
+    Input:
+        pdb_content: PDB file content as string (required unless pdb_path provided)
+        pdb_path: Path to PDB file (alternative to pdb_content)
+        num_sequences: Number of MPNN sequences to generate (default: 8)
+        use_ligandmpnn: Use LigandMPNN instead of ProteinMPNN (default: True)
+        ligand_name: Ligand residue name, e.g., "UNL" (optional, auto-detected)
+        metal_type: Metal type code, e.g., "DY", "TB" (optional, auto-detected)
+        max_backbone_rmsd: Maximum acceptable backbone RMSD (default: 1.5)
+        min_plddt: Minimum acceptable mean pLDDT (default: 0.7)
+        min_metal_coordination: Minimum metal coordination number (default: 6)
+        min_protein_donors: Minimum protein donor atoms for metal (default: 1)
+        run_pyrosetta: Whether to run PyRosetta refinement (default: True)
+        temperature: MPNN sampling temperature (default: 0.1)
+
+    Returns:
+        Validation results including:
+        - design_type: Detected design type
+        - candidates: List of sequence candidates with metrics
+        - num_passed: Number passing all filters
+        - num_total: Total candidates generated
+        - best_candidate_idx: Index of best candidate
+        - best_backbone_rmsd: RMSD of best candidate
+        - best_plddt: pLDDT of best candidate
+        - summary: Statistical summary
+    """
+    if not VALIDATION_PIPELINE_AVAILABLE:
+        return {
+            "status": "failed",
+            "error": "Validation pipeline not available. Check design_validation_pipeline.py."
+        }
+
+    # Get PDB content from either direct content or file path
+    pdb_content = job_input.get("pdb_content")
+    pdb_path = job_input.get("pdb_path")
+
+    if not pdb_content and not pdb_path:
+        return {"status": "failed", "error": "Missing 'pdb_content' or 'pdb_path' parameter"}
+
+    # If path provided, read content
+    if pdb_path and not pdb_content:
+        try:
+            with open(pdb_path, 'r') as f:
+                pdb_content = f.read()
+        except Exception as e:
+            return {"status": "failed", "error": f"Failed to read PDB file: {e}"}
+
+    # Initialize pipeline
+    pipeline = DesignValidationPipeline()
+
+    # Run validation
+    try:
+        result = pipeline.validate(
+            pdb_content=pdb_content,
+            pdb_path=pdb_path,
+            num_sequences=job_input.get("num_sequences", 8),
+            use_ligandmpnn=job_input.get("use_ligandmpnn", True),
+            ligand_name=job_input.get("ligand_name"),
+            metal_type=job_input.get("metal_type"),
+            max_backbone_rmsd=job_input.get("max_backbone_rmsd", 1.5),
+            min_plddt=job_input.get("min_plddt", 0.7),
+            min_metal_coordination=job_input.get("min_metal_coordination", 6),
+            min_protein_donors=job_input.get("min_protein_donors", 1),
+            run_pyrosetta=job_input.get("run_pyrosetta", True),
+            temperature=job_input.get("temperature", 0.1),
+        )
+
+        # Convert ValidationResult to dict
+        return {
+            "status": "completed",
+            **result.to_dict()
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "status": "failed",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
 
 
 # ============== Binding Evaluation Handler ==============
@@ -1384,6 +1528,76 @@ def handle_detect_hotspots(job_input: Dict[str, Any]) -> Dict[str, Any]:
         print(f"[DetectHotspots] Detection failed: {result.get('error', 'Unknown error')}")
 
     return to_python_types(result)
+
+
+# ============== Conservation Analysis Handler ==============
+
+def handle_analyze_conservation(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze evolutionary conservation using ConSurf methodology.
+
+    Uses Rate4Site algorithm on a multiple sequence alignment to compute
+    per-residue conservation grades (1-9 scale).
+
+    Input:
+        pdb_content: str (required) - PDB file content
+        chain: str (default: "A") - Chain to analyze
+        method: str (default: "bayesian") - Rate4Site method
+
+    Returns:
+        {
+            "status": "success",
+            "grades": [{"position": 1, "residue": "M", "grade": 3, ...}, ...],
+            "highly_conserved_positions": [10, 15, ...],
+            "conserved_positions": [20, 25, ...],
+            "variable_positions": [50, 55, ...],
+            "msa_depth": 150,
+            "method": "bayesian",
+            "average_conservation": 4.5,
+            "reliable": true
+        }
+    """
+    import asyncio
+
+    pdb_content = job_input.get("pdb_content")
+    if not pdb_content:
+        return {"status": "error", "error": "Missing 'pdb_content' parameter"}
+
+    chain = job_input.get("chain", "A")
+    method = job_input.get("method", "bayesian")
+
+    print(f"[Conservation] Analyzing conservation for chain {chain}, method={method}")
+
+    try:
+        analyzer = ConservationAnalyzer()
+        result = asyncio.run(analyzer.analyze(
+            pdb_content=pdb_content,
+            chain=chain,
+            method=method,
+        ))
+
+        response = result.to_dict()
+        response["status"] = "success"
+        response["highly_conserved_positions"] = response.pop("highly_conserved", [])
+        response["conserved_positions"] = response.pop("conserved", [])
+        response["variable_positions"] = response.pop("variable", [])
+        response["reliable"] = result.msa_depth >= 30
+
+        print(f"[Conservation] Completed: {len(response['grades'])} residues, "
+              f"MSA depth={result.msa_depth}, "
+              f"conserved={len(response['highly_conserved_positions'])}, "
+              f"variable={len(response['variable_positions'])}")
+
+        return to_python_types(response)
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[Conservation] Analysis failed: {error_msg}")
+        traceback.print_exc()
+        return {
+            "status": "error",
+            "error": f"Conservation analysis failed: {error_msg}",
+        }
 
 
 # ============== Interaction Analysis Handler ==============

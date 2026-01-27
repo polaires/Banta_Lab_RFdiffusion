@@ -33,8 +33,51 @@ export interface CatalyticSuggestion {
   name: string;
   role?: string;
   confidence: number;
-  source: 'mcsa' | 'local';
+  source: 'mcsa' | 'local' | 'conservation';
   ligandCode?: string;  // The ligand/metal this residue is associated with (for filtering)
+}
+
+// Conservation analysis data (ConSurf methodology)
+export interface ConservationGrade {
+  position: number;
+  residue: string;        // Single-letter amino acid
+  grade: number;          // 1-9 ConSurf grade (1=most conserved, 9=most variable)
+  score: number;          // Raw Rate4Site score (lower=more conserved)
+  confidence_interval: [number, number];
+  data_quality: string;   // "sufficient" | "insufficient"
+}
+
+export interface ConservationData {
+  status: string;
+  grades: ConservationGrade[];
+  highly_conserved_positions: number[];  // Grade 1-3
+  conserved_positions?: number[];        // Grade 4-5
+  variable_positions: number[];          // Grade 7-9
+  msa_depth: number;
+  method: string;                        // "bayesian", "ml", "entropy"
+  average_conservation?: number;
+  reliable?: boolean;
+  error?: string;
+}
+
+// Hotspot residue from binding site detection
+export interface HotspotResidue {
+  residue: string;      // e.g., "A25"
+  restype: string;      // e.g., "PHE"
+  relative_sasa: number;
+  property: string;  // hydrophobic, aromatic, polar, positive, negative, charged, other
+}
+
+// Hotspot detection result from backend
+export interface HotspotData {
+  status: string;            // "completed", "warning", "error", "failed"
+  hotspots: string[];        // ["A25", "A30", ...]
+  method: string;            // "exposed_clustered"
+  cluster_center?: { x: number; y: number; z: number };
+  residue_details: HotspotResidue[];
+  total_exposed: number;
+  message?: string;
+  error?: string;
 }
 
 // Bottom panel mode
@@ -242,6 +285,24 @@ interface AppState {
   showPharmacophores3D: boolean;
   setShowPharmacophores3D: (show: boolean) => void;
 
+  // Hotspot detection visualization state
+  hotspotsData: HotspotData | null;
+  setHotspotsData: (data: HotspotData | null) => void;
+  showHotspots3D: boolean;
+  setShowHotspots3D: (show: boolean) => void;
+  hoveredHotspot: HotspotResidue | null;
+  setHoveredHotspot: (hotspot: HotspotResidue | null) => void;
+
+  // Conservation analysis state (ConSurf methodology)
+  conservationData: ConservationData | null;
+  setConservationData: (data: ConservationData | null) => void;
+  conservationLoading: boolean;
+  setConservationLoading: (loading: boolean) => void;
+  showConservation3D: boolean;
+  setShowConservation3D: (show: boolean) => void;
+  hoveredConservationResidue: { position: number; residue: string; grade: number } | null;
+  setHoveredConservationResidue: (r: { position: number; residue: string; grade: number } | null) => void;
+
   // Structure comparison state
   comparisonEnabled: boolean;
   setComparisonEnabled: (enabled: boolean) => void;
@@ -283,7 +344,7 @@ interface AppState {
 
   // Catalytic residue suggestions
   catalyticSuggestions: CatalyticSuggestion[];
-  suggestionsSource: 'mcsa' | 'local' | 'none';
+  suggestionsSource: 'mcsa' | 'local' | 'conservation' | 'none';
   suggestionsLoading: boolean;
   suggestionsError: string | null;
   bottomPanelMode: BottomPanelMode;
@@ -291,7 +352,7 @@ interface AppState {
   hoveredCatalyticSuggestion: CatalyticSuggestion | null;
 
   // Catalytic suggestions actions
-  setCatalyticSuggestions: (suggestions: CatalyticSuggestion[], source: 'mcsa' | 'local' | 'none') => void;
+  setCatalyticSuggestions: (suggestions: CatalyticSuggestion[], source: 'mcsa' | 'local' | 'conservation' | 'none') => void;
   setSuggestionsLoading: (loading: boolean) => void;
   setSuggestionsError: (error: string | null) => void;
   setBottomPanelMode: (mode: BottomPanelMode) => void;
@@ -552,6 +613,24 @@ export const useStore = create<AppState>()(
   setPharmacophoreFeatures: (features) => set({ pharmacophoreFeatures: features }),
   showPharmacophores3D: false,
   setShowPharmacophores3D: (show) => set({ showPharmacophores3D: show }),
+
+  // Hotspot detection visualization state
+  hotspotsData: null,
+  setHotspotsData: (data) => set({ hotspotsData: data }),
+  showHotspots3D: false,
+  setShowHotspots3D: (show) => set({ showHotspots3D: show }),
+  hoveredHotspot: null,
+  setHoveredHotspot: (hotspot) => set({ hoveredHotspot: hotspot }),
+
+  // Conservation analysis state (ConSurf methodology)
+  conservationData: null,
+  setConservationData: (data) => set({ conservationData: data }),
+  conservationLoading: false,
+  setConservationLoading: (loading) => set({ conservationLoading: loading }),
+  showConservation3D: false,
+  setShowConservation3D: (show) => set({ showConservation3D: show }),
+  hoveredConservationResidue: null,
+  setHoveredConservationResidue: (r) => set({ hoveredConservationResidue: r }),
 
   // Structure comparison
   comparisonEnabled: false,

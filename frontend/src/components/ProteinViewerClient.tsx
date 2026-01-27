@@ -7,6 +7,8 @@ import { computeInteractionLines, type InteractionLine } from '@/lib/interaction
 import { useStore } from '@/lib/store';
 import { useMolstarContextMenu } from '@/components/MolstarContextMenu';
 import { useCatalyticVisualization } from '@/hooks/useCatalyticVisualization';
+import { useHotspotVisualization } from '@/hooks/useHotspotVisualization';
+import { useConservationVisualization } from '@/hooks/useConservationVisualization';
 
 // Import expression helpers from new modules
 import {
@@ -113,6 +115,12 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
     // Use catalytic visualization hook to highlight suggestions in Molstar
     useCatalyticVisualization(pluginInstance);
+
+    // Use hotspot visualization hook to highlight detected binding hotspots
+    useHotspotVisualization(pluginInstance);
+
+    // Use conservation visualization hook for ConSurf-style coloring
+    useConservationVisualization(pluginInstance);
 
     // Context menu for right-click residue selection
     const { showMenu, hideMenu, MenuComponent } = useMolstarContextMenu({

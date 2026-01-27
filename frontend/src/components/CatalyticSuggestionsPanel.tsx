@@ -28,7 +28,7 @@ function getLigandColor(code: string | undefined) {
 
 interface CatalyticSuggestionsPanelProps {
   suggestions: CatalyticSuggestion[];
-  source: 'mcsa' | 'local' | 'none';
+  source: 'mcsa' | 'local' | 'conservation' | 'none';
   loading: boolean;
   error: string | null;
   existingResidues: Array<{ chain: string; residue: number }>;
@@ -150,7 +150,7 @@ export function CatalyticSuggestionsPanel({
                 <div className="flex items-center gap-2 min-w-0">
                   <div
                     className={`w-2 h-2 rounded-full shrink-0 ${
-                      s.source === 'mcsa' ? 'bg-blue-500' : 'bg-orange-500'
+                      s.source === 'mcsa' ? 'bg-blue-500' : s.source === 'conservation' ? 'bg-purple-500' : 'bg-orange-500'
                     }`}
                   />
                   <div className="min-w-0">
@@ -189,7 +189,7 @@ export function CatalyticSuggestionsPanel({
       {/* Footer */}
       <div className="px-4 py-2 border-t text-xs text-muted-foreground flex justify-between">
         <span>
-          Source: {source === 'mcsa' ? 'M-CSA (curated)' : source === 'local' ? 'Binding Pocket (local)' : 'None'}
+          Source: {source === 'mcsa' ? 'M-CSA (curated)' : source === 'local' ? 'Binding Pocket (local)' : source === 'conservation' ? 'ConSurf (conserved)' : 'None'}
         </span>
         <span className="flex items-center gap-3">
           <span className="flex items-center gap-1">
@@ -197,6 +197,9 @@ export function CatalyticSuggestionsPanel({
           </span>
           <span className="flex items-center gap-1">
             <div className="w-2 h-2 rounded-full bg-orange-500" /> Local
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-purple-500" /> Conserved
           </span>
         </span>
       </div>

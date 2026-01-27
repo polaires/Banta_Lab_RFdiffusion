@@ -454,6 +454,28 @@ export interface DetectHotspotsResponse {
   error?: string;
 }
 
+export interface ConservationGradeAPI {
+  position: number;
+  residue: string;
+  grade: number;         // 1-9 ConSurf grade
+  score: number;
+  confidence_interval: [number, number];
+  data_quality: string;
+}
+
+export interface ConservationAnalysisResponse {
+  status: string;
+  grades: ConservationGradeAPI[];
+  highly_conserved_positions: number[];
+  conserved_positions?: number[];
+  variable_positions: number[];
+  msa_depth: number;
+  method: string;
+  average_conservation?: number;
+  reliable?: boolean;
+  error?: string;
+}
+
 export interface DesignEvaluation {
   success: boolean;
   coordination_number: number;
@@ -1122,6 +1144,38 @@ class FoundryAPI {
 
     if (result.output?.status === 'failed') {
       throw new Error(result.output.error || 'Hotspot detection failed');
+    }
+
+    return result.output || result;
+  }
+
+  /**
+   * Analyze evolutionary conservation using ConSurf methodology.
+   * Returns per-residue conservation grades (1-9 scale).
+   */
+  async analyzeConservation(request: { pdb_content: string; chain?: string }): Promise<ConservationAnalysisResponse> {
+    console.log('[API] Analyzing conservation for chain:', request.chain || 'A');
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'analyze_conservation',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to analyze conservation: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('[API] Conservation analysis result:', result.output?.status);
+
+    if (result.output?.status === 'error' || result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Conservation analysis failed');
     }
 
     return result.output || result;

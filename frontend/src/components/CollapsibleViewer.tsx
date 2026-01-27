@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useStore } from '@/lib/store';
 import { findMetalCoordinationFromPDB } from '@/lib/metalAnalysis';
 import { findLigandContactsFromPDB, extractPharmacophoreFeatures } from '@/lib/ligandAnalysis';
+import api from '@/lib/api';
 import { Eye, ChevronDown, ChevronUp, Box } from 'lucide-react';
 
 // Dynamic imports for components that use Molstar (SSR incompatible)
@@ -74,6 +75,22 @@ export function CollapsibleViewer() {
     setShowPharmacophores3D,
     pharmacophoreFeatures,
     setPharmacophoreFeatures,
+    // Hotspot visualization state
+    hotspotsData,
+    setHotspotsData,
+    showHotspots3D,
+    setShowHotspots3D,
+    // Conservation visualization state
+    conservationData,
+    setConservationData,
+    conservationLoading,
+    setConservationLoading,
+    showConservation3D,
+    setShowConservation3D,
+    // Catalytic suggestions (for conservation merge)
+    catalyticSuggestions,
+    setCatalyticSuggestions,
+    suggestionsSource,
   } = useStore();
 
   // Track if analysis has been run for current structure
@@ -106,12 +123,69 @@ export function CollapsibleViewer() {
       } else if (ligands.ligandCount > 0) {
         setViewerMode('ligand');
       }
+
+      // Run hotspot detection in background (non-blocking)
+      api.detectHotspots({
+        target_pdb: selectedPdb,
+        target_chain: 'A',
+        method: 'exposed_clustered',
+        max_hotspots: 5,
+        prefer_hydrophobic: true,
+      }).then((result) => {
+        if (result.status === 'completed' && result.residue_details?.length > 0) {
+          setHotspotsData(result);
+          console.log(`[Analysis] Detected ${result.hotspots.length} hotspots`);
+        }
+      }).catch((err) => {
+        console.warn('[Analysis] Hotspot detection failed (non-critical):', err);
+      });
+
+      // Run conservation analysis in background (non-blocking)
+      setConservationLoading(true);
+      api.analyzeConservation({ pdb_content: selectedPdb, chain: 'A' })
+        .then((result) => {
+          if (result.status === 'success' && result.grades?.length > 0) {
+            setConservationData(result);
+            console.log(`[Analysis] Conservation: ${result.grades.length} residues, MSA depth=${result.msa_depth}`);
+
+            // Merge highly conserved residues into catalytic suggestions
+            const conservedSuggestions = result.grades
+              .filter((g) => g.grade <= 3)
+              .map((g) => ({
+                chain: 'A',
+                residue: g.position,
+                name: g.residue,
+                role: `Conserved (grade ${g.grade})`,
+                confidence: (4 - g.grade) / 3,
+                source: 'conservation' as const,
+              }));
+
+            const existing = useStore.getState().catalyticSuggestions;
+            const existingKeys = new Set(existing.map((s) => `${s.chain}${s.residue}`));
+            const newSuggestions = conservedSuggestions.filter(
+              (s) => !existingKeys.has(`${s.chain}${s.residue}`)
+            );
+            if (newSuggestions.length > 0) {
+              setCatalyticSuggestions(
+                [...existing, ...newSuggestions],
+                existing.length > 0 ? suggestionsSource : 'conservation'
+              );
+              console.log(`[Analysis] Added ${newSuggestions.length} conserved residue suggestions`);
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn('[Analysis] Conservation analysis failed (non-critical):', err);
+        })
+        .finally(() => {
+          setConservationLoading(false);
+        });
     } catch (error) {
       console.error('Analysis failed:', error);
     } finally {
       setAnalysisLoading(false);
     }
-  }, [selectedPdb, analysisLoading, setAnalysisLoading, setMetalCoordination, setLigandData, setViewerMode]);
+  }, [selectedPdb, analysisLoading, setAnalysisLoading, setMetalCoordination, setLigandData, setViewerMode, setHotspotsData, setConservationData, setConservationLoading, setCatalyticSuggestions, suggestionsSource]);
 
   // Clear analysis when structure changes
   useEffect(() => {
@@ -124,8 +198,12 @@ export function CollapsibleViewer() {
       setViewerMode('default');
       setPharmacophoreFeatures(null);
       setShowPharmacophores3D(false);
+      setHotspotsData(null);
+      setShowHotspots3D(false);
+      setConservationData(null);
+      setShowConservation3D(false);
     }
-  }, [selectedPdb, analyzedPdb, setMetalCoordination, setLigandData, setFocusedMetalIndex, setFocusedLigandIndex, setViewerMode, setPharmacophoreFeatures, setShowPharmacophores3D]);
+  }, [selectedPdb, analyzedPdb, setMetalCoordination, setLigandData, setFocusedMetalIndex, setFocusedLigandIndex, setViewerMode, setPharmacophoreFeatures, setShowPharmacophores3D, setHotspotsData, setShowHotspots3D, setConservationData, setShowConservation3D]);
 
   // Compute pharmacophore features when a ligand is focused
   useEffect(() => {
@@ -257,6 +335,13 @@ export function CollapsibleViewer() {
                 hasComparison={hasComparison}
                 hasMetals={hasMetals}
                 hasLigands={hasLigands}
+                hasHotspots={!!(hotspotsData?.residue_details && hotspotsData.residue_details.length > 0)}
+                showHotspots3D={showHotspots3D}
+                onToggleHotspots={() => setShowHotspots3D(!showHotspots3D)}
+                hasConservation={!!(conservationData?.grades && conservationData.grades.length > 0)}
+                conservationLoading={conservationLoading}
+                showConservation3D={showConservation3D}
+                onToggleConservation={() => setShowConservation3D(!showConservation3D)}
                 analysisLoading={analysisLoading}
               />
             )}

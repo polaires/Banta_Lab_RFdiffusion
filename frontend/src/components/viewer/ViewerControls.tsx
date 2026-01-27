@@ -10,7 +10,9 @@ import {
   ChevronDown,
   Activity,
   GitCompare,
-  Search
+  Search,
+  Flame,
+  Dna
 } from 'lucide-react';
 import type { ViewerMode, RepresentationStyle, ColorScheme } from '@/lib/store';
 
@@ -30,6 +32,13 @@ interface ViewerControlsProps {
   hasComparison: boolean;
   hasMetals: boolean;
   hasLigands: boolean;
+  hasHotspots: boolean;
+  showHotspots3D: boolean;
+  onToggleHotspots: () => void;
+  hasConservation: boolean;
+  conservationLoading: boolean;
+  showConservation3D: boolean;
+  onToggleConservation: () => void;
   analysisLoading?: boolean;
 }
 
@@ -67,6 +76,13 @@ export function ViewerControls({
   hasComparison,
   hasMetals,
   hasLigands,
+  hasHotspots,
+  showHotspots3D,
+  onToggleHotspots,
+  hasConservation,
+  conservationLoading,
+  showConservation3D,
+  onToggleConservation,
   analysisLoading = false
 }: ViewerControlsProps) {
   const [showRepDropdown, setShowRepDropdown] = useState(false);
@@ -135,6 +151,48 @@ export function ViewerControls({
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           )}
         </button>
+
+        {hasHotspots && (
+          <button
+            onClick={onToggleHotspots}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              showHotspots3D
+                ? 'bg-rose-100 text-rose-700 border border-rose-300'
+                : 'hover:bg-muted text-muted-foreground'
+            }`}
+            disabled={!hasStructure}
+            title="Show detected binding hotspots"
+          >
+            <Flame className="w-4 h-4" />
+            <span>Hotspots</span>
+            {!showHotspots3D && (
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+            )}
+          </button>
+        )}
+
+        {(hasConservation || conservationLoading) && (
+          <button
+            onClick={onToggleConservation}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              showConservation3D
+                ? 'bg-violet-100 text-violet-700 border border-violet-300'
+                : 'hover:bg-muted text-muted-foreground'
+            }`}
+            disabled={!hasStructure || conservationLoading}
+            title="Color by evolutionary conservation (ConSurf)"
+          >
+            {conservationLoading ? (
+              <div className="w-4 h-4 border-2 border-violet-300 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Dna className="w-4 h-4" />
+            )}
+            <span>ConSurf</span>
+            {hasConservation && !showConservation3D && !conservationLoading && (
+              <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+            )}
+          </button>
+        )}
 
         {hasConfidences && (
           <button

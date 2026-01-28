@@ -186,6 +186,72 @@ class AnalysisResult:
         return result
 
 
+@dataclass
+class ConservationResult:
+    """
+    Conservation analysis result for a single position.
+
+    Follows ConSurf GradesPE format for compatibility.
+    Grade 1 = most conserved, Grade 9 = most variable.
+    """
+    position: int                      # 1-indexed position
+    residue: str                       # Single-letter amino acid
+    grade: int                         # 1-9 ConSurf grade
+    score: float                       # Raw Rate4Site score
+    confidence: Tuple[float, float]    # Bayesian confidence interval
+    data_quality: str                  # "sufficient" or "insufficient"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "position": self.position,
+            "residue": self.residue,
+            "grade": self.grade,
+            "score": self.score,
+            "confidence": list(self.confidence),
+            "data_quality": self.data_quality,
+        }
+
+
+@dataclass
+class ConservationSummary:
+    """
+    Summary of conservation analysis for design integration.
+
+    Provides actionable information for scaffolding and partial diffusion:
+    - highly_conserved_positions: Should be fixed during design
+    - variable_positions: Can be freely redesigned
+    """
+    highly_conserved_positions: List[int]   # Grade 1-3 (most important)
+    conserved_positions: List[int]          # Grade 4-5
+    variable_positions: List[int]           # Grade 7-9 (can redesign)
+    msa_depth: int                          # Number of sequences in alignment
+    average_conservation: float             # Mean grade (1-9)
+    method: str                             # "bayesian", "ml", or "entropy"
+    reliable: bool                          # True if MSA depth >= 50
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "highly_conserved_positions": self.highly_conserved_positions,
+            "conserved_positions": self.conserved_positions,
+            "variable_positions": self.variable_positions,
+            "msa_depth": self.msa_depth,
+            "average_conservation": self.average_conservation,
+            "method": self.method,
+            "reliable": self.reliable,
+        }
+
+    def get_suggested_fixed_residues(self, chain: str = "A") -> List[str]:
+        """
+        Get residue IDs suggested for fixing during RFD3 design.
+
+        Returns list in format ["A1", "A5", "A10"] for use with
+        select_fixed_atoms in RFD3 config.
+        """
+        return [f"{chain}{pos}" for pos in self.highly_conserved_positions]
+
+
 def detect_design_type(
     has_ligand: bool,
     has_metal: bool,

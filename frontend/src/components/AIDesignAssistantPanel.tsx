@@ -50,6 +50,7 @@ import {
   BinderEvaluationCard,
   MetalScaffoldInterviewMode,
   MetalScaffoldDesignGallery,
+  AIDesignPipelineWorkflow,
   type LigandPreferences,
   type LigandAnalysis,
   type LigandEvaluation,
@@ -59,6 +60,7 @@ import {
   type MetalScaffoldPreferences,
   type MetalScaffoldDesignResult,
 } from './ai';
+import { useAIDesign } from '@/hooks/useAIDesign';
 import {
   BinderResultsPanel,
   PipelineFunnel,
@@ -420,6 +422,7 @@ export function AIDesignAssistantPanel() {
     clearAiConversation,
     setSelectedPdb,
     setLatestRfd3Design,
+    backendUrl,
   } = useStore();
 
   // Use the consolidated workflow hook
@@ -475,6 +478,43 @@ export function AIDesignAssistantPanel() {
   // Viewer state
   const [viewerPdbContent, setViewerPdbContent] = useState<string | null>(null);
 
+  // Natural Language AI Design state
+  const [isNLDesign, setIsNLDesign] = useState(false);
+
+  // Determine API URL based on backend URL
+  // If using local Docker (localhost:8000), use traditional proxy
+  // If using RunPod cloud, use runpod proxy
+  const isLocalBackend = backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1');
+  const aiDesignApiUrl = isLocalBackend
+    ? `/api/traditional/runsync?url=${encodeURIComponent(backendUrl)}`
+    : '/api/runpod/runsync';
+
+  const {
+    stage: nlStage,
+    stageInfo: nlStageInfo,
+    result: nlResult,
+    error: nlError,
+    isRunning: nlIsRunning,
+    runAIDesign,
+    reset: resetNLDesign
+  } = useAIDesign({
+    apiUrl: aiDesignApiUrl,
+    onStageChange: (stage) => {
+      // Update conversation with stage changes
+      if (stage === 'parsing') {
+        addAiMessage({ role: 'assistant', content: 'Understanding your design request...' });
+      } else if (stage === 'resolving') {
+        addAiMessage({ role: 'assistant', content: 'Resolving ligand structure and chemistry...' });
+      } else if (stage === 'backbone') {
+        addAiMessage({ role: 'assistant', content: 'Generating backbone structures with RFD3...' });
+      } else if (stage === 'sequence') {
+        addAiMessage({ role: 'assistant', content: 'Designing sequences with LigandMPNN...' });
+      } else if (stage === 'validation') {
+        addAiMessage({ role: 'assistant', content: 'Validating structures with ESMFold...' });
+      }
+    }
+  });
+
   const workflowPhase = (aiCaseStudy.workflowPhase || 'idle') as WorkflowPhase;
   const isRunningJob = workflowState.isRunning;
 
@@ -483,11 +523,62 @@ export function AIDesignAssistantPanel() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiCaseStudy.conversation, workflowPhase]);
 
-  // Handle structure input (PDB code)
+  // Check if input is a natural language query vs PDB code
+  const isNaturalLanguageQuery = (input: string): boolean => {
+    const trimmed = input.trim();
+    // PDB codes are exactly 4 alphanumeric chars, or special demo codes
+    if (/^[A-Za-z0-9]{4}$/.test(trimmed)) return false;
+    if (['AZOB', 'BIND', 'METAL'].includes(trimmed.toUpperCase())) return false;
+    // If longer than 6 chars or contains spaces/keywords, it's NL
+    if (trimmed.length > 6) return true;
+    const nlKeywords = ['design', 'create', 'make', 'build', 'bind', 'protein', 'with', 'for', 'want'];
+    return nlKeywords.some(kw => trimmed.toLowerCase().includes(kw));
+  };
+
+  // Handle natural language design query
+  const handleNLDesign = async (query: string) => {
+    setIsNLDesign(true);
+    setPdbInput('');
+    addAiMessage({ role: 'user', content: query });
+    setAiCaseStudy({ workflowPhase: 'running', isProcessing: true });
+
+    const result = await runAIDesign(query, {
+      numDesigns: 4,
+      numSequences: 8,
+      validate: true
+    });
+
+    if (result?.success) {
+      setAiCaseStudy({ workflowPhase: 'complete', isProcessing: false });
+      addAiMessage({
+        role: 'assistant',
+        content: `Design complete!\n\n**Results:**\n- Backbones generated: ${result.num_backbones}\n- Sequences designed: ${result.num_sequences}\n- Pass rate: ${(result.pass_rate * 100).toFixed(0)}%\n${result.best_plddt ? `- Best pLDDT: ${result.best_plddt.toFixed(2)}` : ''}\n\n${result.recommendations?.length ? '**Recommendations:**\n' + result.recommendations.map(r => `- ${r}`).join('\n') : ''}`
+      });
+      if (result.best_sequence_pdb) {
+        setSelectedPdb(result.best_sequence_pdb);
+      }
+    } else {
+      setAiCaseStudy({ workflowPhase: 'idle', isProcessing: false });
+      addAiMessage({
+        role: 'assistant',
+        content: `Design failed: ${nlError || 'Unknown error'}. Please try again with a different query.`
+      });
+    }
+  };
+
+  // Handle structure input (PDB code or natural language)
   const handleStructureInput = async () => {
     if (!pdbInput.trim()) return;
 
-    const pdbId = pdbInput.trim().toUpperCase();
+    const input = pdbInput.trim();
+
+    // Check if it's a natural language query
+    if (isNaturalLanguageQuery(input)) {
+      await handleNLDesign(input);
+      return;
+    }
+
+    const pdbId = input.toUpperCase();
     setPdbInput('');
 
     addAiMessage({ role: 'user', content: `I want to work with ${pdbId}` });
@@ -1500,7 +1591,7 @@ export function AIDesignAssistantPanel() {
         </div>
         <p className="text-muted-foreground text-sm leading-relaxed max-w-3xl pl-1">
           {workflowPhase === 'idle'
-            ? "Enter a PDB code to begin. I'll analyze the structure and guide you through designing a new metal binding site."
+            ? "Describe what you want to design in plain English, like 'Design a protein to bind citrate with terbium'. I'll handle the rest."
             : "Answer simple questions about your design goals. I'll handle the technical parameters for you."}
         </p>
 
@@ -1970,28 +2061,55 @@ export function AIDesignAssistantPanel() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* NL Design Pipeline Progress */}
+      {isNLDesign && nlIsRunning && (
+        <div className="mb-4">
+          <AIDesignPipelineWorkflow
+            currentStage={nlStage}
+            stageInfo={nlStageInfo}
+            error={nlError}
+            query={pdbInput}
+          />
+        </div>
+      )}
+
       {/* Input Area */}
       <div className="border-t border-border pt-4 mt-auto">
         {(workflowPhase === 'idle' || workflowPhase === 'structure_input') ? (
           <div className="flex gap-3">
-            <input
-              ref={inputRef}
-              type="text"
-              value={pdbInput || ''}
-              onChange={(e) => setPdbInput(e.target.value.toUpperCase())}
-              onKeyDown={(e) => e.key === 'Enter' && handleStructureInput()}
-              placeholder="Enter PDB code (e.g., 1BRF) or METAL/AZOB/BIND for demos"
-              className="flex-1 px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all font-mono uppercase"
-              disabled={aiCaseStudy.isProcessing}
-              maxLength={5}
-            />
+            <div className="flex-1 relative">
+              <textarea
+                value={pdbInput || ''}
+                onChange={(e) => setPdbInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleStructureInput();
+                  }
+                }}
+                placeholder="Describe your protein design (e.g., 'Design a protein to bind citrate with terbium') or enter a PDB code"
+                className="w-full px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all resize-none min-h-[48px] max-h-[120px]"
+                disabled={aiCaseStudy.isProcessing || nlIsRunning}
+                rows={1}
+                style={{ height: 'auto', minHeight: '48px' }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = Math.min(target.scrollHeight, 120) + 'px';
+                }}
+              />
+            </div>
             <button
               onClick={handleStructureInput}
-              disabled={!pdbInput.trim() || aiCaseStudy.isProcessing}
-              className="px-6 py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground rounded-xl font-medium text-sm transition-all flex items-center gap-2"
+              disabled={!pdbInput.trim() || aiCaseStudy.isProcessing || nlIsRunning}
+              className="px-6 py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground rounded-xl font-medium text-sm transition-all flex items-center gap-2 self-end"
             >
-              <Search className="h-5 w-5" />
-              Analyze
+              {nlIsRunning ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Send className="h-5 w-5" />
+              )}
+              {nlIsRunning ? 'Running...' : 'Send'}
             </button>
           </div>
         ) : (
@@ -2013,7 +2131,7 @@ export function AIDesignAssistantPanel() {
           </div>
         )}
         <p className="mt-2 text-xs text-muted-foreground text-center">
-          {workflowPhase === 'idle' && "Enter a 4-letter PDB code to start"}
+          {workflowPhase === 'idle' && "Describe your design in natural language, or enter a PDB code (1BRF, METAL, AZOB, BIND)"}
           {workflowPhase === 'interview' && "Answer the questions above to configure your design"}
           {workflowPhase === 'confirming' && "Review your preferences and run the design"}
           {workflowPhase === 'running' && "Design in progress..."}

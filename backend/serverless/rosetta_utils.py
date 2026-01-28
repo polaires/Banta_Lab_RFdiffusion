@@ -1306,13 +1306,31 @@ def score_interface(
 
             iam.apply(pose)
 
-            return {
+            # Get all available interface metrics (BindCraft-style)
+            result = {
                 "status": "completed",
                 "dG": iam.get_interface_dG(),
                 "dSASA": iam.get_interface_delta_sasa(),
                 "packstat": iam.get_interface_packstat(),
                 "sc_value": iam.get_interface_sc(),
             }
+
+            # Try to get H-bond metrics (may not be available in all versions)
+            try:
+                # Access data from pose scores after IAM applied
+                result["n_InterfaceHbonds"] = int(pose.scores.get("hbonds_int", 0))
+                result["n_InterfaceUnsatHbonds"] = int(pose.scores.get("delta_unsatHbonds", 0))
+            except Exception:
+                # Not available in this PyRosetta version
+                pass
+
+            # Get total interface energy and per-residue breakdown
+            try:
+                result["interface_energy"] = iam.get_total_Hbond_E()
+            except Exception:
+                pass
+
+            return result
 
         finally:
             os.unlink(input_path)

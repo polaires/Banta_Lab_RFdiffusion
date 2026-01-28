@@ -61,6 +61,69 @@ STABILITY_KEYWORDS = [
     "robust", "thermostable", "thermal stability", "improve stability"
 ]
 
+# Keywords that indicate enzyme function preservation
+PRESERVE_FUNCTION_KEYWORDS = [
+    "preserve activity", "preserve function", "preserve functionality",
+    "maintain activity", "maintain function", "keep active",
+    "preserve catalytic", "preserve enzymatic", "enzymatic activity",
+    "preserve its", "keep its", "maintain its"
+]
+
+# Common typos and their corrections
+TYPO_CORRECTIONS = {
+    "adhd": "adh",
+    "dehydrogenas": "dehydrogenase",
+    "dehydrogenaz": "dehydrogenase",
+    "oxidoreducatse": "oxidoreductase",
+    "oxidoreductaze": "oxidoreductase",
+    "phosphatas": "phosphatase",
+    "phosphataze": "phosphatase",
+    "kinaz": "kinase",
+    "proteas": "protease",
+    "proteaze": "protease",
+    "lipaz": "lipase",
+    "synthetaz": "synthetase",
+    "isomeraz": "isomerase",
+    "transferaz": "transferase",
+    "hydrolaz": "hydrolase",
+    "lyaz": "lyase",
+    "ligaz": "ligase",
+    "oxidas": "oxidase",
+    "oxidaze": "oxidase",
+    "reductaz": "reductase",
+    "peroxidas": "peroxidase",
+    "peroxidaze": "peroxidase",
+    "quinprotein": "quinoprotein",
+}
+
+# Enzyme class keywords for detection (maps to enzyme_chemistry.py keys)
+ENZYME_CLASS_KEYWORDS = {
+    "dehydrogenase": ["dehydrogenase", "adh", "aldh", "alcohol dehydrogenase",
+                      "aldehyde dehydrogenase", "oxidoreductase"],
+    "quinoprotein": ["pqq", "quinoprotein", "pqq-dependent", "glucose dehydrogenase",
+                     "methanol dehydrogenase"],
+    "oxidase": ["oxidase", "laccase", "copper oxidase", "multicopper oxidase"],
+    "peroxidase": ["peroxidase", "catalase", "heme peroxidase"],
+    "oxygenase": ["oxygenase", "monooxygenase", "dioxygenase", "p450", "hydroxylase"],
+    "reductase": ["reductase", "nitroreductase", "thioredoxin"],
+    "kinase": ["kinase", "phosphotransferase", "protein kinase"],
+    "methyltransferase": ["methyltransferase", "sam-dependent"],
+    "acetyltransferase": ["acetyltransferase", "acyltransferase"],
+    "glycosyltransferase": ["glycosyltransferase", "glucosyltransferase"],
+    "aminotransferase": ["aminotransferase", "transaminase", "plp-dependent"],
+    "protease": ["protease", "peptidase", "proteinase", "trypsin", "chymotrypsin"],
+    "lipase": ["lipase", "esterase", "phospholipase"],
+    "glycosidase": ["glycosidase", "cellulase", "amylase", "chitinase", "lysozyme"],
+    "phosphatase": ["phosphatase", "phosphohydrolase"],
+    "nuclease": ["nuclease", "dnase", "rnase", "endonuclease", "exonuclease"],
+    "decarboxylase": ["decarboxylase", "carboxy-lyase"],
+    "aldolase": ["aldolase"],
+    "dehydratase": ["dehydratase", "carbonic anhydrase", "aconitase", "enolase"],
+    "isomerase": ["isomerase", "racemase", "epimerase"],
+    "mutase": ["mutase"],
+    "synthetase": ["synthetase", "ligase", "synthase"],
+}
+
 
 @dataclass
 class DesignIntent:
@@ -88,9 +151,16 @@ class DesignIntent:
     include_all_contacts: bool = False     # If True, include all ligand-contacting residues
     stability_focus: bool = False          # If True, optimize for protein stability
 
+    # Enzyme activity preservation (NEW)
+    enzyme_class: Optional[str] = None     # Detected enzyme class (e.g., "dehydrogenase")
+    enzyme_class_confidence: float = 0.0   # Confidence of enzyme class detection
+    preserve_function: bool = False        # If True, preserve enzymatic function
+    typo_corrections: List[str] = field(default_factory=list)  # Applied typo corrections
+
     # Confidence and metadata
     confidence: float = 0.0                # Parser confidence (0-1)
     raw_query: str = ""                    # Original user query
+    corrected_query: str = ""              # Query after typo corrections
 
     # Warnings and suggestions
     warnings: List[str] = field(default_factory=list)
@@ -556,7 +626,30 @@ class SimpleFallbackParser:
     def parse(self, query: str) -> DesignIntent:
         """Parse using simple keyword matching."""
         intent = DesignIntent(raw_query=query)
+
+        # Apply typo corrections first (NEW)
+        corrected_query = query
+        typo_corrections = []
         query_lower = query.lower()
+
+        for typo, correction in TYPO_CORRECTIONS.items():
+            if typo in query_lower:
+                # Case-insensitive replacement
+                pattern = re.compile(re.escape(typo), re.IGNORECASE)
+                corrected_query = pattern.sub(correction, corrected_query)
+                typo_corrections.append(f"{typo}->{correction}")
+                query_lower = corrected_query.lower()
+
+        if typo_corrections:
+            intent.typo_corrections = typo_corrections
+            intent.corrected_query = corrected_query
+            intent.parsed_entities["typo_corrections"] = typo_corrections
+            intent.warnings.append(f"Applied typo corrections: {', '.join(typo_corrections)}")
+        else:
+            intent.corrected_query = query
+
+        # Use corrected query for further processing
+        query_lower = intent.corrected_query.lower()
 
         # Detect PDB ID (4 characters starting with digit, e.g., 4CVB)
         pdb_match = PDB_ID_PATTERN.search(query.upper())
@@ -614,6 +707,56 @@ class SimpleFallbackParser:
             intent.stability_focus = True
             intent.parsed_entities["stability_focus"] = True
 
+        # Detect enzyme class (NEW)
+        best_enzyme_class = None
+        best_enzyme_confidence = 0.0
+
+        for class_key, keywords in ENZYME_CLASS_KEYWORDS.items():
+            for keyword in keywords:
+                if keyword.lower() in query_lower:
+                    # Exact word match gets higher confidence
+                    if re.search(rf'\b{re.escape(keyword.lower())}\b', query_lower):
+                        confidence = 0.9
+                    else:
+                        confidence = 0.7
+
+                    if confidence > best_enzyme_confidence:
+                        best_enzyme_confidence = confidence
+                        best_enzyme_class = class_key
+
+        if best_enzyme_class and best_enzyme_confidence >= 0.7:
+            intent.enzyme_class = best_enzyme_class
+            intent.enzyme_class_confidence = best_enzyme_confidence
+            intent.parsed_entities["enzyme_class"] = best_enzyme_class
+            intent.parsed_entities["enzyme_class_confidence"] = best_enzyme_confidence
+            # If enzyme class detected, set design_goal to catalysis
+            if intent.design_goal == "binding":
+                intent.design_goal = "catalysis"
+
+        # Detect preserve function request (NEW)
+        if any(kw in query_lower for kw in PRESERVE_FUNCTION_KEYWORDS):
+            intent.preserve_function = True
+            intent.parsed_entities["preserve_function"] = True
+        # Also set preserve_function if enzyme class detected and user mentions "functionality"
+        elif intent.enzyme_class and any(word in query_lower for word in ["function", "activity", "functionality"]):
+            intent.preserve_function = True
+            intent.parsed_entities["preserve_function"] = True
+
+        # Boost ligand detection for enzyme cofactors (NEW)
+        if intent.enzyme_class:
+            # Try to detect common cofactors for this enzyme class
+            cofactor_hints = {
+                "quinoprotein": "pqq",
+                "dehydrogenase": "nad",
+                "aminotransferase": "plp",
+                "kinase": "atp",
+            }
+            if intent.enzyme_class in cofactor_hints:
+                hint = cofactor_hints[intent.enzyme_class]
+                if hint in query_lower and not intent.ligand_name:
+                    # Would need LIGAND_ALIASES check - for now just note it
+                    intent.suggestions.append(f"Consider specifying {hint.upper()} cofactor explicitly")
+
         # Set confidence based on matches
         matches = sum([
             intent.has_metal,
@@ -623,8 +766,10 @@ class SimpleFallbackParser:
             intent.is_scaffolding,  # Scaffolding detection
             intent.include_all_contacts,  # Full pocket detection
             intent.stability_focus,  # Stability detection
+            intent.enzyme_class is not None,  # Enzyme class detection (NEW)
+            intent.preserve_function,  # Function preservation detection (NEW)
         ])
-        intent.confidence = 0.3 + (matches * 0.15)
+        intent.confidence = 0.3 + (matches * 0.12)  # Adjusted weight
 
         intent.warnings.append("Used fallback parser (API unavailable)")
 

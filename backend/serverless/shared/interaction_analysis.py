@@ -7,8 +7,13 @@ Provides unified protein-ligand interaction analysis used by:
 - AI design assistant (ai_engine.py)
 - API endpoints (main.py)
 
-Uses PLIP (Protein-Ligand Interaction Profiler) as primary analysis tool,
-with fallback to distance-based methods when PLIP is unavailable.
+Analysis methods (in priority order):
+1. ProLIF - Modern, pip-installable, good for fingerprinting
+2. PLIP - Comprehensive, requires OpenBabel
+3. Biotite distance-based - Fallback when others unavailable
+
+RFdiffusion3 note: The RFD3 paper uses Rosetta DDGnorepack for binding
+energy and AlphaFold3 for interface validation, not detailed profiling.
 """
 
 import os
@@ -330,6 +335,162 @@ def analyze_interactions_plip(
     return summary
 
 
+def analyze_interactions_prolif(
+    pdb_content: str,
+    ligand_name: str = "UNL",
+) -> InteractionSummary:
+    """
+    Protein-ligand interaction analysis using ProLIF.
+
+    ProLIF is a modern, pip-installable alternative to PLIP that provides:
+    - H-bond detection (donor/acceptor)
+    - Hydrophobic contacts
+    - Pi-stacking (face-to-face and edge-to-face)
+    - Salt bridges
+    - Cation-pi interactions
+    - Halogen bonds
+
+    Args:
+        pdb_content: PDB file content as string
+        ligand_name: Ligand residue name (default "UNL")
+
+    Returns:
+        InteractionSummary with all detected interactions
+    """
+    try:
+        import prolif as plf
+    except ImportError:
+        raise ImportError("ProLIF not installed. Install with: pip install prolif")
+
+    summary = InteractionSummary(analysis_method="prolif")
+
+    # Write PDB to temp file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb', delete=False) as f:
+        f.write(pdb_content)
+        tmp_path = f.name
+
+    try:
+        # Use MDAnalysis to load PDB (more robust than RDKit for metal complexes)
+        import MDAnalysis as mda
+
+        u = mda.Universe(tmp_path)
+        protein_sel = u.select_atoms("protein")
+        ligand_sel = u.select_atoms(f"resname {ligand_name}")
+
+        if len(ligand_sel) == 0:
+            raise ValueError(f"Ligand '{ligand_name}' not found in PDB")
+
+        if len(protein_sel) == 0:
+            raise ValueError("No protein atoms found in PDB")
+
+        # Convert to ProLIF molecules
+        # NoImplicit=False allows structures without explicit hydrogens (like RFD3 output)
+        protein_mol = plf.Molecule.from_mda(protein_sel, NoImplicit=False)
+        ligand_mol = plf.Molecule.from_mda(ligand_sel, NoImplicit=False)
+
+        # Run fingerprint analysis
+        fp = plf.Fingerprint()
+        fp.run_from_iterable([ligand_mol], protein_mol)
+
+        # Extract interactions from fingerprint
+        df = fp.to_dataframe()
+
+        # Parse interactions
+        for col in df.columns:
+            if df[col].any():
+                # Column format: (LigandResname, ProteinResname, InteractionType)
+                if len(col) >= 3:
+                    lig_res, prot_res, interaction_type = col[0], col[1], col[2]
+
+                    # Map to our data structures
+                    if 'HBDonor' in interaction_type or 'HBAcceptor' in interaction_type:
+                        hb = HydrogenBond(
+                            ligand_atom=str(lig_res),
+                            protein_residue=str(prot_res),
+                            protein_chain=str(prot_res).split('.')[0] if '.' in str(prot_res) else 'A',
+                            protein_atom='',
+                            distance=0.0,  # ProLIF doesn't provide distances directly
+                            type="ligand_donor" if 'Donor' in interaction_type else "ligand_acceptor",
+                        )
+                        summary.hydrogen_bonds.append(hb)
+
+                    elif 'Hydrophobic' in interaction_type:
+                        hc = HydrophobicContact(
+                            ligand_atom=str(lig_res),
+                            protein_residue=str(prot_res),
+                            protein_chain=str(prot_res).split('.')[0] if '.' in str(prot_res) else 'A',
+                            protein_atom='',
+                            distance=0.0,
+                        )
+                        summary.hydrophobic_contacts.append(hc)
+
+                    elif 'PiStack' in interaction_type or 'EdgeToFace' in interaction_type:
+                        ps = PiStacking(
+                            ligand_ring=str(lig_res),
+                            protein_residue=str(prot_res),
+                            protein_chain=str(prot_res).split('.')[0] if '.' in str(prot_res) else 'A',
+                            type="edge-to-face" if 'Edge' in interaction_type else "face-to-face",
+                            distance=0.0,
+                        )
+                        summary.pi_stacking.append(ps)
+
+                    elif 'Ionic' in interaction_type or 'Salt' in interaction_type:
+                        sb = SaltBridge(
+                            ligand_group=str(lig_res),
+                            protein_residue=str(prot_res),
+                            protein_chain=str(prot_res).split('.')[0] if '.' in str(prot_res) else 'A',
+                            distance=0.0,
+                            ligand_charge="charged",
+                            protein_charge="charged",
+                        )
+                        summary.salt_bridges.append(sb)
+
+                    elif 'Halogen' in interaction_type or 'XBond' in interaction_type:
+                        xb = HalogenBond(
+                            ligand_atom=str(lig_res),
+                            protein_residue=str(prot_res),
+                            protein_chain=str(prot_res).split('.')[0] if '.' in str(prot_res) else 'A',
+                            protein_atom='',
+                            distance=0.0,
+                        )
+                        summary.halogen_bonds.append(xb)
+
+        # Calculate totals
+        summary.total_contacts = (
+            len(summary.hydrogen_bonds) +
+            len(summary.hydrophobic_contacts) +
+            len(summary.pi_stacking) +
+            len(summary.salt_bridges) +
+            len(summary.halogen_bonds)
+        )
+
+        # Key residues
+        residue_counts = {}
+        for hb in summary.hydrogen_bonds:
+            res = f"{hb.protein_chain}:{hb.protein_residue}"
+            residue_counts[res] = residue_counts.get(res, 0) + 2
+        for hc in summary.hydrophobic_contacts:
+            res = f"{hc.protein_chain}:{hc.protein_residue}"
+            residue_counts[res] = residue_counts.get(res, 0) + 1
+        for ps in summary.pi_stacking:
+            res = f"{ps.protein_chain}:{ps.protein_residue}"
+            residue_counts[res] = residue_counts.get(res, 0) + 3
+
+        sorted_residues = sorted(residue_counts.items(), key=lambda x: x[1], reverse=True)
+        summary.key_residues = [res for res, _ in sorted_residues[:10]]
+
+    except Exception as e:
+        summary.status = "error"
+        summary.error = str(e)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
+
+    return summary
+
+
 def _calculate_angle(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray) -> float:
     """Calculate angle in degrees at point p2 (D-H-A angle)."""
     v1 = p1 - p2
@@ -519,36 +680,59 @@ def analyze_all_interactions(
     ligand_name: str = "UNL",
     include_visualization_data: bool = True,
     use_plip: bool = True,
+    use_prolif: bool = True,
 ) -> InteractionSummary:
     """
     Unified interaction analysis used by all workflows.
 
-    Tries PLIP first for comprehensive analysis, falls back to
-    distance-based methods if PLIP is unavailable.
+    Priority order:
+    1. ProLIF - Modern, pip-installable (requires rdkit, MDAnalysis)
+    2. PLIP - Comprehensive (requires OpenBabel)
+    3. Biotite distance-based - Fallback
 
     Args:
         pdb_content: PDB file content as string
         ligand_name: Ligand residue name (default "UNL")
         include_visualization_data: Include data for 3D visualization
         use_plip: Try to use PLIP (default True)
+        use_prolif: Try to use ProLIF (default True)
 
     Returns:
         InteractionSummary with all detected interactions
     """
-    # Try PLIP first
-    if use_plip:
-        try:
-            summary = analyze_interactions_plip(pdb_content, ligand_name)
-            if summary.status == "completed":
-                if include_visualization_data:
-                    summary.visualization_data = _generate_visualization_data(summary)
-                return summary
-        except ImportError:
-            pass  # PLIP not installed, fall back
-        except Exception as e:
-            pass  # PLIP failed, fall back
+    # Check if PDB has explicit hydrogens (needed for ProLIF/PLIP to work properly)
+    has_hydrogens = ' H ' in pdb_content or ' H\n' in pdb_content
 
-    # Fallback to distance-based analysis
+    # For structures with explicit hydrogens, try advanced tools
+    if has_hydrogens:
+        # Try ProLIF first (modern, pip-installable)
+        if use_prolif:
+            try:
+                summary = analyze_interactions_prolif(pdb_content, ligand_name)
+                if summary.status == "completed" and summary.total_contacts > 0:
+                    if include_visualization_data:
+                        summary.visualization_data = _generate_visualization_data(summary)
+                    return summary
+            except ImportError:
+                pass  # ProLIF not installed, fall back
+            except Exception as e:
+                pass  # ProLIF failed, fall back
+
+        # Try PLIP second (comprehensive but requires OpenBabel)
+        if use_plip:
+            try:
+                summary = analyze_interactions_plip(pdb_content, ligand_name)
+                if summary.status == "completed" and summary.total_contacts > 0:
+                    if include_visualization_data:
+                        summary.visualization_data = _generate_visualization_data(summary)
+                    return summary
+            except ImportError:
+                pass  # PLIP not installed, fall back
+            except Exception as e:
+                pass  # PLIP failed, fall back
+
+    # Use biotite distance-based analysis
+    # This works well for RFD3 outputs which lack explicit hydrogens
     summary = InteractionSummary(analysis_method="distance_based")
 
     try:

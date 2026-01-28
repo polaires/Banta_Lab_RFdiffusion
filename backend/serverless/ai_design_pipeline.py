@@ -34,6 +34,25 @@ from rfd3_config_generator import (
     generate_mpnn_config,
 )
 
+# Import stability profiles from decision engine
+from design_rules import select_stability_profile, StabilityProfile
+
+# Import enzyme chemistry for activity preservation
+try:
+    from enzyme_chemistry import (
+        detect_enzyme_class,
+        get_preservation_requirements,
+        get_substrate_channel_atoms,
+        get_catalytic_hbond_network,
+    )
+    ENZYME_CHEMISTRY_AVAILABLE = True
+except ImportError:
+    ENZYME_CHEMISTRY_AVAILABLE = False
+    detect_enzyme_class = None
+    get_preservation_requirements = None
+    get_substrate_channel_atoms = None
+    get_catalytic_hbond_network = None
+
 # Import inference utilities
 from inference_utils import run_rfd3_inference, run_mpnn_inference
 
@@ -53,6 +72,14 @@ try:
 except ImportError:
     ESMFOLD_AVAILABLE = False
     validate_structure_esmfold = None
+
+# Import RF3 validation
+try:
+    from esmfold_utils import validate_structure_rf3, is_rf3_available
+    RF3_AVAILABLE = is_rf3_available()
+except (ImportError, AttributeError):
+    RF3_AVAILABLE = False
+    validate_structure_rf3 = None
 
 # Import unified analyzer
 try:
@@ -101,6 +128,13 @@ class ValidationResult:
     rmsd: float = float('inf')
     plddt: float = 0.0
     predicted_pdb: Optional[str] = None
+    # RF3 metrics
+    rf3_rmsd: Optional[float] = None
+    rf3_plddt: Optional[float] = None
+    rf3_ptm: Optional[float] = None
+    # Best-of metrics (across ESMFold and RF3)
+    best_rmsd: Optional[float] = None
+    best_plddt: Optional[float] = None
     warnings: List[str] = field(default_factory=list)
 
 
@@ -355,13 +389,16 @@ class AIDesignPipeline:
                 result.error = "LigandMPNN sequence design failed"
                 return self._finalize_result(result, start_time)
 
-            # Stage 6: Validate with ESMFold
+            # Stage 6: Validate with ESMFold (+ RF3 if available)
             if validate_sequences and ESMFOLD_AVAILABLE:
                 stage_start = time.time()
+                # Pass ligand SMILES for RF3 ligand-aware prediction
+                _ligand_smiles = ligand.smiles if (ligand and ligand.resolved and hasattr(ligand, 'smiles')) else None
                 validation_results = self._validate_sequences(
                     all_sequences,
                     backbone_pdbs,
                     intent,
+                    ligand_smiles=_ligand_smiles,
                 )
                 result.validation_results = validation_results
                 result.timings["validation"] = time.time() - stage_start
@@ -477,6 +514,8 @@ class AIDesignPipeline:
                         metal=intent.metal_type,
                         ligand_code=intent.ligand_name,
                         include_all_ligand_contacts=intent.include_all_contacts,  # Full pocket
+                        use_minimal_motif=True,          # Evidence-based residue selection
+                        enzyme_class=intent.enzyme_class, # For enzyme chemistry evidence
                     )
                 )
             finally:
@@ -496,10 +535,10 @@ class AIDesignPipeline:
             # Stage 3: Build RFD3 config from scaffold
             stage_start = time.time()
 
-            # Build RFD3 parameters directly from scaffold result
-            # Apply stability-focused settings if requested
-            cfg_scale = 3.0 if intent.stability_focus else 2.5
-            step_scale = 1.5
+            # === Stability Profile Selection (Phase 5: AI Infrastructure Enhancement) ===
+            # Use decision engine's stability profile instead of hardcoded values
+            stability = select_stability_profile(intent, intent.design_goal or "binding")
+            logger.info(f"Selected stability profile: {stability.name} (cfg_scale={stability.cfg_scale}, step_scale={stability.step_scale})")
 
             rfd3_params = {
                 "pdb_content": scaffold_result.motif_pdb,
@@ -508,9 +547,14 @@ class AIDesignPipeline:
                 "select_fixed_atoms": scaffold_result.fixed_atoms,
                 "select_buried": scaffold_result.rasa_targets,
                 "use_classifier_free_guidance": True,
-                "cfg_scale": cfg_scale,
-                "step_scale": step_scale,
+                "cfg_scale": stability.cfg_scale,
+                "step_scale": stability.step_scale,
+                "num_timesteps": stability.num_timesteps,
             }
+
+            # Add gamma_0 if stability profile specifies it
+            if stability.gamma_0 is not None:
+                rfd3_params["gamma_0"] = stability.gamma_0
 
             # Add H-bond conditioning if available
             if scaffold_result.hbond_acceptors:
@@ -518,9 +562,69 @@ class AIDesignPipeline:
             if scaffold_result.hbond_donors:
                 rfd3_params["select_hbond_donor"] = scaffold_result.hbond_donors
 
-            # Log stability settings
-            if intent.stability_focus:
-                logger.info(f"Stability focus enabled: cfg_scale={cfg_scale}")
+            # === Enzyme Activity Preservation (Phase 5: AI Infrastructure Enhancement) ===
+            # Apply substrate channel exposure if enzyme class is detected and function preservation requested
+            if ENZYME_CHEMISTRY_AVAILABLE and intent.enzyme_class and intent.preserve_function:
+                logger.info(f"Enzyme activity preservation enabled: class={intent.enzyme_class}")
+
+                # Get substrate channel atoms for RASA conditioning
+                try:
+                    exposed_atoms = get_substrate_channel_atoms(
+                        pdb_content=scaffold_result.motif_pdb,
+                        enzyme_class=intent.enzyme_class,
+                        ligand_name=intent.ligand_name,
+                    )
+                    if exposed_atoms:
+                        rfd3_params["select_exposed"] = exposed_atoms
+                        logger.info(f"Substrate channel exposure: {exposed_atoms}")
+                except Exception as e:
+                    logger.warning(f"Could not get substrate channel atoms: {e}")
+
+                # Get catalytic H-bond network preservation
+                # Note: This requires identified catalytic residues from the scaffold
+                # For now, rely on scaffold_result.hbond_acceptors/donors which are already added above
+                # Future enhancement: use identify_catalytic_residues_from_pdb() with enzyme_class
+                if hasattr(scaffold_result, 'coordinating_residues') and scaffold_result.coordinating_residues:
+                    try:
+                        # Convert coordinating residues to the format expected by get_catalytic_hbond_network
+                        catalytic_residue_list = []
+                        for res_str in scaffold_result.coordinating_residues:
+                            # Parse residue strings like "A45" or "A 45"
+                            import re
+                            match = re.match(r'([A-Z])(\d+)', res_str.replace(' ', ''))
+                            if match:
+                                catalytic_residue_list.append({
+                                    'chain': match.group(1),
+                                    'resnum': int(match.group(2)),
+                                })
+
+                        if catalytic_residue_list:
+                            catalytic_hbonds = get_catalytic_hbond_network(
+                                scaffold_result.motif_pdb,
+                                catalytic_residue_list,
+                            )
+                            if catalytic_hbonds.get("acceptors"):
+                                existing = rfd3_params.get("select_hbond_acceptor", {})
+                                for chain, atoms in catalytic_hbonds["acceptors"].items():
+                                    if chain in existing:
+                                        existing[chain] = existing[chain] + "," + atoms
+                                    else:
+                                        existing[chain] = atoms
+                                rfd3_params["select_hbond_acceptor"] = existing
+                            if catalytic_hbonds.get("donors"):
+                                existing = rfd3_params.get("select_hbond_donor", {})
+                                for chain, atoms in catalytic_hbonds["donors"].items():
+                                    if chain in existing:
+                                        existing[chain] = existing[chain] + "," + atoms
+                                    else:
+                                        existing[chain] = atoms
+                                rfd3_params["select_hbond_donor"] = existing
+                    except Exception as e:
+                        logger.warning(f"Could not get catalytic H-bond network: {e}")
+
+            # Log stability and enzyme settings
+            logger.info(f"RFD3 params: cfg_scale={stability.cfg_scale}, step_scale={stability.step_scale}, "
+                       f"num_timesteps={stability.num_timesteps}, gamma_0={stability.gamma_0}")
 
             result.timings["config"] = time.time() - stage_start
 
@@ -546,28 +650,56 @@ class AIDesignPipeline:
                 result.error = "RFD3 scaffolding failed"
                 return self._finalize_result(result, start_time)
 
+            # Filter backbone continuity (chain breaks)
+            from scaffolding_workflow import check_backbone_continuity
+            continuous_pdbs = []
+            for pdb in backbone_pdbs:
+                cont = check_backbone_continuity(pdb)
+                if cont["continuous"]:
+                    continuous_pdbs.append(pdb)
+                else:
+                    logger.warning(f"Backbone has {cont['num_breaks']} chain breaks "
+                                   f"(max CA-CA={cont['max_observed']}A), skipping")
+            if continuous_pdbs:
+                logger.info(f"Continuity filter: {len(continuous_pdbs)}/{len(backbone_pdbs)} passed")
+                backbone_pdbs = continuous_pdbs
+                result.backbone_pdbs = backbone_pdbs
+                result.num_backbones = len(backbone_pdbs)
+            else:
+                logger.warning("No continuous backbones, using all designs as fallback")
+
             # Stage 5: Run LigandMPNN sequence design
             stage_start = time.time()
             all_sequences = []
 
-            # Build MPNN config
-            mpnn_params = {
-                "num_seqs": num_sequences,
-                "temperature": 0.1,
-                "ligand_mpnn_use_atom_context": 1,
-            }
+            # Build MPNN config using decision engine (not hardcoded)
+            mpnn_config = self._generate_mpnn_config(intent, ligand, num_sequences)
+            mpnn_params = mpnn_config.to_api_params()
+            mpnn_params.pop("task", None)  # Remove task key, run_mpnn_inference doesn't need it
 
-            # Add metal-specific bias if applicable
-            if intent.metal_type:
-                from metal_chemistry import get_amino_acid_bias, is_lanthanide
-                try:
-                    bias = get_amino_acid_bias(intent.metal_type, 3)
-                    if bias:
-                        mpnn_params["bias_AA"] = bias
-                    if is_lanthanide(intent.metal_type):
-                        mpnn_params["omit_AA"] = "C"
-                except Exception as e:
-                    logger.warning(f"Could not get metal bias: {e}")
+            # Fix catalytic residues so MPNN does NOT redesign them
+            catalytic_ids = scaffold_result.source_info.get("catalytic_residue_ids", [])
+            if catalytic_ids:
+                mpnn_params["fixed_positions"] = catalytic_ids
+                mpnn_params["use_side_chain_context"] = True
+                logger.info(f"MPNN: Fixing {len(catalytic_ids)} catalytic residues: {catalytic_ids[:5]}...")
+
+            # Enable ligand-aware sidechain packing for enzyme designs
+            if intent.ligand_name or intent.metal_type:
+                mpnn_params["pack_side_chains"] = True
+                mpnn_params["pack_with_ligand_context"] = True
+                mpnn_params["number_of_packs_per_design"] = 4
+
+            # Combined bias for metal + small molecule (override decision engine if both present)
+            # NOTE: bias_AA is GLOBAL - keep mild to preserve hydrophobic core for folding.
+            # LigandMPNN atom context already handles binding site design.
+            if intent.metal_type and intent.ligand_name:
+                mpnn_params["bias_AA"] = "H:0.5,D:0.5,E:0.5,W:0.3,Y:0.3"
+                mpnn_params.pop("omit_AA", None)  # Allow cysteine for metal coordination
+
+            logger.info(f"MPNN params: bias_AA={mpnn_params.get('bias_AA')}, "
+                       f"fixed={len(catalytic_ids)} residues, "
+                       f"pack_side_chains={mpnn_params.get('pack_side_chains', False)}")
 
             for backbone_pdb in backbone_pdbs:
                 if self.use_mock:
@@ -600,13 +732,16 @@ class AIDesignPipeline:
                 result.error = "LigandMPNN sequence design failed"
                 return self._finalize_result(result, start_time)
 
-            # Stage 6: Validate with ESMFold
+            # Stage 6: Validate with ESMFold (+ RF3 if available)
             if validate_sequences and ESMFOLD_AVAILABLE:
                 stage_start = time.time()
+                # Pass ligand SMILES for RF3 ligand-aware prediction (scaffolding path)
+                _ligand_smiles = intent.ligand_smiles if hasattr(intent, 'ligand_smiles') else None
                 validation_results = self._validate_sequences(
                     all_sequences,
                     backbone_pdbs,
                     intent,
+                    ligand_smiles=_ligand_smiles,
                 )
                 result.validation_results = validation_results
                 result.timings["validation"] = time.time() - stage_start
@@ -629,6 +764,24 @@ class AIDesignPipeline:
 
             # Add scaffolding info to analysis
             result.analysis_results["scaffolding_info"] = scaffold_result.source_info
+
+            # Add stability profile info (Phase 5: for post-design filtering)
+            result.analysis_results["stability_profile"] = {
+                "name": stability.name,
+                "plddt_threshold": stability.plddt_threshold,
+                "cfg_scale": stability.cfg_scale,
+                "step_scale": stability.step_scale,
+                "gamma_0": stability.gamma_0,
+                "num_timesteps": stability.num_timesteps,
+            }
+
+            # Add enzyme preservation info if applicable
+            if intent.enzyme_class:
+                result.analysis_results["enzyme_preservation"] = {
+                    "enzyme_class": intent.enzyme_class,
+                    "preserve_function": intent.preserve_function,
+                    "enzyme_class_confidence": getattr(intent, 'enzyme_class_confidence', 0.0),
+                }
 
             result.success = True
 
@@ -803,8 +956,9 @@ class AIDesignPipeline:
         backbone_pdbs: List[str],
         intent: DesignIntent,
         validation_threshold: str = "exploratory",
+        ligand_smiles: Optional[str] = None,
     ) -> List[ValidationResult]:
-        """Validate sequences with ESMFold.
+        """Validate sequences with ESMFold and optionally RF3.
 
         Args:
             sequences: List of sequences to validate
@@ -813,13 +967,16 @@ class AIDesignPipeline:
             validation_threshold: Threshold level ("strict", "standard", "relaxed", "exploratory")
                 Default is "exploratory" for early-stage metal-ligand designs where
                 high RMSD is expected due to the challenging nature of de novo design.
+            ligand_smiles: Optional SMILES for ligand-aware RF3 prediction
         """
-        logger.info(f"Validating {len(sequences)} sequences with ESMFold (threshold={validation_threshold})")
+        methods = ["ESMFold"]
+        if RF3_AVAILABLE:
+            methods.append("RF3")
+        logger.info(f"Validating {len(sequences)} sequences with {'+'.join(methods)} (threshold={validation_threshold})")
 
         results = []
 
         # Detect protein chain from backbone PDB
-        # For metal-ligand designs, protein is often on chain A or B
         protein_chain = self._detect_protein_chain(backbone_pdbs[0] if backbone_pdbs else "")
         logger.info(f"Detected protein chain: {protein_chain}")
 
@@ -830,9 +987,12 @@ class AIDesignPipeline:
                         passed=True,
                         rmsd=1.5,
                         plddt=0.85,
+                        best_rmsd=1.5,
+                        best_plddt=0.85,
                     ))
                     continue
 
+                # --- ESMFold validation ---
                 validation = validate_structure_esmfold(
                     seq.sequence,
                     backbone_pdbs[0] if backbone_pdbs else None,
@@ -840,21 +1000,58 @@ class AIDesignPipeline:
                     threshold=validation_threshold,
                 )
 
-                # Note: validate_structure_esmfold returns "esmfold_plddt" and "esmfold_rmsd"
-                rmsd = validation.get("esmfold_rmsd")  # Can be None if calculation failed
-                plddt = validation.get("esmfold_plddt", 0.0)
+                esm_rmsd = validation.get("esmfold_rmsd")
+                esm_plddt = validation.get("esmfold_plddt", 0.0)
+                esm_passed = validation.get("validation_passed", False)
 
-                # Use validation_passed from the function directly
-                passed = validation.get("validation_passed", False)
+                logger.info(f"ESMFold: pLDDT={esm_plddt:.2f}, RMSD={esm_rmsd if esm_rmsd else 'N/A'}Å, passed={esm_passed}")
 
-                logger.info(f"Seq validation: pLDDT={plddt:.2f}, RMSD={rmsd if rmsd else 'N/A'}Å, passed={passed}")
-
-                results.append(ValidationResult(
-                    passed=passed,
-                    rmsd=rmsd if rmsd is not None else float('inf'),
-                    plddt=plddt,
+                val_result = ValidationResult(
+                    passed=esm_passed,
+                    rmsd=esm_rmsd if esm_rmsd is not None else float('inf'),
+                    plddt=esm_plddt,
                     predicted_pdb=validation.get("predicted_pdb"),
-                ))
+                )
+
+                # --- RF3 validation (if available) ---
+                if RF3_AVAILABLE and validate_structure_rf3 is not None:
+                    try:
+                        rf3_val = validate_structure_rf3(
+                            sequence=seq.sequence,
+                            designed_pdb=backbone_pdbs[0] if backbone_pdbs else None,
+                            binder_chain=protein_chain,
+                            ligand_smiles=ligand_smiles,
+                            threshold=validation_threshold,
+                        )
+
+                        if rf3_val.get("status") == "completed":
+                            val_result.rf3_plddt = rf3_val.get("rf3_plddt")
+                            val_result.rf3_ptm = rf3_val.get("rf3_ptm")
+                            val_result.rf3_rmsd = rf3_val.get("rf3_rmsd")
+
+                            rf3_plddt_str = f"{val_result.rf3_plddt:.2f}" if val_result.rf3_plddt else "N/A"
+                            rf3_rmsd_str = f"{val_result.rf3_rmsd:.2f}" if val_result.rf3_rmsd else "N/A"
+                            logger.info(f"RF3: pLDDT={rf3_plddt_str}, RMSD={rf3_rmsd_str}Å")
+                        else:
+                            logger.warning(f"RF3 validation failed: {rf3_val.get('error')}")
+
+                    except Exception as e:
+                        logger.error(f"RF3 validation error: {e}")
+
+                # --- Compute best-of metrics ---
+                plddt_values = [v for v in [esm_plddt, val_result.rf3_plddt] if v is not None and v > 0]
+                rmsd_values = [v for v in [esm_rmsd, val_result.rf3_rmsd] if v is not None]
+                val_result.best_plddt = max(plddt_values) if plddt_values else esm_plddt
+                val_result.best_rmsd = min(rmsd_values) if rmsd_values else (esm_rmsd if esm_rmsd is not None else float('inf'))
+
+                # Re-evaluate pass/fail using best-of metrics
+                from esmfold_utils import ESMFOLD_THRESHOLDS
+                thresholds = ESMFOLD_THRESHOLDS.get(validation_threshold, ESMFOLD_THRESHOLDS["standard"])
+                best_passes_plddt = val_result.best_plddt is not None and val_result.best_plddt >= thresholds["plddt_min"]
+                best_passes_rmsd = val_result.best_rmsd is None or val_result.best_rmsd <= thresholds["rmsd_max"]
+                val_result.passed = best_passes_plddt and best_passes_rmsd
+
+                results.append(val_result)
 
             except Exception as e:
                 logger.error(f"Validation failed for sequence: {e}")
@@ -883,14 +1080,18 @@ class AIDesignPipeline:
         best_overall_plddt = 0.0
 
         for i, val in enumerate(validations):
+            # Use best_rmsd/best_plddt if available (best-of across ESMFold + RF3)
+            effective_rmsd = val.best_rmsd if val.best_rmsd is not None else val.rmsd
+            effective_plddt = val.best_plddt if val.best_plddt is not None else val.plddt
+
             # Track best passing design (by RMSD)
-            if val.passed and val.rmsd < best_passing_rmsd:
-                best_passing_rmsd = val.rmsd
+            if val.passed and effective_rmsd < best_passing_rmsd:
+                best_passing_rmsd = effective_rmsd
                 best_passing_idx = i
 
             # Track best overall design (by pLDDT) - for reporting even if none pass
-            if val.plddt > best_overall_plddt:
-                best_overall_plddt = val.plddt
+            if effective_plddt > best_overall_plddt:
+                best_overall_plddt = effective_plddt
                 best_overall_idx = i
 
         # Use passing design if available, otherwise use best overall
@@ -898,11 +1099,14 @@ class AIDesignPipeline:
 
         if best_idx >= 0 and best_idx < len(sequences):
             result.best_sequence = sequences[best_idx]
-            result.best_rmsd = validations[best_idx].rmsd if validations[best_idx].rmsd != float('inf') else None
-            result.best_plddt = validations[best_idx].plddt
-            result.best_sequence_pdb = validations[best_idx].predicted_pdb
+            best_val = validations[best_idx]
+            effective_rmsd = best_val.best_rmsd if best_val.best_rmsd is not None else best_val.rmsd
+            effective_plddt = best_val.best_plddt if best_val.best_plddt is not None else best_val.plddt
+            result.best_rmsd = effective_rmsd if effective_rmsd != float('inf') else None
+            result.best_plddt = effective_plddt
+            result.best_sequence_pdb = best_val.predicted_pdb
 
-            passed_str = "passed" if validations[best_idx].passed else "not passed"
+            passed_str = "passed" if best_val.passed else "not passed"
             rmsd_str = f"{result.best_rmsd:.2f}Å" if result.best_rmsd else "N/A"
             logger.info(f"Best result: idx={best_idx}, pLDDT={result.best_plddt:.2f}, RMSD={rmsd_str}, {passed_str}")
 

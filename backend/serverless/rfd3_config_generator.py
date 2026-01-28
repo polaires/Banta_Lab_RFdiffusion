@@ -114,18 +114,22 @@ class RFD3Config:
     # CFG parameters
     use_classifier_free_guidance: bool = True
     cfg_scale: float = 2.5
-    step_scale: float = 1.5  # NEW: From decision engine
+    step_scale: float = 1.5  # From decision engine
+
+    # Stability optimization parameters (Phase 4: AI Infrastructure Enhancement)
+    gamma_0: Optional[float] = None  # Noise schedule parameter (lower = more stable)
 
     # Orientation strategy
-    infer_ori_strategy: Optional[str] = None  # NEW: "com" | "hotspots" | None
+    infer_ori_strategy: Optional[str] = None  # "com" | "hotspots" | None
 
     # Atom selections (Dict format for RFD3 API)
     select_fixed_atoms: Dict[str, str] = field(default_factory=dict)
     select_buried: Dict[str, str] = field(default_factory=dict)
+    select_exposed: Dict[str, str] = field(default_factory=dict)  # Enzyme activity: substrate channel
 
     # Hotspots - can be List[str] or Dict[str, str] depending on mode
     hotspots: List[str] = field(default_factory=list)
-    select_hotspots: Dict[str, str] = field(default_factory=dict)  # NEW: atom-level hotspots
+    select_hotspots: Dict[str, str] = field(default_factory=dict)  # Atom-level hotspots
 
     # H-bond conditioning
     select_hbond_acceptor: Dict[str, str] = field(default_factory=dict)
@@ -156,8 +160,12 @@ class RFD3Config:
             "num_timesteps": self.num_timesteps,
             "use_classifier_free_guidance": self.use_classifier_free_guidance,
             "cfg_scale": self.cfg_scale,
-            "step_scale": self.step_scale,  # NEW: Always include step_scale
+            "step_scale": self.step_scale,
         }
+
+        # Stability optimization: gamma_0 (noise schedule)
+        if self.gamma_0 is not None:
+            params["gamma_0"] = self.gamma_0
 
         # Add orientation strategy if specified
         if self.infer_ori_strategy:
@@ -175,6 +183,11 @@ class RFD3Config:
 
         if self.select_buried:
             params["select_buried"] = self.select_buried
+
+        # Enzyme activity preservation: substrate channel exposure
+        if self.select_exposed:
+            params["select_exposed"] = self.select_exposed
+
         if self.select_hbond_acceptor:
             params["select_hbond_acceptor"] = self.select_hbond_acceptor
         if self.select_hbond_donor:

@@ -12,3 +12,5 @@ export {
   type UseDesignJobOptions,
   type UseDesignJobReturn,
 } from './useDesignJob';
+
+export { useAIDesign } from './useAIDesign';

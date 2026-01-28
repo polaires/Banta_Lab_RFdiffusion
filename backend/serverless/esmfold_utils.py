@@ -598,3 +598,258 @@ def is_esmfold_available() -> bool:
     Returns the pre-computed availability flag.
     """
     return ESMFOLD_AVAILABLE
+
+
+# =============================================================================
+# RF3 (RoseTTAFold3) Validation Support
+# =============================================================================
+
+def _extract_ca_coords_from_cif(cif_text: str, chain: str = None) -> np.ndarray:
+    """Extract CA atom coordinates from mmCIF text.
+
+    Parses the _atom_site loop in mmCIF format to find CA atoms.
+
+    Args:
+        cif_text: mmCIF file content as string
+        chain: Optional chain ID to filter (matches auth_asym_id or label_asym_id)
+
+    Returns:
+        np.ndarray of shape (N, 3) with CA coordinates
+    """
+    coords = []
+    in_atom_site = False
+    col_map = {}
+    col_idx = 0
+
+    for line in cif_text.splitlines():
+        if line.startswith("_atom_site."):
+            in_atom_site = True
+            field_name = line.strip().split(".")[1].strip()
+            col_map[field_name] = col_idx
+            col_idx += 1
+            continue
+
+        if in_atom_site and (line.startswith("_") or line.startswith("#")):
+            in_atom_site = False
+            col_map = {}
+            col_idx = 0
+            continue
+
+        if in_atom_site and line.strip() and not line.startswith("_") and not line.startswith("#"):
+            if not col_map:
+                continue
+            parts = line.split()
+            if len(parts) < max(col_map.values()) + 1:
+                continue
+
+            # Get atom name
+            label_atom_id = col_map.get("label_atom_id") or col_map.get("auth_atom_id")
+            if label_atom_id is None:
+                continue
+            atom_name = parts[label_atom_id].strip('"')
+            if atom_name != "CA":
+                continue
+
+            # Filter to ATOM records only (not HETATM)
+            group_idx = col_map.get("group_PDB")
+            if group_idx is not None and parts[group_idx] != "ATOM":
+                continue
+
+            # Filter by chain if specified
+            if chain is not None:
+                chain_idx = col_map.get("auth_asym_id") or col_map.get("label_asym_id")
+                if chain_idx is not None and parts[chain_idx] != chain:
+                    continue
+
+            # Extract coordinates
+            x_idx = col_map.get("Cartn_x")
+            y_idx = col_map.get("Cartn_y")
+            z_idx = col_map.get("Cartn_z")
+            if x_idx is None or y_idx is None or z_idx is None:
+                continue
+            try:
+                coords.append([float(parts[x_idx]), float(parts[y_idx]), float(parts[z_idx])])
+            except ValueError:
+                continue
+
+    return np.array(coords) if coords else np.array([]).reshape(0, 3)
+
+
+def calculate_backbone_rmsd_from_cif(
+    pdb_content: str,
+    cif_content: str,
+    pdb_chain: str = None,
+    cif_chain: str = None,
+) -> Dict[str, Any]:
+    """Calculate backbone RMSD between a PDB structure and a CIF structure.
+
+    Uses CA atoms for Kabsch alignment and RMSD calculation.
+
+    Args:
+        pdb_content: Reference PDB structure (designed backbone)
+        cif_content: Predicted CIF structure (e.g., from RF3)
+        pdb_chain: Chain ID in PDB structure (optional)
+        cif_chain: Chain ID in CIF structure (optional)
+
+    Returns:
+        Dict with rmsd, n_atoms, aligned status, or error
+    """
+    try:
+        coords_pdb = _extract_ca_coords_from_pdb(pdb_content, pdb_chain)
+        coords_cif = _extract_ca_coords_from_cif(cif_content, cif_chain)
+
+        if len(coords_pdb) == 0 or len(coords_cif) == 0:
+            return {
+                "status": "error",
+                "error": f"Could not extract CA coordinates (PDB: {len(coords_pdb)}, CIF: {len(coords_cif)})"
+            }
+
+        min_len = min(len(coords_pdb), len(coords_cif))
+        if len(coords_pdb) != len(coords_cif):
+            logger.warning(f"Length mismatch: PDB={len(coords_pdb)} vs CIF={len(coords_cif)}, using first {min_len}")
+            coords_pdb = coords_pdb[:min_len]
+            coords_cif = coords_cif[:min_len]
+
+        aligned_rmsd = _kabsch_rmsd(coords_pdb, coords_cif)
+
+        return {
+            "status": "completed",
+            "rmsd": float(aligned_rmsd),
+            "n_atoms": min_len,
+            "aligned": True,
+        }
+
+    except Exception as e:
+        logger.error(f"CIF RMSD calculation failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }
+
+
+def is_rf3_available() -> bool:
+    """Check if RF3 (RoseTTAFold3) inference is available in-container.
+
+    Returns:
+        True if inference_utils can be imported and RF3 engine exists
+    """
+    try:
+        import inference_utils
+        return hasattr(inference_utils, 'run_rf3_inference')
+    except ImportError:
+        return False
+
+
+def validate_structure_rf3(
+    sequence: str,
+    designed_pdb: str,
+    binder_chain: str = None,
+    ligand_smiles: str = None,
+    threshold: str = "standard",
+) -> Dict[str, Any]:
+    """Validate a designed protein by predicting its structure with RF3 and comparing to design.
+
+    Mirrors validate_structure_esmfold() signature and return format, but uses
+    RoseTTAFold3 for structure prediction. RF3 outputs mmCIF format.
+
+    Args:
+        sequence: Designed protein sequence
+        designed_pdb: Reference PDB structure (designed backbone)
+        binder_chain: Chain ID of the binder in designed_pdb (optional)
+        ligand_smiles: SMILES string for ligand-aware prediction (optional)
+        threshold: Quality threshold ("strict", "standard", "relaxed", "exploratory")
+
+    Returns:
+        Dict with:
+        - status: "completed" or "error"
+        - rf3_plddt: Average pLDDT from RF3 prediction
+        - rf3_ptm: Predicted TM score
+        - rf3_iptm: Interface pTM (if ligand provided)
+        - rf3_rmsd: Backbone RMSD between design and prediction (Å)
+        - rf3_cif_content: RF3 predicted structure in CIF format
+        - validation_passed: True if metrics pass thresholds
+    """
+    try:
+        import inference_utils
+
+        logger.info(f"RF3 prediction for {len(sequence)} residues (ligand={'yes' if ligand_smiles else 'no'})...")
+
+        # Run RF3 inference
+        rf3_result = inference_utils.run_rf3_inference(
+            sequence=sequence,
+            name="rf3_validation",
+            ligand_smiles=ligand_smiles,
+        )
+
+        if rf3_result.get("status") != "completed":
+            error = rf3_result.get("error", "Unknown error")
+            logger.warning(f"RF3 prediction failed: {error}")
+            return {
+                "status": "error",
+                "error": f"RF3 prediction failed: {error}",
+            }
+
+        # Extract results
+        result_data = rf3_result.get("result", {})
+        confidences = result_data.get("confidences") or {}
+        predictions = result_data.get("predictions", [])
+
+        rf3_plddt = confidences.get("mean_plddt")
+        rf3_ptm = confidences.get("ptm")
+        rf3_iptm = confidences.get("iptm")
+
+        # Get CIF content from first prediction
+        cif_content = None
+        for pred in predictions:
+            cif = pred.get("cif_content")
+            if cif:
+                cif_content = cif
+                break
+
+        # Compute RMSD vs designed backbone
+        rf3_rmsd = None
+        if cif_content and designed_pdb:
+            rmsd_result = calculate_backbone_rmsd_from_cif(
+                pdb_content=designed_pdb,
+                cif_content=cif_content,
+                pdb_chain=binder_chain,
+            )
+            if rmsd_result.get("status") == "completed":
+                rf3_rmsd = rmsd_result["rmsd"]
+            else:
+                logger.warning(f"RF3 RMSD calculation failed: {rmsd_result.get('error')}")
+
+        # Check against thresholds
+        thresholds = ESMFOLD_THRESHOLDS.get(threshold, ESMFOLD_THRESHOLDS["standard"])
+        passes_plddt = rf3_plddt is not None and rf3_plddt >= thresholds["plddt_min"]
+        passes_rmsd = rf3_rmsd is None or rf3_rmsd <= thresholds["rmsd_max"]
+        validation_passed = passes_plddt and passes_rmsd
+
+        result = {
+            "status": "completed",
+            "rf3_plddt": rf3_plddt,
+            "rf3_ptm": rf3_ptm,
+            "rf3_iptm": rf3_iptm,
+            "rf3_rmsd": rf3_rmsd,
+            "rf3_cif_content": cif_content,
+            "validation_passed": validation_passed,
+            "threshold_used": threshold,
+        }
+
+        rmsd_str = f"{rf3_rmsd:.2f}" if rf3_rmsd is not None else "N/A"
+        plddt_str = f"{rf3_plddt:.2f}" if rf3_plddt is not None else "N/A"
+        logger.info(f"RF3 validation: pLDDT={plddt_str}, pTM={rf3_ptm}, RMSD={rmsd_str}Å, passed={validation_passed}")
+        return result
+
+    except ImportError:
+        logger.warning("RF3 not available (inference_utils not importable)")
+        return {
+            "status": "error",
+            "error": "RF3 not available",
+        }
+    except Exception as e:
+        logger.error(f"RF3 validation failed: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+        }

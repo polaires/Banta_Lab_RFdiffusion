@@ -1165,6 +1165,8 @@ def handle_validate_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
         min_protein_donors: Minimum protein donor atoms for metal (default: 1)
         run_pyrosetta: Whether to run PyRosetta refinement (default: True)
         temperature: MPNN sampling temperature (default: 0.1)
+        use_rf3: Whether to also validate with RF3 (default: True, gracefully skipped if unavailable)
+        ligand_smiles: SMILES string for ligand-aware RF3 prediction (optional)
 
     Returns:
         Validation results including:
@@ -1216,6 +1218,8 @@ def handle_validate_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
             min_protein_donors=job_input.get("min_protein_donors", 1),
             run_pyrosetta=job_input.get("run_pyrosetta", True),
             temperature=job_input.get("temperature", 0.1),
+            use_rf3=job_input.get("use_rf3", True),
+            ligand_smiles=job_input.get("ligand_smiles"),
         )
 
         # Convert ValidationResult to dict

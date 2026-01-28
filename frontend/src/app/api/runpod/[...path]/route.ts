@@ -26,6 +26,7 @@ const TASK_MAP: Record<string, string> = {
   'mpnn/design': 'mpnn',
   'validate/rmsd': 'rmsd',
   'health': 'health',
+  'runsync': 'runsync', // Special: task comes from request body
 };
 
 // RunPod status to internal status mapping
@@ -67,7 +68,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Submit to RunPod serverless
+    // Special handling for runsync - synchronous execution
+    if (path === 'runsync') {
+      const runpodResponse = await fetch(
+        `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/runsync`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body), // Pass body as-is, it contains {input: {task, ...}}
+        }
+      );
+
+      if (!runpodResponse.ok) {
+        const errorText = await runpodResponse.text();
+        console.error('[RunPod Proxy] runsync error:', runpodResponse.status, errorText);
+        return NextResponse.json(
+          { error: `RunPod error: ${errorText}` },
+          { status: runpodResponse.status }
+        );
+      }
+
+      const data = await runpodResponse.json();
+
+      // Return full response for sync endpoint
+      return NextResponse.json(data);
+    }
+
+    // Submit to RunPod serverless (async)
     const runpodResponse = await fetch(
       `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`,
       {

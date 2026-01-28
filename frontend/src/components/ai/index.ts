@@ -39,3 +39,10 @@ export type { BinderEvaluation } from './BinderEvaluationCard';
 // Design gallery for viewing multiple designs
 export { DesignGallery } from './DesignGallery';
 export type { DesignResult } from './DesignGallery';
+
+// AI Design Pipeline workflow visualization
+export { AIDesignPipelineWorkflow, AIDesignPipelineStatus } from './AIDesignPipelineWorkflow';
+export type { AIDesignStage } from './AIDesignPipelineWorkflow';
+
+// AI Design Panel (complete UI for natural language design)
+export { AIDesignPanel } from './AIDesignPanel';

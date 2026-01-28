@@ -230,12 +230,101 @@ STEP_SCALE_DEFAULT = 1.5  # From successful experiments
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 6B. STABILITY PROFILE RULES
+# ═══════════════════════════════════════════════════════════════════
+
+@dataclass
+class StabilityProfile:
+    """
+    RFD3 parameter profile for stability optimization.
+
+    Based on RFD3 documentation:
+    - step_scale: 0.5-3.0 (higher = more designable structures)
+    - gamma_0: 0.3-1.0 (lower = more designable, less diverse)
+    - cfg_scale: 0.5-4.0 (higher = stronger constraint adherence)
+    - num_timesteps: 50-500 (more = higher quality)
+    """
+    name: str
+    cfg_scale: float          # Classifier-free guidance strength
+    step_scale: float         # Step scale for designability
+    gamma_0: float            # Gamma parameter (lower = more designable)
+    num_timesteps: int        # Denoising steps (more = higher quality)
+    plddt_threshold: float    # ESMFold validation threshold
+    description: str
+
+
+STABILITY_PROFILES: Dict[str, StabilityProfile] = {
+    "balanced": StabilityProfile(
+        name="balanced",
+        cfg_scale=2.5,
+        step_scale=1.5,
+        gamma_0=0.5,
+        num_timesteps=200,
+        plddt_threshold=0.75,
+        description="Default balance of diversity and stability",
+    ),
+    "stability_focused": StabilityProfile(
+        name="stability_focused",
+        cfg_scale=3.0,
+        step_scale=1.2,
+        gamma_0=0.4,
+        num_timesteps=250,
+        plddt_threshold=0.82,
+        description="Prioritize fold stability over diversity",
+    ),
+    "ultra_stable": StabilityProfile(
+        name="ultra_stable",
+        cfg_scale=3.5,
+        step_scale=1.0,
+        gamma_0=0.35,
+        num_timesteps=300,
+        plddt_threshold=0.88,
+        description="Maximum stability, reduced sequence diversity",
+    ),
+}
+
+
+def select_stability_profile(
+    stability_focus: bool,
+    design_goal: str,
+    enzyme_class: Optional[str] = None,
+) -> StabilityProfile:
+    """
+    Select stability profile based on design context.
+
+    Args:
+        stability_focus: Whether user requested stability optimization
+        design_goal: Design goal (binding, catalysis, sensing, structural)
+        enzyme_class: Detected enzyme class (if any)
+
+    Returns:
+        StabilityProfile with appropriate parameters
+    """
+    if stability_focus:
+        # Explicit stability request
+        if design_goal == "structural":
+            return STABILITY_PROFILES["ultra_stable"]
+        elif enzyme_class:
+            # Enzymes need reliable fold but also some flexibility
+            return STABILITY_PROFILES["stability_focused"]
+        else:
+            return STABILITY_PROFILES["stability_focused"]
+
+    # Default behavior based on design goal
+    if design_goal == "structural":
+        return STABILITY_PROFILES["stability_focused"]
+
+    return STABILITY_PROFILES["balanced"]
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 7. DECISION ENGINE - Main Entry Point
 # ═══════════════════════════════════════════════════════════════════
 
 @dataclass
 class DesignDecisions:
     """All decisions for a design run."""
+    # Core design parameters
     chain_length: str
     hotspot_strategy: str
     hotspot_atoms: List[str]
@@ -249,6 +338,18 @@ class DesignDecisions:
     mpnn_temperature: float
     rationale: Dict[str, str] = field(default_factory=dict)
 
+    # Stability optimization parameters
+    stability_profile: str = "balanced"
+    gamma_0: Optional[float] = None
+    num_timesteps: int = 200
+    plddt_threshold: float = 0.75
+
+    # Enzyme activity preservation parameters
+    select_exposed: Dict[str, str] = field(default_factory=dict)
+    catalytic_fixed_residues: List[str] = field(default_factory=list)
+    preserve_hbond_network: bool = False
+    enzyme_class: Optional[str] = None
+
 
 def make_design_decisions(
     ligand_size: LigandSize,
@@ -259,6 +360,9 @@ def make_design_decisions(
     design_goal: str,             # "binding" | "catalysis" | "sensing"
     target_topology: str,         # "monomer" | "dimer" | "symmetric"
     has_hbond_conditioning: bool,
+    stability_focus: bool = False,        # NEW: User requested stability optimization
+    enzyme_class: Optional[str] = None,   # NEW: Detected enzyme class
+    preserve_function: bool = False,      # NEW: Preserve enzymatic function
 ) -> DesignDecisions:
     """
     Central decision function that applies all rules.
@@ -337,6 +441,25 @@ def make_design_decisions(
             if boost > 0:
                 bias_aa += f",{aa}:{boost}" if bias_aa else f"{aa}:{boost}"
 
+    # 7. Stability profile selection (NEW)
+    stability = select_stability_profile(stability_focus, design_goal, enzyme_class)
+
+    # Override base cfg_scale with stability profile if stability is requested
+    if stability_focus:
+        cfg = max(cfg, stability.cfg_scale)
+
+    # 8. Enzyme activity preservation (NEW)
+    select_exposed: Dict[str, str] = {}
+    catalytic_fixed_residues: List[str] = []
+    preserve_hbond_network = False
+
+    if enzyme_class and preserve_function:
+        # Boost cfg_scale for enzyme preservation
+        cfg = max(cfg, 2.8)
+        preserve_hbond_network = True
+        # Note: select_exposed and catalytic_fixed_residues will be populated
+        # by enzyme_chemistry module based on PDB analysis
+
     return DesignDecisions(
         chain_length=chain_length,
         hotspot_strategy=hotspot_strat,
@@ -345,7 +468,7 @@ def make_design_decisions(
         burial_target=burial_target,
         infer_ori_strategy=infer_ori,
         cfg_scale=round(cfg, 1),
-        step_scale=STEP_SCALE_DEFAULT,
+        step_scale=stability.step_scale,  # Use stability profile
         mpnn_bias_AA=bias_aa,
         mpnn_omit_AA=profile.omit_AA,
         mpnn_temperature=profile.temperature,
@@ -355,7 +478,18 @@ def make_design_decisions(
             "burial": f"{burial_strat}: {burial.target} atoms",
             "orientation": f"Goal '{design_goal}' -> {infer_ori or 'auto'}",
             "mpnn": profile.rationale,
-        }
+            "stability": f"Profile: {stability.name} - {stability.description}",
+        },
+        # Stability parameters
+        stability_profile=stability.name,
+        gamma_0=stability.gamma_0,
+        num_timesteps=stability.num_timesteps,
+        plddt_threshold=stability.plddt_threshold,
+        # Enzyme parameters
+        select_exposed=select_exposed,
+        catalytic_fixed_residues=catalytic_fixed_residues,
+        preserve_hbond_network=preserve_hbond_network,
+        enzyme_class=enzyme_class,
     )
 
 
@@ -397,5 +531,13 @@ CFG_SCALE:
 - +0.3-0.5 for burial
 - Max: 4.0
 
-STEP_SCALE: 1.5 (always)
+STABILITY_PROFILES:
+- balanced: cfg=2.5, step=1.5, gamma=0.5, steps=200, plddt=0.75
+- stability_focused: cfg=3.0, step=1.2, gamma=0.4, steps=250, plddt=0.82
+- ultra_stable: cfg=3.5, step=1.0, gamma=0.35, steps=300, plddt=0.88
+
+ENZYME_PRESERVATION:
+- preserve_function=True -> boost cfg to 2.8+, preserve H-bond network
+- select_exposed for substrate channel atoms
+- catalytic_fixed_residues for active site geometry
 """

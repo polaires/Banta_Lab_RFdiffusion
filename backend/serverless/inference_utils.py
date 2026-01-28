@@ -3069,11 +3069,12 @@ def run_mpnn_cli(
             cmd_parts.append(f"--omit '{omit_json}'")
             print(f"[MPNN] CLI omit: {omit_json}")
 
-        # Note: LigandMPNN-specific parameters (cutoff, atom context, side chain context)
-        # are handled automatically by the atomworks CLI when model_type=ligand_mpnn
-        # The ligand awareness is built into the model itself
+        # Note: The atomworks CLI automatically enables ligand atom context
+        # when model_type=ligand_mpnn. The --ligand_mpnn_use_atom_context flag
+        # is NOT supported by atomworks CLI (it's an original LigandMPNN flag).
+        # Ligand awareness is built into the model and activated by model_type.
         if model_type == "ligand_mpnn":
-            print(f"[MPNN] Using ligand_mpnn model (ligand awareness automatic)")
+            print(f"[MPNN] Using ligand_mpnn model (ligand awareness automatic via model_type)")
 
         # Sidechain atomization and structure output
         if pack_side_chains:

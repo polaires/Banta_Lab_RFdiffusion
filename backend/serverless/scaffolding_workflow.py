@@ -28,6 +28,74 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# BACKBONE CONTINUITY CHECK
+# =============================================================================
+
+def check_backbone_continuity(pdb_content: str, max_ca_dist: float = 4.2) -> dict:
+    """Check if a backbone PDB has continuous chain (no breaks).
+
+    Validates that all adjacent CA-CA distances within the same chain
+    are within the normal peptide bond range. Normal CA-CA distance is ~3.8A.
+
+    Args:
+        pdb_content: PDB file content as string
+        max_ca_dist: Maximum allowed CA-CA distance (default 4.2A).
+            Normal peptide bond CA-CA is ~3.8A; 4.2A allows for slight
+            distortions while catching real chain breaks (>5A).
+
+    Returns:
+        dict with:
+          - continuous (bool): True if no breaks found
+          - num_breaks (int): Number of chain breaks
+          - breaks (list): List of (resnum1, resnum2, distance) tuples
+          - num_ca (int): Total number of CA atoms
+          - mean_ca_dist (float): Mean adjacent CA-CA distance
+          - max_observed (float): Maximum adjacent CA-CA distance
+    """
+    import math
+
+    # Extract CA atoms per chain
+    ca_by_chain = {}
+    for line in pdb_content.split('\n'):
+        if line.startswith('ATOM') and line[12:16].strip() == 'CA':
+            chain = line[21]
+            try:
+                resnum = int(line[22:26].strip())
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                ca_by_chain.setdefault(chain, []).append((resnum, x, y, z))
+            except (ValueError, IndexError):
+                continue
+
+    breaks = []
+    all_dists = []
+    total_ca = 0
+
+    for chain, cas in ca_by_chain.items():
+        # Sort by residue number
+        cas.sort(key=lambda c: c[0])
+        total_ca += len(cas)
+
+        for i in range(1, len(cas)):
+            r1, x1, y1, z1 = cas[i - 1]
+            r2, x2, y2, z2 = cas[i]
+            d = math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2)
+            all_dists.append(d)
+            if d > max_ca_dist:
+                breaks.append((r1, r2, round(d, 2)))
+
+    return {
+        "continuous": len(breaks) == 0,
+        "num_breaks": len(breaks),
+        "breaks": breaks,
+        "num_ca": total_ca,
+        "mean_ca_dist": round(sum(all_dists) / len(all_dists), 2) if all_dists else 0.0,
+        "max_observed": round(max(all_dists), 2) if all_dists else 0.0,
+    }
+
+
+# =============================================================================
 # DATA CLASSES
 # =============================================================================
 
@@ -37,7 +105,12 @@ class ScaffoldResult:
     # Core outputs
     motif_pdb: str                         # Extracted motif ready for RFD3
     motif_residues: List[str] = field(default_factory=list)  # Residues to preserve (e.g., ["A10-15"])
-    contig: str = ""                       # Full contig string for RFD3
+    contig: str = ""                       # Full contig string for RFD3 (DEPRECATED - use length)
+
+    # NEW: Enzyme Scaffold Design approach (recommended)
+    length: str = ""                       # Total scaffold length (e.g., "150" or "120-180")
+    unindex: str = ""                      # Catalytic residues marked as flexible (e.g., "A1,A2,A3")
+    ligand_codes: str = ""                 # Comma-separated ligand 3-letter codes (e.g., "PQQ,CA")
 
     # Conditioning parameters for RFD3
     fixed_atoms: Dict[str, str] = field(default_factory=dict)      # {"X1": "all", "L1": "all"}
@@ -45,13 +118,39 @@ class ScaffoldResult:
     hbond_acceptors: Dict[str, str] = field(default_factory=dict)  # H-bond acceptor atoms
     hbond_donors: Dict[str, str] = field(default_factory=dict)     # H-bond donor atoms
 
+    # Conservation data (from ConSurf-style analysis)
+    conservation_fixed: List[str] = field(default_factory=list)    # Highly conserved residues to fix
+    conservation_grades: Dict[int, int] = field(default_factory=dict)  # Position -> grade (1-9)
+
     # Metadata
     source_info: Dict[str, Any] = field(default_factory=dict)      # Source structure info
     coordinating_residues: List[Dict] = field(default_factory=list)  # Coordination shell
 
+    # Minimal motif selection result (if used)
+    motif_result: Optional[Any] = None  # MinimalMotifResult when use_minimal_motif=True
+
     # Status
     success: bool = True
     error_message: str = ""
+
+    def apply_conservation_to_fixed_atoms(
+        self,
+        threshold: int = 3,
+        fix_type: str = "CA",
+    ) -> None:
+        """
+        Add highly conserved residues to fixed_atoms based on conservation grades.
+
+        Args:
+            threshold: Maximum grade to consider fixed (1-3 = highly conserved)
+            fix_type: What to fix ("CA" for backbone, "all" for everything)
+        """
+        for pos, grade in self.conservation_grades.items():
+            if grade <= threshold:
+                res_id = f"A{pos}"
+                if res_id not in self.fixed_atoms:
+                    self.fixed_atoms[res_id] = fix_type
+                    self.conservation_fixed.append(res_id)
 
 
 # =============================================================================
@@ -99,11 +198,15 @@ class ScaffoldingWorkflow:
         pdb_id: str,
         metal: Optional[str] = None,
         ligand_code: Optional[str] = None,
-        chain_length: str = "80-120",
+        chain_length: Optional[str] = None,  # None = auto-calculate from active site geometry
         coordination_cutoff: Optional[float] = None,
         include_second_shell: bool = False,
         include_all_ligand_contacts: bool = False,
         ligand_contact_cutoff: Optional[float] = None,
+        fixed_atom_type: str = "BKBN",  # What to fix on catalytic residues: BKBN, ALL, TIP, or empty
+        use_minimal_motif: bool = False,  # NEW: use evidence-based minimal motif selection
+        enzyme_class: Optional[str] = None,  # NEW: enzyme class for chemistry evidence
+        use_conservation: bool = False,  # NEW: include ConSurf conservation analysis
     ) -> ScaffoldResult:
         """
         Run scaffolding workflow.
@@ -199,40 +302,147 @@ class ScaffoldingWorkflow:
                         existing_keys.add(key)
                 logger.info(f"Extended pocket: {len(unique_residues)} residues (was {len(coord_residues)} from metal coordination)")
 
-            # Convert to residue ranges for contig
-            motif_residues = self._residues_to_ranges(unique_residues)
+            # Step 3c: Minimal motif selection (evidence-based)
+            # When enabled, filters unique_residues down to only evidence-supported
+            # residues (Tier 1-3), with per-residue atom fix types (TIP/CA).
+            minimal_motif_result = None
+            if use_minimal_motif:
+                try:
+                    from minimal_motif_selector import MinimalMotifSelector
+                    selector = MinimalMotifSelector(use_conservation=use_conservation)
+                    minimal_motif_result = await selector.select(
+                        pdb_id=pdb_id,
+                        pdb_content=pdb_content,
+                        ligand_code=ligand_code,
+                        metal_type=metal,
+                        enzyme_class=enzyme_class,
+                        chain=active_site.get("metal_chain", "A"),
+                        pocket_residues=unique_residues,
+                    )
+                    # Replace unique_residues with only motif residues (Tier 1-3)
+                    motif_residue_keys = minimal_motif_result.get_motif_residue_keys()
+                    motif_unique_residues = [
+                        r for r in unique_residues
+                        if (r.get("chain", "A"), r.get("resnum", 0)) in motif_residue_keys
+                    ]
+                    logger.info(
+                        f"Minimal motif: {len(motif_unique_residues)} residues "
+                        f"(was {len(unique_residues)} full pocket), "
+                        f"{minimal_motif_result.total_fixed_atoms} fixed atoms"
+                    )
+                    unique_residues = motif_unique_residues
+                except Exception as e:
+                    logger.warning(f"Minimal motif selection failed, using full pocket: {e}")
 
-            # Step 4: Build motif PDB (active site only)
-            motif_pdb = self._extract_motif_pdb(
+            # Convert to residue ranges for contig
+            motif_residues, all_residue_keys = self._residues_to_ranges(unique_residues)
+
+            # Step 4: Build theozyme PDB (catalytic residues + ligand/metal)
+            # This is the RECOMMENDED approach: extract theozyme, let RFD3 design entire scaffold
+            # NO blocker residues needed - RFD3 respects ligand when using proper parameters
+            motif_pdb, scaffold_residue_ids = self._extract_theozyme_pdb(
                 pdb_content,
                 active_site,
                 unique_residues,
                 metal,
                 ligand_code,
+                all_residue_keys=all_residue_keys,
             )
 
-            # Step 5: Build scaffolding contig
-            contig = self._build_scaffolding_contig(
-                motif_residues=motif_residues,
-                chain_length=chain_length,
-            )
+            # Step 5: Build parameters for Enzyme Scaffold Design approach
+            # Use `length` (NOT contig) - let RFD3 design entire scaffold from scratch
+            # Use `unindex` to mark catalytic residues as flexible during diffusion
+            if chain_length is None:
+                chain_length = self._calculate_scaffold_length(
+                    motif_pdb, len(scaffold_residue_ids),
+                )
+            length = chain_length  # Total scaffold length
+
+            # Build unindex string: comma-separated residue IDs for flexible catalytic residues
+            # Format: "A1,A2,A3" (after renumbering)
+            unindex = ",".join(scaffold_residue_ids)
+
+            # Build ligand_codes string: comma-separated 3-letter codes
+            ligand_codes_list = []
+            if ligand_code:
+                ligand_codes_list.append(ligand_code.upper())
+            if metal:
+                ligand_codes_list.append(metal.upper())
+            ligand_codes_str = ",".join(ligand_codes_list)
 
             # Step 6: Determine conditioning parameters
-            fixed_atoms = self._determine_fixed_atoms(metal, ligand_code)
-            rasa_targets = self._determine_rasa_targets(metal, ligand_code)
+            # For Enzyme Scaffold Design, we fix LIGAND atoms and optionally catalytic residue atoms
+            fixed_atoms = {}
+
+            # Fix ligand position (always recommended)
+            if ligand_code:
+                fixed_atoms[ligand_code.upper()] = "ALL"
+            if metal:
+                fixed_atoms[metal.upper()] = "ALL"
+
+            # Fix catalytic residue atoms — use per-residue atoms from motif selector
+            # when available, otherwise fall back to uniform fixed_atom_type
+            if minimal_motif_result and use_minimal_motif:
+                # Build mapping from renumbered IDs to original (chain, resnum)
+                # _extract_theozyme_pdb sorts all_residue_keys and numbers A1, A2, ...
+                sorted_keys = sorted(all_residue_keys)
+                # Build lookup: (chain, resnum) -> MotifResidue
+                motif_by_key = {
+                    (r.chain, r.resnum): r
+                    for r in minimal_motif_result.motif_residues
+                }
+                motif_fixed_count = 0
+                for idx, (orig_chain, orig_resnum) in enumerate(sorted_keys, start=1):
+                    res_id = f"A{idx}"
+                    mr = motif_by_key.get((orig_chain, orig_resnum))
+                    if mr and mr.fix_type == "TIP" and mr.functional_atoms:
+                        fixed_atoms[res_id] = ",".join(mr.functional_atoms)
+                        motif_fixed_count += 1
+                    elif mr and mr.fix_type == "CA":
+                        fixed_atoms[res_id] = "CA"
+                        motif_fixed_count += 1
+                    elif mr and mr.fix_type == "BKBN":
+                        fixed_atoms[res_id] = "N,CA,C,O"
+                        motif_fixed_count += 1
+                    # fix_type == "NONE" or not in motif → not fixed
+                logger.info(f"Per-residue fixed atoms from motif selector: {motif_fixed_count} entries")
+            elif fixed_atom_type and scaffold_residue_ids:
+                # Legacy: uniform fix type for all catalytic residues
+                for res_id in scaffold_residue_ids:
+                    fixed_atoms[res_id] = fixed_atom_type
+
+            # RASA targets: bury metal and ligand to create proper pocket
+            rasa_targets = self._determine_rasa_targets_renumbered(metal, ligand_code)
+
+            # H-bond conditioning from ligand chemistry
             hbond_acceptors, hbond_donors = self._determine_hbond_conditioning(
                 pdb_content, ligand_code
+            )
+
+            # LEGACY: Also build contig for backward compatibility
+            # (but length + unindex is the recommended approach)
+            contig = self._build_renumbered_contig(
+                scaffold_fixed_residues=scaffold_residue_ids,
+                chain_length=chain_length,
+                design_mode="dimer",
             )
 
             return ScaffoldResult(
                 motif_pdb=motif_pdb,
                 motif_residues=motif_residues,
-                contig=contig,
+                contig=contig,  # LEGACY - use length instead
+                # NEW: Enzyme Scaffold Design parameters
+                length=length,
+                unindex=unindex,
+                ligand_codes=ligand_codes_str,
+                # Conditioning
                 fixed_atoms=fixed_atoms,
                 rasa_targets=rasa_targets,
                 hbond_acceptors=hbond_acceptors,
                 hbond_donors=hbond_donors,
                 coordinating_residues=unique_residues,
+                # Minimal motif result (if used)
+                motif_result=minimal_motif_result,
                 source_info={
                     "pdb_id": pdb_id.upper(),
                     "metal": metal,
@@ -244,6 +454,9 @@ class ScaffoldingWorkflow:
                     "ligand_donors": active_site.get("ligand_donors", []),
                     "include_all_contacts": include_all_ligand_contacts,
                     "total_pocket_residues": len(unique_residues),
+                    "catalytic_residue_ids": scaffold_residue_ids,
+                    "design_approach": "enzyme_scaffold",  # Marks new approach
+                    "use_minimal_motif": use_minimal_motif,
                 },
                 success=True,
             )
@@ -393,34 +606,43 @@ class ScaffoldingWorkflow:
     def _residues_to_ranges(
         self,
         residues: List[Dict],
-        gap_threshold: int = 10,
-    ) -> List[str]:
+        gap_threshold: int = 3,
+    ) -> Tuple[List[str], Set[Tuple[str, int]]]:
         """
         Convert residue list to range strings like 'A10-15'.
 
-        Groups residues that are within gap_threshold of each other.
-        This prevents overly fragmented contigs.
+        IMPORTANT: Uses gap_threshold=3 to only merge consecutive or nearly
+        consecutive residues. This ensures the motif PDB contains all residues
+        referenced in the contig ranges.
+
+        NOTE: Excludes ligand/metal residues (resnum >= 1000) - these should be
+        handled via pdb_content and fixed_atoms, NOT via contig.
 
         Args:
             residues: List of residue dicts
-            gap_threshold: Max gap to merge into single range (default 10)
+            gap_threshold: Max gap to merge into single range (default 3)
 
         Returns:
-            List of range strings
+            Tuple of (List of range strings, Set of all residue keys to include)
         """
         if not residues:
-            return []
+            return [], set()
 
-        # Group by chain
+        # Group by chain, EXCLUDING ligand/metal (resnum >= 1000)
         chains: Dict[str, List[int]] = {}
         for res in residues:
             chain = res.get("chain", "A")
             resnum = res.get("resnum", 0)
+            # Skip ligand/metal residues - they go via pdb_content, not contig
+            if resnum >= 1000:
+                continue
             if chain not in chains:
                 chains[chain] = []
             chains[chain].append(resnum)
 
         ranges = []
+        all_residue_keys: Set[Tuple[str, int]] = set()
+
         for chain, resnums in chains.items():
             resnums = sorted(set(resnums))
             if not resnums:
@@ -436,13 +658,18 @@ class ScaffoldingWorkflow:
                     # Extend the range (includes gap residues)
                     end = resnums[i]
                 else:
-                    # Start new range
+                    # Start new range - add all residues in range
                     ranges.append(f"{chain}{start}-{end}")
+                    for r in range(start, end + 1):
+                        all_residue_keys.add((chain, r))
                     start = end = resnums[i]
 
+            # Add final range
             ranges.append(f"{chain}{start}-{end}")
+            for r in range(start, end + 1):
+                all_residue_keys.add((chain, r))
 
-        return ranges
+        return ranges, all_residue_keys
 
     def _build_scaffolding_contig(
         self,
@@ -467,7 +694,7 @@ class ScaffoldingWorkflow:
             Complete contig string for RFD3
         """
         if not motif_residues:
-            return f"0 {chain_length}"
+            return chain_length
 
         # Filter to protein residues only (exclude ligand/metal with high resnums)
         protein_ranges = []
@@ -482,15 +709,15 @@ class ScaffoldingWorkflow:
                     protein_ranges.append((chain, start, end, r))
 
         if not protein_ranges:
-            return f"0 {chain_length}"
+            return chain_length
 
         # Sort by start position
         protein_ranges.sort(key=lambda x: x[1])
 
         parts = []
 
-        # N-terminal extension (short)
-        parts.append("0 15-30")
+        # N-terminal extension (short) - use comma notation for RFD3
+        parts.append("15-30")
 
         # Add ranges with gap-proportional linkers
         for i, (chain, start, end, range_str) in enumerate(protein_ranges):
@@ -504,27 +731,250 @@ class ScaffoldingWorkflow:
                 # Proportional linker: roughly 1/4 of the gap, min 5, max 30
                 linker_min = max(5, min(15, gap // 6))
                 linker_max = max(10, min(40, gap // 4))
-                parts.append(f"0 {linker_min}-{linker_max}")
+                parts.append(f"{linker_min}-{linker_max}")
 
         # C-terminal extension (short)
-        parts.append("0 15-30")
+        parts.append("15-30")
 
-        # Add ligand/metal references at the end if present
-        ligand_parts = []
-        for r in motif_residues:
-            match = re.match(r'([A-Z])(\d+)-(\d+)', r)
-            if match:
-                start = int(match.group(2))
-                if start >= 1000:
-                    # This is ligand/metal, add as fixed
-                    ligand_parts.append(r)
+        # NOTE: Ligand/metal residues are NOT added to contig - they are
+        # handled via pdb_content and fixed_atoms parameters
 
-        # Build final contig
-        contig = "/".join(parts)
-        if ligand_parts:
-            contig += "/" + "/".join(ligand_parts)
+        # Build final contig - use comma notation for RFD3
+        contig = ",".join(parts)
 
         return contig
+
+    def _calculate_scaffold_length(
+        self,
+        theozyme_pdb: str,
+        num_catalytic_residues: int,
+    ) -> str:
+        """Calculate optimal scaffold length from active site geometry.
+
+        Uses three rules to determine minimum viable scaffold size:
+        1. Motif fraction: catalytic residues should be <= 20% of total protein
+        2. Spatial coverage: need enough protein to enclose the active site span
+        3. Large-motif bonus: active sites with >15 residues need extra scaffold
+
+        Args:
+            theozyme_pdb: PDB content of the theozyme (catalytic residues + ligand/metal)
+            num_catalytic_residues: Number of catalytic protein residues
+
+        Returns:
+            Length range string like "130-160" for the RFD3 length parameter
+        """
+        import math
+
+        # Extract CA coordinates from theozyme
+        ca_coords = []
+        for line in theozyme_pdb.split('\n'):
+            if line.startswith('ATOM') and line[12:16].strip() == 'CA':
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    ca_coords.append((x, y, z))
+                except ValueError:
+                    continue
+
+        # Compute max pairwise CA-CA distance (active site span)
+        max_ca_dist = 0.0
+        for i in range(len(ca_coords)):
+            for j in range(i + 1, len(ca_coords)):
+                dx = ca_coords[i][0] - ca_coords[j][0]
+                dy = ca_coords[i][1] - ca_coords[j][1]
+                dz = ca_coords[i][2] - ca_coords[j][2]
+                d = math.sqrt(dx*dx + dy*dy + dz*dz)
+                max_ca_dist = max(max_ca_dist, d)
+
+        n_cat = num_catalytic_residues
+
+        # Rule 1: Motif fraction - catalytic residues should be <= 20% of total
+        n_fraction = n_cat / 0.20  # e.g., 21/0.20 = 105
+
+        # Rule 2: Spatial enclosure - need enough protein to wrap around active site
+        # A globular protein of N residues has diameter ~ 5 * N^0.4 Angstroms
+        # Invert: N ~ (diameter / 5)^2.5
+        # Add shell of 8A beyond active site for proper folding
+        if max_ca_dist > 0:
+            required_diameter = max_ca_dist + 16  # 8A shell on each side
+            n_spatial = (required_diameter / 5.0) ** 2.5
+        else:
+            n_spatial = n_cat * 4
+
+        # Rule 3: Large motif bonus - active sites with >15 residues need extra scaffold
+        # to form adequate secondary structure around the dispersed catalytic residues
+        if n_cat > 15:
+            n_large_motif = n_cat * 6
+        elif n_cat > 10:
+            n_large_motif = n_cat * 5
+        else:
+            n_large_motif = n_cat * 4
+
+        # Rule 4: Absolute minimum for any foldable protein
+        n_min = 80
+
+        # Combine: take the maximum of all rules
+        target = max(n_fraction, n_spatial, n_large_motif, n_min)
+
+        # Cap at 250 (RFD3 performance degrades above this for single-chain designs)
+        target = min(target, 250)
+
+        # Build range string: round to nearest 10, allow 20% flexibility above
+        low = int(round(target / 10) * 10)
+        high = int(round(target * 1.2 / 10) * 10)
+        high = min(high, 250)
+
+        # Ensure low < high
+        if low >= high:
+            high = low + 20
+
+        logger.info(
+            f"Scaffold length auto-calculated: {low}-{high} "
+            f"(n_cat={n_cat}, max_span={max_ca_dist:.1f}A, "
+            f"rule1={n_fraction:.0f}, rule2={n_spatial:.0f}, rule3={n_large_motif})"
+        )
+
+        return f"{low}-{high}"
+
+    def _extract_theozyme_pdb(
+        self,
+        pdb_content: str,
+        active_site: Dict,
+        coord_residues: List[Dict],
+        metal: Optional[str],
+        ligand_code: Optional[str],
+        all_residue_keys: Optional[Set[Tuple[str, int]]] = None,
+    ) -> Tuple[str, List[str]]:
+        """
+        Extract theozyme PDB for Enzyme Scaffold Design approach.
+
+        Creates a clean theozyme with:
+        - Catalytic residues (renumbered to chain A, sequential from 1)
+        - Metal (on chain M, residue 1, or using 3-letter code)
+        - Ligand (on chain L, residue 1, or using 3-letter code)
+
+        NO blocker residues - the Enzyme Scaffold Design approach doesn't need them.
+        RFD3 designs the entire scaffold from scratch around the theozyme.
+
+        Args:
+            pdb_content: Full PDB content
+            active_site: Active site dict from find_metal_ligand_active_site
+            coord_residues: List of coordinating residue dicts
+            metal: Metal code (e.g., "CA")
+            ligand_code: Ligand code (e.g., "PQQ")
+            all_residue_keys: Set of (chain, resnum) tuples to include
+
+        Returns:
+            Tuple of (theozyme_pdb_content, list_of_residue_ids)
+            where residue_ids are like ["A1", "A2", "A3"]
+        """
+        # Use all_residue_keys if provided, otherwise fall back to coord_residues
+        if all_residue_keys is not None:
+            residue_keys_to_keep = all_residue_keys
+        else:
+            residue_keys_to_keep = set()
+            for res in coord_residues:
+                key = (res.get("chain", "A"), res.get("resnum", 0))
+                residue_keys_to_keep.add(key)
+
+        metal_upper = metal.upper() if metal else None
+        ligand_upper = ligand_code.upper() if ligand_code else None
+
+        # Collect ATOM and HETATM lines
+        atom_lines = []
+        metal_lines = []
+        ligand_lines = []
+
+        for line in pdb_content.split('\n'):
+            if line.startswith('HETATM'):
+                res_name = line[17:20].strip()
+                if metal_upper and res_name == metal_upper:
+                    metal_lines.append(line)
+                elif ligand_upper and res_name == ligand_upper:
+                    ligand_lines.append(line)
+            elif line.startswith('ATOM'):
+                chain = line[21]
+                try:
+                    resnum = int(line[22:26].strip())
+                except ValueError:
+                    continue
+                if (chain, resnum) in residue_keys_to_keep:
+                    atom_lines.append((line, chain, resnum))
+
+        # Build old->new residue mapping (sequential numbering from 1)
+        old_to_new_resnum = {}
+        sorted_keys = sorted(residue_keys_to_keep)
+        for idx, (old_chain, old_resnum) in enumerate(sorted_keys, start=1):
+            old_to_new_resnum[(old_chain, old_resnum)] = idx
+
+        # Build residue IDs list
+        residue_ids = [f"A{idx}" for idx in range(1, len(sorted_keys) + 1)]
+
+        # Center scaffold on metal position (metal at origin)
+        metal_center = None
+        for line in metal_lines:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                metal_center = (x, y, z)
+                break
+            except ValueError:
+                pass
+
+        def center_line(line: str) -> str:
+            if not metal_center:
+                return line
+            try:
+                x = float(line[30:38]) - metal_center[0]
+                y = float(line[38:46]) - metal_center[1]
+                z = float(line[46:54]) - metal_center[2]
+                return line[:30] + f"{x:8.3f}{y:8.3f}{z:8.3f}" + line[54:]
+            except ValueError:
+                return line
+
+        # Build output PDB
+        output_lines = []
+        atom_serial = 1
+
+        def renumber_atom_serial(line: str, serial: int) -> str:
+            return f"{line[:6]}{serial:5d}{line[11:]}"
+
+        # Protein atoms -> chain A, renumbered
+        for line, chain, resnum in atom_lines:
+            new_resnum = old_to_new_resnum.get((chain, resnum), resnum)
+            new_line = line[:21] + "A" + f"{new_resnum:4d}" + line[26:]
+            new_line = renumber_atom_serial(new_line, atom_serial)
+            atom_serial += 1
+            new_line = center_line(new_line)
+            output_lines.append(new_line)
+
+        # TER after protein
+        if output_lines:
+            output_lines.append("TER")
+
+        # Metal atoms (keep original residue name, e.g., "CA")
+        for line in metal_lines:
+            # Keep the metal residue name (e.g., "CA") - RFD3 recognizes it
+            new_line = renumber_atom_serial(line, atom_serial)
+            atom_serial += 1
+            new_line = center_line(new_line)
+            output_lines.append(new_line)
+
+        # Ligand atoms (keep original residue name, e.g., "PQQ")
+        for line in ligand_lines:
+            # Keep the ligand residue name - RFD3 recognizes it
+            new_line = renumber_atom_serial(line, atom_serial)
+            atom_serial += 1
+            new_line = center_line(new_line)
+            output_lines.append(new_line)
+
+        if metal_center:
+            logger.info(f"Theozyme centered on metal at ({metal_center[0]:.1f}, {metal_center[1]:.1f}, {metal_center[2]:.1f})")
+
+        output_lines.append("END")
+        return '\n'.join(output_lines), residue_ids
 
     def _extract_motif_pdb(
         self,
@@ -533,25 +983,46 @@ class ScaffoldingWorkflow:
         coord_residues: List[Dict],
         metal: Optional[str],
         ligand_code: Optional[str],
-    ) -> str:
+        all_residue_keys: Optional[Set[Tuple[str, int]]] = None,
+        create_blockers: bool = True,
+    ) -> Tuple[str, List[str], List[str]]:
         """
-        Extract just the motif atoms from full PDB.
+        Extract motif atoms and renumber for RFD3 compatibility.
 
-        Includes:
-        - Metal ion (if present)
-        - Ligand (if present)
-        - Coordinating residues
+        IMPORTANT: Renumbers to avoid RFD3 chain conflicts:
+        - Chain A for protein residues (renumbered sequentially from 1)
+        - Chain M for metal (residue 1)
+        - Chain L for ligand (residue 1)
+
+        CRITICAL: Also creates "blocker" ALA residues at ligand positions.
+        RFD3 avoids protein ATOM records but ignores HETATM - blockers prevent
+        backbone from passing through the ligand.
+
+        Args:
+            all_residue_keys: Set of (chain, resnum) tuples for ALL residues
+                             that must be included (from _residues_to_ranges)
+            create_blockers: If True, create ALA blockers at ligand positions
+
+        Returns:
+            Tuple of (motif_pdb_content, fixed_residues_list, blocker_residues_list)
         """
-        lines = []
-
-        # Build set of residues to keep
-        coord_resnums = set()
-        for res in coord_residues:
-            key = (res.get("chain", "A"), res.get("resnum", 0))
-            coord_resnums.add(key)
+        # Use all_residue_keys if provided, otherwise fall back to coord_residues
+        if all_residue_keys is not None:
+            residue_keys_to_keep = all_residue_keys
+        else:
+            # Fallback: build set from coord_residues
+            residue_keys_to_keep = set()
+            for res in coord_residues:
+                key = (res.get("chain", "A"), res.get("resnum", 0))
+                residue_keys_to_keep.add(key)
 
         metal_upper = metal.upper() if metal else None
         ligand_upper = ligand_code.upper() if ligand_code else None
+
+        # Collect ATOM and HETATM lines
+        atom_lines = []
+        metal_lines = []
+        ligand_lines = []
 
         for line in pdb_content.split('\n'):
             if line.startswith('HETATM'):
@@ -559,12 +1030,12 @@ class ScaffoldingWorkflow:
 
                 # Keep metal
                 if metal_upper and res_name == metal_upper:
-                    lines.append(line)
+                    metal_lines.append(line)
                     continue
 
                 # Keep ligand
                 if ligand_upper and res_name == ligand_upper:
-                    lines.append(line)
+                    ligand_lines.append(line)
                     continue
 
             elif line.startswith('ATOM'):
@@ -574,46 +1045,330 @@ class ScaffoldingWorkflow:
                 except ValueError:
                     continue
 
-                # Keep coordinating residues
-                if (chain, resnum) in coord_resnums:
-                    lines.append(line)
+                # Keep residues in ranges
+                if (chain, resnum) in residue_keys_to_keep:
+                    atom_lines.append((line, chain, resnum))
 
-        lines.append("END")
-        return '\n'.join(lines)
+        # Build old->new residue mapping for protein atoms
+        # Renumber sequentially starting from 1
+        old_to_new_resnum = {}
+        sorted_keys = sorted(residue_keys_to_keep)
+        for idx, (old_chain, old_resnum) in enumerate(sorted_keys, start=1):
+            old_to_new_resnum[(old_chain, old_resnum)] = idx
 
-    def _determine_fixed_atoms(
+        # Build fixed_residues list (new A-chain residue identifiers)
+        fixed_residues = [f"A{idx}" for idx in range(1, len(sorted_keys) + 1)]
+
+        # =====================================================================
+        # CENTER SCAFFOLD ON METAL POSITION
+        # =====================================================================
+        # Critical: We must center the scaffold so the metal is at origin (0,0,0).
+        # This way RFD3 designs the protein AROUND the metal-ligand complex.
+        # Without centering, RFD3 generates around origin but HETATM is at
+        # crystal coordinates -> designs won't coordinate the metal.
+
+        metal_center = None
+        for line in metal_lines:
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                metal_center = (x, y, z)
+                break
+            except ValueError:
+                pass
+
+        # Helper to center coordinates
+        def center_line(line: str) -> str:
+            if not metal_center:
+                return line
+            try:
+                x = float(line[30:38]) - metal_center[0]
+                y = float(line[38:46]) - metal_center[1]
+                z = float(line[46:54]) - metal_center[2]
+                return line[:30] + f"{x:8.3f}{y:8.3f}{z:8.3f}" + line[54:]
+            except ValueError:
+                return line
+
+        # Build renumbered and centered PDB
+        output_lines = []
+        atom_serial = 1  # Sequential atom serial numbering
+
+        # Helper to renumber atom serial
+        def renumber_atom_serial(line: str, serial: int) -> str:
+            return f"{line[:6]}{serial:5d}{line[11:]}"
+
+        # Renumber protein atoms to chain A with sequential residue AND atom numbering
+        for line, chain, resnum in atom_lines:
+            new_resnum = old_to_new_resnum.get((chain, resnum), resnum)
+            # Rebuild line with new chain (A), resnum, and atom serial
+            new_line = line[:21] + "A" + f"{new_resnum:4d}" + line[26:]
+            new_line = renumber_atom_serial(new_line, atom_serial)
+            atom_serial += 1
+            # Center on metal
+            new_line = center_line(new_line)
+            output_lines.append(new_line)
+
+        # Renumber metal to chain M, resnum 1 (at origin after centering)
+        for line in metal_lines:
+            new_line = line[:21] + "M" + "   1" + line[26:]
+            new_line = renumber_atom_serial(new_line, atom_serial)
+            atom_serial += 1
+            new_line = center_line(new_line)
+            output_lines.append(new_line)
+
+        # Renumber ligand to chain L, resnum 1 (centered relative to metal)
+        # NOTE: Don't add ligand to output_lines yet - we need to insert blockers first
+        centered_ligand_lines = []
+        for line in ligand_lines:
+            new_line = line[:21] + "L" + "   1" + line[26:]
+            new_line = center_line(new_line)
+            centered_ligand_lines.append(new_line)
+
+        # =====================================================================
+        # CREATE BLOCKER RESIDUES AT LIGAND POSITIONS
+        # =====================================================================
+        # Critical: RFD3 avoids ATOM records but ignores HETATM.
+        # Create ALA "blocker" residues at ligand atom positions to prevent
+        # the designed backbone from passing through the ligand.
+        # IMPORTANT: Blockers must come BEFORE HETATM and have proper atom serials
+        blocker_residues = []
+        if create_blockers and ligand_code and centered_ligand_lines:
+            # Blockers continue chain A numbering after scaffold residues
+            blocker_start = len(fixed_residues) + 1
+            blocker_pdb, blocker_residues = self._create_blocker_residues(
+                ligand_lines=centered_ligand_lines,
+                ligand_code=ligand_code,
+                start_resnum=blocker_start,
+                min_spacing=2.5,
+                start_atom_serial=atom_serial,
+            )
+            if blocker_pdb:
+                # Add blockers AFTER protein ATOM records (before HETATM)
+                output_lines.append(blocker_pdb)
+                # Update atom_serial counter for ligand HETATM
+                atom_serial += len(blocker_residues) * 5  # 5 atoms per ALA blocker
+                logger.info(f"Added {len(blocker_residues)} blocker residues: {blocker_residues[:3]}...")
+
+        # Now add ligand HETATM (after blockers) with proper atom serials
+        for line in centered_ligand_lines:
+            new_line = renumber_atom_serial(line, atom_serial)
+            atom_serial += 1
+            output_lines.append(new_line)
+
+        if metal_center:
+            logger.info(f"Scaffold centered on metal at ({metal_center[0]:.1f}, {metal_center[1]:.1f}, {metal_center[2]:.1f})")
+
+        output_lines.append("END")
+        return '\n'.join(output_lines), fixed_residues, blocker_residues
+
+    def _create_blocker_residues(
+        self,
+        ligand_lines: List[str],
+        ligand_code: str,
+        start_resnum: int = 1,
+        min_spacing: float = 2.5,
+        start_atom_serial: int = 1,
+    ) -> Tuple[str, List[str]]:
+        """
+        Create "blocker" protein residues at ligand atom positions.
+
+        CRITICAL: RFD3 avoids protein ATOM records but IGNORES ligand HETATM records.
+        By placing ALA residues at ligand positions, we force RFD3 to design around them.
+
+        Args:
+            ligand_lines: HETATM lines for the ligand (already centered)
+            ligand_code: 3-letter ligand code (e.g., "PQQ")
+            start_resnum: Starting residue number for blockers
+            min_spacing: Minimum spacing between blockers (Å)
+            start_atom_serial: Starting atom serial number (for PDB ordering)
+
+        Returns:
+            Tuple of (blocker PDB lines, list of blocker residue IDs like ["A16", "A17", ...])
+        """
+        import math
+
+        ligand_upper = ligand_code.upper()
+
+        # Extract ligand atom positions
+        ligand_atoms = []
+        for line in ligand_lines:
+            if line.startswith('HETATM') and line[17:20].strip() == ligand_upper:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    atom_name = line[12:16].strip()
+                    ligand_atoms.append({'atom': atom_name, 'pos': (x, y, z)})
+                except (ValueError, IndexError):
+                    pass
+
+        if not ligand_atoms:
+            logger.warning(f"No atoms found for ligand {ligand_code}")
+            return "", []
+
+        logger.info(f"Creating blockers from {len(ligand_atoms)} ligand atoms")
+
+        # Cluster atoms that are too close together
+        clusters = []
+        used = set()
+
+        for i, atom in enumerate(ligand_atoms):
+            if i in used:
+                continue
+
+            cluster = [atom['pos']]
+            used.add(i)
+
+            for j, other in enumerate(ligand_atoms):
+                if j in used:
+                    continue
+                dist = math.sqrt(
+                    (atom['pos'][0] - other['pos'][0])**2 +
+                    (atom['pos'][1] - other['pos'][1])**2 +
+                    (atom['pos'][2] - other['pos'][2])**2
+                )
+                if dist < min_spacing:
+                    cluster.append(other['pos'])
+                    used.add(j)
+
+            # Compute cluster centroid
+            centroid = (
+                sum(p[0] for p in cluster) / len(cluster),
+                sum(p[1] for p in cluster) / len(cluster),
+                sum(p[2] for p in cluster) / len(cluster),
+            )
+            clusters.append(centroid)
+
+        logger.info(f"Created {len(clusters)} blocker positions")
+
+        # Create ALA residues at each cluster centroid
+        blocker_lines = []
+        blocker_residues = []
+        atom_serial = start_atom_serial  # Continue from protein atoms
+
+        for res_num, centroid in enumerate(clusters, start=start_resnum):
+            x, y, z = centroid
+
+            # ALA backbone + CB
+            atoms = [
+                ('N',   x - 1.5, y, z),
+                ('CA',  x, y, z),
+                ('C',   x + 1.5, y, z),
+                ('O',   x + 1.5, y + 1.2, z),
+                ('CB',  x, y - 1.5, z),
+            ]
+
+            for atom_name, ax, ay, az in atoms:
+                if len(atom_name) <= 2:
+                    atom_field = f" {atom_name:<3s}"
+                else:
+                    atom_field = f"{atom_name:<4s}"
+
+                line = f"ATOM  {atom_serial:5d} {atom_field:4s} ALA A{res_num:4d}    {ax:8.3f}{ay:8.3f}{az:8.3f}  1.00  0.00          {atom_name[0]:>2s}"
+                blocker_lines.append(line)
+                atom_serial += 1
+
+            blocker_residues.append(f"A{res_num}")
+
+        logger.info(f"Generated {len(blocker_residues)} blocker ALA residues: {blocker_residues[:5]}...")
+
+        return '\n'.join(blocker_lines), blocker_residues
+
+    def _build_renumbered_contig(
+        self,
+        scaffold_fixed_residues: List[str],
+        chain_length: str,
+        design_mode: str = "dimer",
+    ) -> str:
+        """
+        Build contig for renumbered scaffold (A1-An, M1, L1).
+
+        The scaffold now has sequential residue numbering on chain A.
+
+        Args:
+            scaffold_fixed_residues: List of residue IDs on chain A (including blockers)
+            chain_length: Desired length for new chains (e.g., "60-80")
+            design_mode: "dimer" (separate chain B) or "monomer" (extensions on chain A)
+
+        design_mode="dimer" (recommended for ligand scaffolding):
+            Creates chain B SEPARATE from scaffold chain A
+            Contig: "A1-{n},/0,{chain_length}"
+            The /0 creates a chain break, chain B is positioned via ori_token
+
+        design_mode="monomer":
+            Extensions on same chain as scaffold
+            Contig: "15-30,A1-{n},15-30"
+            Risk: new residues adjacent to scaffold may clash with ligand
+        """
+        if not scaffold_fixed_residues:
+            return chain_length
+
+        # All scaffold residues are now on chain A, sequentially numbered
+        n = len(scaffold_fixed_residues)
+
+        if design_mode == "dimer":
+            # DIMER DESIGN: Scaffold (A) + new chain (B)
+            # Chain B is positioned away from ligand via ori_token
+            # This avoids linker regions passing through ligand space
+            contig = f"A1-{n},/0,{chain_length}"
+            logger.info(f"Using DIMER contig: {contig}")
+        else:
+            # MONOMER DESIGN: Extensions on chain A
+            # Risk of clashes if linkers pass through ligand
+            contig = f"15-30,A1-{n},15-30"
+            logger.info(f"Using MONOMER contig: {contig}")
+
+        return contig
+
+    def _determine_fixed_atoms_renumbered(
         self,
         metal: Optional[str],
         ligand_code: Optional[str],
+        scaffold_fixed_residues: List[str],
     ) -> Dict[str, str]:
         """
         Determine which atoms should be fixed during RFD3.
+
+        After renumbering:
+        - Metal is on chain M, residue 1 -> "M1"
+        - Ligand is on chain L, residue 1 -> "L1"
+        - Protein scaffold residues are A1, A2, ... -> each one fixed
         """
         fixed = {}
 
+        # Fix metal
         if metal:
-            fixed["X1"] = "all"  # Metal always fixed
+            fixed["M1"] = "ALL"
 
+        # Fix ligand
         if ligand_code:
-            fixed["L1"] = "all"  # Ligand always fixed
+            fixed["L1"] = "ALL"
+
+        # Fix scaffold protein residues
+        for res_id in scaffold_fixed_residues:
+            fixed[res_id] = "ALL"
 
         return fixed
 
-    def _determine_rasa_targets(
+    def _determine_rasa_targets_renumbered(
         self,
         metal: Optional[str],
-        ligand_code: Optional[str],
+        ligand_code: Optional[str] = None,
     ) -> Dict[str, str]:
         """
         Determine burial (RASA) targets for RFD3.
+
+        Buries both metal and ligand to create a proper binding pocket.
+        Uses residue NAME (e.g., "CA", "PQQ") not chain+resnum format.
         """
         targets = {}
 
         if metal:
-            targets["X1"] = "all"  # Bury metal
+            targets[metal.upper()] = "ALL"  # Bury metal
 
-        # Optionally bury ligand hydrophobic portions
-        # For now, default to burying metal only
+        if ligand_code:
+            targets[ligand_code.upper()] = "ALL"  # Bury ligand
 
         return targets
 
@@ -624,6 +1379,8 @@ class ScaffoldingWorkflow:
     ) -> Tuple[Dict[str, str], Dict[str, str]]:
         """
         Determine H-bond conditioning from ligand chemistry.
+
+        Uses ligand NAME (e.g., "PQQ") as key, not chain format "L1".
 
         Returns:
             (hbond_acceptors, hbond_donors) dicts
@@ -650,11 +1407,12 @@ class ScaffoldingWorkflow:
                 elif element == 'N':
                     n_atoms.append(atom_name)
 
+        # Use ligand NAME as key (not "L1" chain format)
         if o_atoms:
-            acceptors["L1"] = ",".join(o_atoms[:6])  # Limit to 6 atoms
+            acceptors[ligand_upper] = ",".join(o_atoms[:6])  # Limit to 6 atoms
 
         if n_atoms:
-            donors["L1"] = ",".join(n_atoms[:4])  # Limit to 4 atoms
+            donors[ligand_upper] = ",".join(n_atoms[:4])  # Limit to 4 atoms
 
         return acceptors, donors
 

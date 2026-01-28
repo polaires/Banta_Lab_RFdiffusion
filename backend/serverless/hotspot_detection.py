@@ -55,6 +55,7 @@ def detect_hotspots_sasa(
     max_hotspots: int = 5,
     prefer_hydrophobic: bool = True,
     min_relative_sasa: float = 0.25,
+    conservation_grades: Optional[Dict[int, int]] = None,
 ) -> Dict[str, Any]:
     """
     Detect binding hotspots using SASA analysis.
@@ -72,6 +73,8 @@ def detect_hotspots_sasa(
         max_hotspots: Maximum hotspots to return (default: 5)
         prefer_hydrophobic: Prioritize hydrophobic residues (default: True)
         min_relative_sasa: Minimum relative SASA for exposed (default: 0.25)
+        conservation_grades: Optional dict mapping position -> ConSurf grade (1-9)
+            Conserved positions (grades 1-3) get a scoring boost.
 
     Returns:
         Dict with:
@@ -146,7 +149,7 @@ def detect_hotspots_sasa(
         selected = exposed_residues[:max_hotspots]
 
     elif method == "exposed_clustered":
-        selected = _cluster_residues(exposed_residues, max_hotspots)
+        selected = _cluster_residues(exposed_residues, max_hotspots, conservation_grades)
 
     elif method == "patch":
         selected = _find_surface_patch(exposed_residues, max_hotspots)
@@ -156,7 +159,7 @@ def detect_hotspots_sasa(
 
     else:
         # Default to exposed_clustered
-        selected = _cluster_residues(exposed_residues, max_hotspots)
+        selected = _cluster_residues(exposed_residues, max_hotspots, conservation_grades)
 
     # Step 5: Optionally prioritize hydrophobic residues
     if prefer_hydrophobic and len(selected) > max_hotspots:
@@ -260,7 +263,11 @@ def _classify_residue_property(res_name: str) -> str:
         return "other"
 
 
-def _calculate_hotspot_score(residue: Dict, all_residues: List[Dict]) -> float:
+def _calculate_hotspot_score(
+    residue: Dict,
+    all_residues: List[Dict],
+    conservation_grades: Optional[Dict[int, int]] = None,
+) -> float:
     """
     Calculate comprehensive hotspot score based on research.
 
@@ -269,10 +276,12 @@ def _calculate_hotspot_score(residue: Dict, all_residues: List[Dict]) -> float:
     - ECMIS: Spatial clustering within 7 Å enhances score
     - PPI-hotspotID: SASA contributes to score
     - BindCraft: K (lysine) is poorly targetable (-2 points)
+    - ConSurf: Evolutionary conservation (grades 1-3 = +2 points)
 
     Args:
         residue: Residue dict with coords, residue_name, relative_sasa
         all_residues: All candidate residues for calculating clustering bonus
+        conservation_grades: Optional position -> grade (1-9, 1=most conserved)
 
     Returns:
         Combined hotspot score (higher = better)
@@ -280,6 +289,7 @@ def _calculate_hotspot_score(residue: Dict, all_residues: List[Dict]) -> float:
     restype = residue.get("residue_name", "")[:3].upper()
     sasa = residue.get("relative_sasa", 0)
     coords = residue.get("coords")
+    res_num = residue.get("residue_number")
 
     # Base score from SASA (0-1 normalized)
     score = sasa * 1.0
@@ -300,6 +310,17 @@ def _calculate_hotspot_score(residue: Dict, all_residues: List[Dict]) -> float:
             score -= 2.0  # BindCraft: lysine poorly targetable
         else:
             score -= 0.5
+
+    # ConSurf-inspired: Evolutionary conservation bonus
+    # Highly conserved residues (grades 1-3) often indicate functional importance
+    # which can make them good binding targets
+    if conservation_grades and res_num:
+        grade = conservation_grades.get(res_num, 5)  # Default to average
+        if grade <= 3:
+            score += 2.0  # Highly conserved - good hotspot
+        elif grade <= 5:
+            score += 1.0  # Moderately conserved
+        # Variable residues (7-9) get no bonus - may not be reliable targets
 
     # ECMIS-inspired: Spatial clustering bonus (7 Å proximity)
     if coords is not None:
@@ -329,7 +350,11 @@ def _calculate_hotspot_score(residue: Dict, all_residues: List[Dict]) -> float:
     return score
 
 
-def _cluster_residues(residues: List[Dict], max_clusters: int) -> List[Dict]:
+def _cluster_residues(
+    residues: List[Dict],
+    max_clusters: int,
+    conservation_grades: Optional[Dict[int, int]] = None,
+) -> List[Dict]:
     """
     Find the best compact patch of hotspot residues.
 
@@ -345,6 +370,7 @@ def _cluster_residues(residues: List[Dict], max_clusters: int) -> List[Dict]:
     Args:
         residues: List of residue dicts with 'coords' field
         max_clusters: Maximum residues to return
+        conservation_grades: Optional position -> grade mapping for conservation scoring
 
     Returns:
         List of residues forming a compact binding patch
@@ -358,12 +384,12 @@ def _cluster_residues(residues: List[Dict], max_clusters: int) -> List[Dict]:
     if len(with_coords) < 2:
         # Not enough coordinates, fall back to score-based selection
         for r in residues:
-            r["hotspot_score"] = _calculate_hotspot_score(r, residues)
+            r["hotspot_score"] = _calculate_hotspot_score(r, residues, conservation_grades)
         return sorted(residues, key=lambda x: x.get("hotspot_score", 0), reverse=True)[:max_clusters]
 
     # Calculate hotspot score for each residue
     for r in with_coords:
-        r["hotspot_score"] = _calculate_hotspot_score(r, with_coords)
+        r["hotspot_score"] = _calculate_hotspot_score(r, with_coords, conservation_grades)
 
     # Sort by hotspot score (best first)
     sorted_residues = sorted(with_coords, key=lambda x: x["hotspot_score"], reverse=True)

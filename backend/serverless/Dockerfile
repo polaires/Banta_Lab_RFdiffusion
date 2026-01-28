@@ -71,6 +71,40 @@ RUN mkdir -p /opt/crest && \
     chmod +x /opt/crest/crest
 ENV PATH="/opt/crest:$PATH"
 
+# ============================================================================
+# Conservation Analysis Tools (ConSurf methodology)
+# ============================================================================
+
+# Install MMseqs2 for fast sequence clustering (replaces CD-HIT)
+# Used for redundancy removal in MSA preparation
+RUN mkdir -p /opt/mmseqs && \
+    wget -q https://mmseqs.com/latest/mmseqs-linux-avx2.tar.gz -O /tmp/mmseqs.tar.gz && \
+    tar -xzf /tmp/mmseqs.tar.gz -C /opt/mmseqs --strip-components=1 && \
+    rm /tmp/mmseqs.tar.gz
+ENV PATH="/opt/mmseqs/bin:$PATH"
+
+# Install MUSCLE for multiple sequence alignment
+# Version 5.1 - Robert Edgar's state-of-the-art protein aligner
+RUN wget -q https://github.com/rcedgar/muscle/releases/download/5.1.0/muscle5.1.linux_intel64 \
+    -O /usr/local/bin/muscle && \
+    chmod +x /usr/local/bin/muscle
+
+# Install Rate4Site for evolutionary conservation scoring (optional)
+# Non-fatal: conservation analysis is optional (use_conservation=False by default)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf automake libtool \
+    && rm -rf /var/lib/apt/lists/* && \
+    (mkdir -p /tmp/rate4site && \
+    cd /tmp/rate4site && \
+    wget -q https://github.com/Rostlab/ConSurf/raw/develop/3rd%20party%20software/rate4site/rate4site.3.0.0.tar.gz && \
+    tar -xzf rate4site.3.0.0.tar.gz && \
+    cd rate4site-3.0.0/sourceMar09 && \
+    make && \
+    cp rate4site /usr/local/bin/rate4site && \
+    cp rate4site /usr/local/bin/rate4site_slow && \
+    rm -rf /tmp/rate4site) || echo "WARNING: rate4site build failed, conservation scoring unavailable"
+ENV RATE4SITE_PATH=/usr/local/bin/rate4site
+
 # Install uv (fast Python package manager that can install Python versions)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
@@ -118,7 +152,12 @@ RUN uv pip install pyrosetta-installer && \
 # This allows FastRelax to properly handle ligands without pre-computed params files
 RUN uv pip install rdkit-to-params
 
-# Install ESM3 for sequence scoring and generation
+# ESMFold via HuggingFace Transformers (in main environment)
+# This provides EsmForProteinFolding which is easier to install than fair-esm + openfold
+# The transformers library is already installed with rc-foundry, but we ensure accelerate is available
+RUN uv pip install accelerate
+
+# Install ESM3 for sequence scoring and generation (in main Python environment)
 # Note: User must set HF_TOKEN env var and accept ESM3 license on HuggingFace
 RUN uv pip install esm
 
@@ -142,6 +181,11 @@ COPY topology_validation.py /app/
 COPY esm_utils.py /app/
 COPY esmfold_utils.py /app/
 COPY hotspot_detection.py /app/
+
+# Copy design analysis modules
+COPY unified_analyzer.py /app/
+COPY analysis_types.py /app/
+COPY design_validation_pipeline.py /app/
 
 # Copy lanthanide design modules (Caldwell et al. 2020 methodology)
 COPY lanthanide_templates.py /app/

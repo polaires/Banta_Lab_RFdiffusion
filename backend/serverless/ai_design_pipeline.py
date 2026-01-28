@@ -185,8 +185,17 @@ class PipelineResult:
     timings: Dict[str, float] = field(default_factory=dict)
     total_time: float = 0.0
 
+    # Maximum number of backbone PDBs to include inline in the API response.
+    # Beyond this, only the count is returned (PDBs are saved to design history).
+    MAX_INLINE_BACKBONE_PDBS = 10
+
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for API response."""
+        """Convert to dictionary for API response.
+
+        For large runs (>10 backbones or >100 sequences), backbone PDBs
+        are omitted from the inline response to keep payload size manageable.
+        The best result PDB is always included.
+        """
         result = {
             "success": self.success,
             "error": self.error,
@@ -212,19 +221,51 @@ class PipelineResult:
                 "confidence": self.best_sequence.confidence,
             }
 
-        # Include best PDB if available
+        # Include best PDB if available (always included regardless of batch size)
         if self.best_sequence_pdb:
             result["best_sequence_pdb"] = self.best_sequence_pdb
 
-        # Include backbone PDBs
+        # Include backbone PDBs — cap inline count to avoid payload explosion
         if self.backbone_pdbs:
-            result["backbone_pdbs"] = self.backbone_pdbs
+            if len(self.backbone_pdbs) <= self.MAX_INLINE_BACKBONE_PDBS:
+                result["backbone_pdbs"] = self.backbone_pdbs
+            else:
+                result["backbone_pdbs_truncated"] = True
+                result["backbone_pdbs_count"] = len(self.backbone_pdbs)
+                # Include first few for preview
+                result["backbone_pdbs"] = self.backbone_pdbs[:self.MAX_INLINE_BACKBONE_PDBS]
 
-        # Include all sequences
+        # Include all sequences (lightweight — only strings, no PDB content)
         if self.sequences:
             result["sequences"] = [
                 {"sequence": s.sequence, "confidence": s.confidence}
                 for s in self.sequences
+            ]
+
+        # Include validation summary for large batches
+        if self.validation_results:
+            passed = [v for v in self.validation_results if v.passed]
+            result["validation_summary"] = {
+                "total": len(self.validation_results),
+                "passed": len(passed),
+                "pass_rate": self.pass_rate,
+                "best_rmsd": self.best_rmsd if self.best_rmsd < float('inf') else None,
+                "best_plddt": self.best_plddt,
+            }
+            # Include top N validated results with their metrics
+            sorted_valid = sorted(
+                self.validation_results,
+                key=lambda v: (not v.passed, v.best_rmsd or v.rmsd),
+            )
+            result["top_validations"] = [
+                {
+                    "passed": v.passed,
+                    "rmsd": v.rmsd,
+                    "plddt": v.plddt,
+                    "best_rmsd": v.best_rmsd,
+                    "best_plddt": v.best_plddt,
+                }
+                for v in sorted_valid[:20]  # Top 20 results
             ]
 
         # Include analysis if available
@@ -296,6 +337,10 @@ class AIDesignPipeline:
         if SCAFFOLDING_AVAILABLE:
             self.scaffolding_workflow = ScaffoldingWorkflow()
 
+    # Maximum allowed design counts to prevent resource exhaustion
+    MAX_DESIGNS = 50
+    MAX_SEQUENCES_PER_DESIGN = 32
+
     def run(
         self,
         query: str,
@@ -303,20 +348,27 @@ class AIDesignPipeline:
         num_sequences: int = 8,
         validate_sequences: bool = True,
         session_name: Optional[str] = None,
+        scout_mode: bool = True,
     ) -> PipelineResult:
         """
         Run the full design pipeline from natural language query.
 
         Args:
             query: Natural language design request
-            num_designs: Number of backbone designs to generate
-            num_sequences: Number of sequences per backbone
+            num_designs: Number of backbone designs (1-50)
+            num_sequences: Number of sequences per backbone (1-32)
             validate_sequences: Whether to validate with ESMFold
             session_name: Optional session name for history tracking
+            scout_mode: If True, generate 1 scout sequence per backbone first
+                and skip backbones that fail validation (pTM < 0.6).
+                Saves compute by not generating all sequences for bad backbones.
 
         Returns:
             PipelineResult with all outputs
         """
+        # Enforce design count limits
+        num_designs = max(1, min(num_designs, self.MAX_DESIGNS))
+        num_sequences = max(1, min(num_sequences, self.MAX_SEQUENCES_PER_DESIGN))
         result = PipelineResult()
         start_time = time.time()
 
@@ -342,6 +394,7 @@ class AIDesignPipeline:
                     num_designs=num_designs,
                     num_sequences=num_sequences,
                     validate_sequences=validate_sequences,
+                    scout_mode=scout_mode,
                 )
             # Otherwise continue with de novo design workflow
 
@@ -375,12 +428,47 @@ class AIDesignPipeline:
                 result.error = "RFD3 backbone generation failed"
                 return self._finalize_result(result, start_time)
 
-            # Stage 5: Run LigandMPNN sequence design
+            # Stage 5: Run LigandMPNN sequence design (with optional scout filtering)
             stage_start = time.time()
             all_sequences = []
-            for backbone_pdb in backbone_pdbs:
-                sequences = self._run_mpnn(backbone_pdb, mpnn_config)
-                all_sequences.extend(sequences)
+
+            # Scout: generate 1 sequence per backbone, validate, skip bad backbones
+            if scout_mode and num_sequences > 1 and len(backbone_pdbs) > 1:
+                scout_config = self._generate_mpnn_config(intent, ligand, 1)
+                scout_seqs = []
+                for backbone_pdb in backbone_pdbs:
+                    seqs = self._run_mpnn(backbone_pdb, scout_config)
+                    scout_seqs.append(seqs[0] if seqs else None)
+
+                passing_indices, scout_sequences = self._run_scout_validation(
+                    backbone_pdbs, scout_seqs, intent,
+                    ligand_smiles=ligand.smiles if (ligand and ligand.resolved and hasattr(ligand, 'smiles')) else None,
+                )
+
+                logger.info(f"Scout: {len(passing_indices)}/{len(backbone_pdbs)} backbones passed, "
+                           f"skipping {len(backbone_pdbs) - len(passing_indices)}")
+
+                if not passing_indices:
+                    logger.warning("No backbones passed scout — using all backbones as fallback")
+                    passing_indices = list(range(len(backbone_pdbs)))
+                    scout_sequences = [None] * len(backbone_pdbs)
+
+                # Generate remaining sequences for passing backbones
+                remaining_config = self._generate_mpnn_config(intent, ligand, num_sequences - 1)
+                for idx in passing_indices:
+                    # Include scout sequence
+                    if scout_sequences[idx] is not None:
+                        all_sequences.append(scout_sequences[idx])
+                    # Generate remaining
+                    seqs = self._run_mpnn(backbone_pdbs[idx], remaining_config)
+                    all_sequences.extend(seqs)
+
+                result.timings["scout"] = time.time() - stage_start
+            else:
+                for backbone_pdb in backbone_pdbs:
+                    sequences = self._run_mpnn(backbone_pdb, mpnn_config)
+                    all_sequences.extend(sequences)
+
             result.sequences = all_sequences
             result.num_sequences = len(all_sequences)
             result.timings["mpnn"] = time.time() - stage_start
@@ -479,6 +567,7 @@ class AIDesignPipeline:
         num_designs: int = 4,
         num_sequences: int = 8,
         validate_sequences: bool = True,
+        scout_mode: bool = True,
     ) -> PipelineResult:
         """
         Run scaffolding workflow for motif-based design.
@@ -672,6 +761,11 @@ class AIDesignPipeline:
             stage_start = time.time()
             all_sequences = []
 
+            # Resolve ligand for MPNN config (scaffolding path doesn't run
+            # the de novo ligand resolution, so resolve here for the decision engine)
+            ligand = self._resolve_ligand(intent)
+            result.resolved_ligand = ligand
+
             # Build MPNN config using decision engine (not hardcoded)
             mpnn_config = self._generate_mpnn_config(intent, ligand, num_sequences)
             mpnn_params = mpnn_config.to_api_params()
@@ -701,28 +795,97 @@ class AIDesignPipeline:
                        f"fixed={len(catalytic_ids)} residues, "
                        f"pack_side_chains={mpnn_params.get('pack_side_chains', False)}")
 
-            for backbone_pdb in backbone_pdbs:
-                if self.use_mock:
-                    all_sequences.append(SequenceResult(
-                        sequence="MOCK" * 25,
-                        confidence=0.9,
-                    ))
-                    continue
+            # Scout: generate 1 sequence per backbone, validate, skip bad backbones
+            if scout_mode and num_sequences > 1 and len(backbone_pdbs) > 1 and not self.use_mock:
+                logger.info("Running scout validation on backbones...")
+                scout_mpnn_params = dict(mpnn_params)
+                scout_mpnn_params["num_sequences"] = 1
+                scout_seqs = []
+                for backbone_pdb in backbone_pdbs:
+                    scout_mpnn_params["pdb_content"] = backbone_pdb
+                    scout_result = run_mpnn_inference(**scout_mpnn_params)
+                    scout_seq = None
+                    if scout_result.get("status") == "completed":
+                        sequences_data = scout_result.get("result", {}).get("sequences", [])
+                        for seq_data in sequences_data:
+                            content = seq_data.get("content", "")
+                            for line in content.split('\n'):
+                                if line and not line.startswith('>'):
+                                    scout_seq = SequenceResult(
+                                        sequence=line.strip(),
+                                        confidence=seq_data.get("confidence", 0.8),
+                                        filename=seq_data.get("filename", ""),
+                                    )
+                                    break
+                            if scout_seq:
+                                break
+                    scout_seqs.append(scout_seq)
 
-                mpnn_params["pdb_content"] = backbone_pdb
-                mpnn_result = run_mpnn_inference(**mpnn_params)
+                # Validate scouts
+                _ligand_smiles = intent.ligand_smiles if hasattr(intent, 'ligand_smiles') else None
+                passing_indices, scout_validated = self._run_scout_validation(
+                    backbone_pdbs, scout_seqs, intent, ligand_smiles=_ligand_smiles,
+                )
 
-                if mpnn_result.get("status") == "completed":
-                    sequences_data = mpnn_result.get("result", {}).get("sequences", [])
-                    for seq_data in sequences_data:
-                        content = seq_data.get("content", "")
-                        for line in content.split('\n'):
-                            if line and not line.startswith('>'):
-                                all_sequences.append(SequenceResult(
-                                    sequence=line.strip(),
-                                    confidence=seq_data.get("confidence", 0.8),
-                                    filename=seq_data.get("filename", ""),
-                                ))
+                logger.info(f"Scout: {len(passing_indices)}/{len(backbone_pdbs)} backbones passed, "
+                           f"skipping {len(backbone_pdbs) - len(passing_indices)}")
+
+                if not passing_indices:
+                    logger.warning("No backbones passed scout — using all backbones as fallback")
+                    passing_indices = list(range(len(backbone_pdbs)))
+                    scout_validated = [None] * len(backbone_pdbs)
+
+                # Generate remaining sequences for passing backbones
+                remaining_mpnn_params = dict(mpnn_params)
+                remaining_mpnn_params["num_sequences"] = num_sequences - 1
+
+                for idx in passing_indices:
+                    # Include scout sequence
+                    if scout_validated[idx] is not None:
+                        all_sequences.append(scout_validated[idx])
+                    # Generate remaining
+                    remaining_mpnn_params["pdb_content"] = backbone_pdbs[idx]
+                    mpnn_result = run_mpnn_inference(**remaining_mpnn_params)
+                    if mpnn_result.get("status") == "completed":
+                        sequences_data = mpnn_result.get("result", {}).get("sequences", [])
+                        for seq_data in sequences_data:
+                            content = seq_data.get("content", "")
+                            for line in content.split('\n'):
+                                if line and not line.startswith('>'):
+                                    all_sequences.append(SequenceResult(
+                                        sequence=line.strip(),
+                                        confidence=seq_data.get("confidence", 0.8),
+                                        filename=seq_data.get("filename", ""),
+                                    ))
+
+                # Update backbone_pdbs to only passing for validation
+                backbone_pdbs = [backbone_pdbs[i] for i in passing_indices]
+                result.backbone_pdbs = backbone_pdbs
+                result.num_backbones = len(backbone_pdbs)
+            else:
+                # Original path (no scout, mock mode, or single sequence)
+                for backbone_pdb in backbone_pdbs:
+                    if self.use_mock:
+                        all_sequences.append(SequenceResult(
+                            sequence="MOCK" * 25,
+                            confidence=0.9,
+                        ))
+                        continue
+
+                    mpnn_params["pdb_content"] = backbone_pdb
+                    mpnn_result = run_mpnn_inference(**mpnn_params)
+
+                    if mpnn_result.get("status") == "completed":
+                        sequences_data = mpnn_result.get("result", {}).get("sequences", [])
+                        for seq_data in sequences_data:
+                            content = seq_data.get("content", "")
+                            for line in content.split('\n'):
+                                if line and not line.startswith('>'):
+                                    all_sequences.append(SequenceResult(
+                                        sequence=line.strip(),
+                                        confidence=seq_data.get("confidence", 0.8),
+                                        filename=seq_data.get("filename", ""),
+                                    ))
 
             result.sequences = all_sequences
             result.num_sequences = len(all_sequences)
@@ -917,6 +1080,85 @@ class AIDesignPipeline:
             logger.error(f"MPNN inference failed: {e}")
 
         return []
+
+    # Scout validation threshold constants
+    SCOUT_PTM_THRESHOLD = 0.6    # RF3 pTM minimum for scout to pass
+    SCOUT_PLDDT_THRESHOLD = 0.65  # ESMFold pLDDT minimum for scout to pass
+
+    def _run_scout_validation(
+        self,
+        backbone_pdbs: List[str],
+        scout_sequences: List[Optional['SequenceResult']],
+        intent: 'DesignIntent',
+        ligand_smiles: Optional[str] = None,
+    ) -> Tuple[List[int], List[Optional['SequenceResult']]]:
+        """Validate scout sequences to determine which backbones are worth pursuing.
+
+        Args:
+            backbone_pdbs: All backbone PDB strings
+            scout_sequences: One SequenceResult per backbone (or None if MPNN failed)
+            intent: Design intent for context
+            ligand_smiles: Optional SMILES for RF3 ligand-aware validation
+
+        Returns:
+            Tuple of (passing_indices, scout_sequences) where passing_indices
+            are backbone indices that passed scout validation.
+        """
+        passing_indices = []
+
+        for idx, scout_seq in enumerate(scout_sequences):
+            if scout_seq is None:
+                logger.warning(f"Scout: backbone {idx} — no scout sequence, skipping")
+                continue
+
+            seq_str = scout_seq.sequence if isinstance(scout_seq, SequenceResult) else scout_seq
+            passed = False
+
+            # Try RF3 first (preferred — gives pTM)
+            if RF3_AVAILABLE and validate_structure_rf3 is not None:
+                try:
+                    protein_chain = self._detect_protein_chain(backbone_pdbs[idx])
+                    rf3_val = validate_structure_rf3(
+                        sequence=seq_str,
+                        designed_pdb=backbone_pdbs[idx],
+                        binder_chain=protein_chain,
+                        ligand_smiles=ligand_smiles,
+                        threshold="exploratory",
+                    )
+                    if rf3_val.get("status") == "completed":
+                        ptm = rf3_val.get("rf3_ptm", 0)
+                        plddt = rf3_val.get("rf3_plddt", 0)
+                        passed = ptm is not None and ptm > self.SCOUT_PTM_THRESHOLD
+                        status = "PASS" if passed else "SKIP"
+                        logger.info(f"Scout BB {idx}: [{status}] RF3 pTM={ptm:.3f}, pLDDT={plddt:.3f}")
+                except Exception as e:
+                    logger.error(f"Scout RF3 validation error for BB {idx}: {e}")
+
+            # Fallback to ESMFold
+            elif ESMFOLD_AVAILABLE and validate_structure_esmfold is not None:
+                try:
+                    protein_chain = self._detect_protein_chain(backbone_pdbs[idx])
+                    esm_val = validate_structure_esmfold(
+                        seq_str,
+                        backbone_pdbs[idx],
+                        binder_chain=protein_chain,
+                        threshold="exploratory",
+                    )
+                    plddt = esm_val.get("esmfold_plddt", 0)
+                    passed = plddt is not None and plddt > self.SCOUT_PLDDT_THRESHOLD
+                    status = "PASS" if passed else "SKIP"
+                    logger.info(f"Scout BB {idx}: [{status}] ESMFold pLDDT={plddt:.3f}")
+                except Exception as e:
+                    logger.error(f"Scout ESMFold validation error for BB {idx}: {e}")
+            else:
+                # No validator available — pass all backbones
+                passed = True
+                logger.warning(f"Scout BB {idx}: no validator available, passing by default")
+
+            if passed:
+                passing_indices.append(idx)
+
+        return passing_indices, scout_sequences
 
     def _detect_protein_chain(self, pdb_content: str) -> str:
         """
@@ -1229,9 +1471,221 @@ class AIDesignPipeline:
         result: PipelineResult,
         start_time: float,
     ) -> PipelineResult:
-        """Finalize result with timing."""
+        """Finalize result with timing and optional history save."""
         result.total_time = time.time() - start_time
+
+        # Save to design history if available and run was successful
+        if self.history_manager and result.success:
+            try:
+                self._save_to_history(result)
+            except Exception as e:
+                logger.warning(f"Failed to save to design history: {e}")
+
         return result
+
+    def _save_to_history(self, result: PipelineResult) -> None:
+        """Save pipeline results to design history with per-backbone grouping.
+
+        Directory structure for a run with N backbones × M sequences each:
+
+            runs/{session_id}/
+            ├── input/
+            │   └── params.json
+            ├── output/
+            │   ├── best_design.pdb
+            │   ├── all_sequences.fasta
+            │   ├── backbone_000/
+            │   │   ├── backbone.pdb
+            │   │   ├── sequences.fasta
+            │   │   └── validation.json
+            │   ├── backbone_001/
+            │   │   ├── backbone.pdb
+            │   │   ├── sequences.fasta
+            │   │   └── validation.json
+            │   └── ...
+            └── analysis/
+                ├── metrics.json
+                └── validation_all.csv
+        """
+        import os
+        import csv as csv_mod
+
+        intent = result.design_intent
+        session_name = (
+            f"{intent.metal_type or 'unknown'}_{intent.ligand_name or 'unknown'}"
+            if intent else "ai_design"
+        )
+        session = self.history_manager.start_session(session_name)
+        run_id = session.session_id
+        run_dir = os.path.join(self.history_manager.history_dir, "runs", run_id)
+
+        # Create directory structure
+        for subdir in ["input", "output", "analysis"]:
+            os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
+
+        # --- Save params ---
+        params = {}
+        if intent:
+            params["intent"] = intent.to_dict()
+        if result.rfd3_config:
+            params["rfd3_config"] = (
+                result.rfd3_config.to_dict()
+                if hasattr(result.rfd3_config, 'to_dict')
+                else str(result.rfd3_config)
+            )
+        params["num_backbones"] = result.num_backbones
+        params["num_sequences"] = result.num_sequences
+
+        with open(os.path.join(run_dir, "input", "params.json"), "w") as f:
+            json.dump(params, f, indent=2)
+
+        # --- Save best result (always at top level) ---
+        if result.best_sequence_pdb:
+            with open(os.path.join(run_dir, "output", "best_design.pdb"), "w") as f:
+                f.write(result.best_sequence_pdb)
+
+        # --- Group sequences by backbone and save per-backbone ---
+        num_backbones = len(result.backbone_pdbs)
+        num_seq_per_bb = (
+            len(result.sequences) // num_backbones if num_backbones > 0 else 0
+        )
+
+        all_fasta_lines = []
+        all_validation_rows = []
+
+        for bb_idx, backbone_pdb in enumerate(result.backbone_pdbs):
+            bb_dir = os.path.join(run_dir, "output", f"backbone_{bb_idx:03d}")
+            os.makedirs(bb_dir, exist_ok=True)
+
+            # Save backbone PDB
+            with open(os.path.join(bb_dir, "backbone.pdb"), "w") as f:
+                f.write(backbone_pdb)
+
+            # Slice sequences belonging to this backbone
+            seq_start = bb_idx * num_seq_per_bb
+            seq_end = seq_start + num_seq_per_bb
+            bb_sequences = result.sequences[seq_start:seq_end]
+
+            # Slice validation results for this backbone
+            bb_validations = result.validation_results[seq_start:seq_end] if result.validation_results else []
+
+            # Save per-backbone FASTA
+            bb_fasta_lines = []
+            for seq_idx, seq in enumerate(bb_sequences):
+                global_idx = seq_start + seq_idx
+                header = (
+                    f">seq_{global_idx:03d} "
+                    f"backbone={bb_idx:03d} "
+                    f"confidence={seq.confidence:.3f}"
+                )
+                # Append validation metrics to FASTA header if available
+                if seq_idx < len(bb_validations):
+                    v = bb_validations[seq_idx]
+                    header += (
+                        f" plddt={v.plddt:.2f}"
+                        f" rmsd={v.rmsd:.2f}"
+                        f" passed={v.passed}"
+                    )
+                bb_fasta_lines.append(header)
+                bb_fasta_lines.append(seq.sequence)
+                all_fasta_lines.append(header)
+                all_fasta_lines.append(seq.sequence)
+
+            with open(os.path.join(bb_dir, "sequences.fasta"), "w") as f:
+                f.write("\n".join(bb_fasta_lines))
+
+            # Save per-backbone validation JSON
+            if bb_validations:
+                val_data = []
+                for seq_idx, v in enumerate(bb_validations):
+                    global_idx = seq_start + seq_idx
+                    row = {
+                        "seq_index": global_idx,
+                        "backbone_index": bb_idx,
+                        "passed": v.passed,
+                        "plddt": v.plddt,
+                        "rmsd": v.rmsd,
+                        "best_plddt": v.best_plddt,
+                        "best_rmsd": v.best_rmsd,
+                    }
+                    if v.rf3_plddt is not None:
+                        row["rf3_plddt"] = v.rf3_plddt
+                        row["rf3_rmsd"] = v.rf3_rmsd
+                    val_data.append(row)
+                    all_validation_rows.append(row)
+
+                with open(os.path.join(bb_dir, "validation.json"), "w") as f:
+                    json.dump(val_data, f, indent=2)
+
+        # --- Save combined all_sequences.fasta ---
+        if all_fasta_lines:
+            with open(os.path.join(run_dir, "output", "all_sequences.fasta"), "w") as f:
+                f.write("\n".join(all_fasta_lines))
+
+        # --- Save combined validation CSV for easy analysis ---
+        if all_validation_rows:
+            csv_path = os.path.join(run_dir, "analysis", "validation_all.csv")
+            columns = sorted(all_validation_rows[0].keys())
+            with open(csv_path, "w", newline="") as f:
+                writer = csv_mod.DictWriter(f, fieldnames=columns)
+                writer.writeheader()
+                writer.writerows(all_validation_rows)
+
+        # --- Save aggregate metrics ---
+        metrics = {
+            "design_id": run_id,
+            "design_type": intent.design_goal if intent else "unknown",
+            "timestamp": time.strftime("%Y-%m-%d_%H%M%S"),
+            "num_backbones": result.num_backbones,
+            "num_sequences": result.num_sequences,
+            "sequences_per_backbone": num_seq_per_bb,
+            "pass_rate": result.pass_rate,
+            "best_rmsd": result.best_rmsd if result.best_rmsd < float('inf') else None,
+            "best_plddt": result.best_plddt,
+            "total_time": result.total_time,
+        }
+        if result.analysis_results:
+            metrics["analyses"] = result.analysis_results
+
+        with open(os.path.join(run_dir, "analysis", "metrics.json"), "w") as f:
+            json.dump(metrics, f, indent=2)
+
+        # --- Save run metadata ---
+        meta = {
+            "run_id": run_id,
+            "session_id": session.session_id,
+            "timestamp": datetime.now().isoformat() if 'datetime' in dir() else time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "design_type": intent.design_goal if intent else "unknown",
+            "metal": intent.metal_type if intent else None,
+            "ligand": intent.ligand_name if intent else None,
+            "source_pdb": intent.source_pdb_id if intent else None,
+            "scaffolding_info": result.analysis_results.get("scaffolding_info") if result.analysis_results else None,
+        }
+        with open(os.path.join(run_dir, "meta.json"), "w") as f:
+            json.dump(meta, f, indent=2, default=str)
+
+        # --- Update session and index ---
+        session.run_ids.append(run_id)
+        self.history_manager._update_session(session)
+
+        index = self.history_manager.load_index()
+        index["designs"].append({
+            "run_id": run_id,
+            "session_id": session.session_id,
+            "design_type": intent.design_goal if intent else "unknown",
+            "timestamp": meta["timestamp"],
+            "num_backbones": result.num_backbones,
+            "num_sequences": result.num_sequences,
+            "pass_rate": result.pass_rate,
+            "best_plddt": result.best_plddt,
+        })
+        self.history_manager._save_index(index)
+
+        logger.info(
+            f"Saved to design history: run={run_id}, "
+            f"{num_backbones} backbones × {num_seq_per_bb} seq/bb = "
+            f"{len(result.sequences)} total sequences"
+        )
 
 
 # =============================================================================
@@ -1266,7 +1720,12 @@ def handle_ai_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
         num_sequences = job_input.get("num_sequences", 8)
         session_name = job_input.get("session_name")
         validate = job_input.get("validate", True)
+        scout_mode = job_input.get("scout_mode", True)
         use_mock = job_input.get("use_mock", False)
+
+        # Clamp to safe limits
+        num_designs = max(1, min(num_designs, AIDesignPipeline.MAX_DESIGNS))
+        num_sequences = max(1, min(num_sequences, AIDesignPipeline.MAX_SEQUENCES_PER_DESIGN))
 
         # Initialize pipeline
         pipeline = AIDesignPipeline(
@@ -1282,6 +1741,7 @@ def handle_ai_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
             num_sequences=num_sequences,
             validate_sequences=validate,
             session_name=session_name,
+            scout_mode=scout_mode,
         )
 
         return {
@@ -1295,6 +1755,166 @@ def handle_ai_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "status": "failed",
             "error": str(e),
         }
+
+
+def handle_ai_design_export(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Export AI design results from history.
+
+    Input:
+        run_id: str - Run ID to export (from design history)
+        format: str - "fasta" | "csv" | "summary" (default: "fasta")
+        filter_passed: bool - Only include passed designs (default: True)
+        history_dir: str - Path to design history directory
+
+    Output:
+        status: "completed" | "failed"
+        result: Export data (format-dependent)
+    """
+    import os as _os
+    import csv as _csv
+    import io
+
+    try:
+        history_dir = job_input.get(
+            "history_dir",
+            _os.environ.get("DESIGN_HISTORY_DIR", "/tmp/design_history"),
+        )
+        run_id = job_input.get("run_id")
+        export_format = job_input.get("format", "fasta")
+        filter_passed = job_input.get("filter_passed", True)
+
+        if not run_id:
+            # List available runs
+            if HISTORY_AVAILABLE:
+                manager = DesignHistoryManager(history_dir)
+                index = manager.load_index()
+                return {
+                    "status": "completed",
+                    "result": {
+                        "available_runs": index.get("designs", []),
+                        "total_runs": len(index.get("designs", [])),
+                    },
+                }
+            return {"status": "failed", "error": "No run_id provided"}
+
+        run_dir = _os.path.join(history_dir, "runs", run_id)
+        if not _os.path.isdir(run_dir):
+            return {"status": "failed", "error": f"Run not found: {run_id}"}
+
+        output_dir = _os.path.join(run_dir, "output")
+
+        if export_format == "fasta":
+            # Return combined FASTA (optionally filtered by validation)
+            fasta_path = _os.path.join(output_dir, "all_sequences.fasta")
+            if _os.path.exists(fasta_path):
+                with open(fasta_path, "r") as f:
+                    fasta_content = f.read()
+
+                # If filter_passed, filter using validation CSV
+                if filter_passed:
+                    csv_path = _os.path.join(run_dir, "analysis", "validation_all.csv")
+                    if _os.path.exists(csv_path):
+                        passed_indices = set()
+                        with open(csv_path, "r") as f:
+                            reader = _csv.DictReader(f)
+                            for row in reader:
+                                if row.get("passed", "").lower() == "true":
+                                    passed_indices.add(int(row["seq_index"]))
+
+                        # Filter FASTA entries
+                        filtered_lines = []
+                        include_next = False
+                        for line in fasta_content.split("\n"):
+                            if line.startswith(">"):
+                                # Parse seq index from header: >seq_042 ...
+                                parts = line.split()
+                                try:
+                                    idx = int(parts[0].replace(">seq_", ""))
+                                    include_next = idx in passed_indices
+                                except (ValueError, IndexError):
+                                    include_next = True  # Include if can't parse
+                            if include_next:
+                                filtered_lines.append(line)
+
+                        fasta_content = "\n".join(filtered_lines)
+
+                num_seqs = fasta_content.count(">")
+                return {
+                    "status": "completed",
+                    "result": {
+                        "format": "fasta",
+                        "filename": f"{run_id}_sequences.fasta",
+                        "content": fasta_content,
+                        "num_sequences": num_seqs,
+                        "filtered": filter_passed,
+                    },
+                }
+            return {"status": "failed", "error": "No FASTA file found for this run"}
+
+        elif export_format == "csv":
+            # Return validation CSV
+            csv_path = _os.path.join(run_dir, "analysis", "validation_all.csv")
+            if _os.path.exists(csv_path):
+                with open(csv_path, "r") as f:
+                    csv_content = f.read()
+                return {
+                    "status": "completed",
+                    "result": {
+                        "format": "csv",
+                        "filename": f"{run_id}_validation.csv",
+                        "content": csv_content,
+                    },
+                }
+            return {"status": "failed", "error": "No validation CSV found for this run"}
+
+        elif export_format == "summary":
+            # Return metrics + per-backbone summary
+            metrics_path = _os.path.join(run_dir, "analysis", "metrics.json")
+            meta_path = _os.path.join(run_dir, "meta.json")
+
+            summary = {"run_id": run_id}
+            if _os.path.exists(metrics_path):
+                with open(metrics_path, "r") as f:
+                    summary["metrics"] = json.load(f)
+            if _os.path.exists(meta_path):
+                with open(meta_path, "r") as f:
+                    summary["meta"] = json.load(f)
+
+            # List backbones with their sequence/validation counts
+            backbones = []
+            for entry in sorted(_os.listdir(output_dir)):
+                bb_dir = _os.path.join(output_dir, entry)
+                if _os.path.isdir(bb_dir) and entry.startswith("backbone_"):
+                    bb_info = {"name": entry}
+                    fasta = _os.path.join(bb_dir, "sequences.fasta")
+                    if _os.path.exists(fasta):
+                        with open(fasta, "r") as f:
+                            bb_info["num_sequences"] = f.read().count(">")
+                    val = _os.path.join(bb_dir, "validation.json")
+                    if _os.path.exists(val):
+                        with open(val, "r") as f:
+                            val_data = json.load(f)
+                            bb_info["num_passed"] = sum(
+                                1 for v in val_data if v.get("passed")
+                            )
+                            bb_info["num_validated"] = len(val_data)
+                    backbones.append(bb_info)
+
+            summary["backbones"] = backbones
+            summary["total_backbones"] = len(backbones)
+
+            return {"status": "completed", "result": summary}
+
+        else:
+            return {
+                "status": "failed",
+                "error": f"Unknown format: {export_format}. Use 'fasta', 'csv', or 'summary'",
+            }
+
+    except Exception as e:
+        logger.exception(f"AI design export error: {e}")
+        return {"status": "failed", "error": str(e)}
 
 
 # =============================================================================

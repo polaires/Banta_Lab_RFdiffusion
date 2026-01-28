@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-AI-powered protein design platform using RFdiffusion3 (Foundry API), LigandMPNN, and PyRosetta. Generates protein structures from natural language input via a React frontend and Python serverless backend.
+AI-powered protein design platform using RFdiffusion3 (Foundry API), LigandMPNN, ESMFold, RoseTTAFold3, and PyRosetta. Generates protein structures from natural language input via a React frontend and Python serverless backend. Supports de novo design, motif scaffolding, metal-binding proteins, enzyme engineering, and multi-method structure validation.
 
 ## Skills Reference
 
@@ -48,7 +48,10 @@ All endpoints via `POST http://localhost:8000/runsync` (local) or RunPod API:
 |------|---------|
 | `health` | Health check |
 | `rfd3` | Backbone diffusion |
+| `rf3` | RoseTTAFold3 structure prediction |
 | `mpnn` | Sequence design |
+| `validate_design` | Full validation pipeline (MPNN + ESMFold + RF3) |
+| `ai_design` | NL-driven end-to-end design pipeline |
 | `interface_ligand_design` | Ligand-binding dimer |
 | `interface_metal_design` | Metal-coordinated dimer |
 | `binding_eval` | GNINA scoring |
@@ -57,23 +60,48 @@ All endpoints via `POST http://localhost:8000/runsync` (local) or RunPod API:
 ## Directory Structure
 
 ```
-backend/serverless/   # Main API handler (RunPod serverless)
-frontend/src/         # React components (Next.js)
-docs/                 # All documentation
-  getting-started/    # Setup guides
-  archive/            # Old/superseded docs
-experiments/          # Research projects
-  azobenzene_dimer/   # Completed dimer research (archived)
-  lanthanide_metal/   # Active metal binding work
-scripts/              # Utility scripts
-  demos/              # Demo implementations
-  tests/              # Test scripts
+backend/serverless/               # Main API handler (RunPod serverless)
+  handler.py                      #   API router (all tasks)
+  inference_utils.py              #   RFD3, RF3, MPNN inference engines
+  esmfold_utils.py                #   ESMFold + RF3 structure validation (Kabsch RMSD)
+  ai_design_pipeline.py           #   NL → backbone → sequence → validation pipeline
+  design_validation_pipeline.py   #   Post-design validation (MPNN + ESMFold + RF3)
+  scaffolding_workflow.py         #   Motif-based scaffold design from PDB
+  nl_design_parser.py             #   Natural language → DesignIntent
+  ligand_resolver.py              #   Ligand name → SMILES/SDF resolution
+  rfd3_config_generator.py        #   Intent → RFD3 config generation
+  design_rules.py                 #   Decision engine (stability profiles, bias)
+  enzyme_chemistry.py             #   Enzyme class detection + activity preservation
+  minimal_motif_selector.py       #   Evidence-based motif residue selection
+  unified_analyzer.py             #   Comprehensive design analysis (geometry, contacts, etc.)
+  metal_validation.py             #   Metal coordination validation
+  rosetta_utils.py                #   PyRosetta refinement + scoring
+  shared/                         #   Shared utilities (interaction_analysis, etc.)
+  run_50_designs.py               #   CLI: batch design + RF3 validation script
+  check_rmsd_rf3.py               #   CLI: RF3 RMSD validation script
+frontend/src/                     # React components (Next.js)
+  components/ai/                  #   AI design panel + pipeline workflow
+  hooks/                          #   useAIDesign hook
+docs/                             # All documentation
+  getting-started/                #   Setup guides
+  archive/                        #   Old/superseded docs
+experiments/                      # Research projects (local experiment data)
+  azobenzene_dimer/               #   Completed dimer research (archived)
+  lanthanide_metal/               #   Active metal binding work
+  Dy_TriNOx_scaffold/             #   Dy-TriNOx metalloenzyme scaffolding
+  ln_citrate_scaffold/            #   Lanthanide-citrate scaffolding
+  design_history/                 #   Design run history + lessons learned
+scripts/                          # Utility scripts
+  demos/                          #   Demo implementations
+  tests/                          #   Test scripts
 ```
 
 ## Current Focus
 
-- Lanthanide metal interface design (`experiments/lanthanide_metal/`)
-- Frontend UI improvements
+- Motif scaffolding for metalloenzymes (PQQ-Ca, Dy-TriNOx)
+- Dual-method structure validation (ESMFold + RF3 best-of)
+- AI design pipeline with NL input → validated sequences
+- Enzyme activity preservation during redesign
 
 ## Documentation
 
@@ -93,13 +121,22 @@ scripts/              # Utility scripts
 **New files go here:**
 | File Type | Location |
 |-----------|----------|
-| Backend Python code | `backend/serverless/` |
+| Backend modules (deployed to container) | `backend/serverless/` |
+| Reusable CLI tools (batch runners, analysis) | `backend/serverless/` (committed) |
 | Backend Python tests | `backend/serverless/test_*.py` |
+| One-off experiment scripts (local only) | `experiments/<project>/` or gitignored |
 | JS integration tests | `scripts/tests/` |
 | Demo scripts | `scripts/demos/` |
 | New experiments | `experiments/<project>/` |
 | Generated PDB outputs | `experiments/<project>/outputs/` (gitignored) |
 | Documentation | `docs/` |
+
+**Deployed vs local distinction:**
+Scripts in `backend/serverless/` fall into two categories:
+1. **Deployed modules** — imported by `handler.py` or other modules, shipped in Docker container
+2. **CLI/experiment scripts** — run locally via `python script.py`, not imported by container code
+
+Local-only experiment runners (`analyze_batch.py`, `production_run.py`, `sweep_analysis.py`, etc.) are gitignored. Reusable CLI tools (`run_50_designs.py`, `check_rmsd_rf3.py`, `analyze_design_cli.py`) are committed.
 
 **Never put in root:**
 - Test files (use `scripts/tests/` or `backend/serverless/`)
@@ -109,10 +146,34 @@ scripts/              # Utility scripts
 **Gitignored (don't track):**
 - `*.pdb` - Generated structures
 - `experiments/*/archive/` - Archived outputs
+- `experiments/*/outputs/` - Generated experiment outputs
+- `backend/serverless/design_results/` - Design output data
+- `backend/serverless/output_*/` - Batch run output directories
+- `backend/serverless/outputs/` - General output directory
+- `backend/serverless/analyze_batch.py`, `analyze_results.py`, `api_client.py`, `compare_scaffolding.py`, `debug_clash.py`, `production_run.py`, `sweep_analysis.py`, `validate_designs.py` - Local experiment runner scripts
+- `backend/serverless/sweep_config_*.json` - Experiment parameter configs
 - `tmpclaude-*` - Temp working files
 - `.env*.local` - Environment secrets
 
 **Skills:** Use Claude skills for detailed references (docker-wsl, rfd3-reference, etc.)
+
+## Structure Validation Architecture
+
+Both `validate_design` and `ai_design` pipelines run dual-method validation:
+
+1. **ESMFold** — Fast single-sequence prediction via HuggingFace Transformers
+2. **RF3 (RoseTTAFold3)** — Ligand-aware prediction via in-container inference
+
+**Best-of logic:** For each candidate, compute `best_plddt = max(ESMFold, RF3)` and `best_rmsd = min(ESMFold, RF3)`. Pass/fail uses the best metrics — a design rescued by either method is viable.
+
+**Graceful degradation:** If RF3 is unavailable, pipelines fall back to ESMFold-only without errors. Controlled by `use_rf3=True` (default) parameter.
+
+**Key files:**
+- `esmfold_utils.py` — All validation functions (`validate_structure_esmfold()`, `validate_structure_rf3()`, Kabsch RMSD, CIF/PDB parsers)
+- `design_validation_pipeline.py` — Post-design pipeline with `SequenceCandidate` dataclass (RF3 + best-of fields)
+- `ai_design_pipeline.py` — End-to-end NL pipeline with `ValidationResult` dataclass (RF3 + best-of fields)
+
+**Thresholds** (in `ESMFOLD_THRESHOLDS`): strict, standard, relaxed, exploratory. The AI pipeline defaults to "exploratory" (lenient RMSD) for early-stage designs.
 
 ## Design History & Lessons
 

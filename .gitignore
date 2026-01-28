@@ -50,8 +50,27 @@ Thumbs.db
 # Temporary Claude working files
 tmpclaude-*
 
-# Experiment archives (large outputs)
+# Experiment archives and outputs (large generated data)
 experiments/*/archive/
+experiments/*/outputs/
+
+# Design output directories (generated results, not source code)
+backend/serverless/design_results/
+backend/serverless/output_*/
+backend/serverless/outputs/
+
+# Experiment runner scripts (local-only, not deployed to container)
+backend/serverless/analyze_batch.py
+backend/serverless/analyze_results.py
+backend/serverless/api_client.py
+backend/serverless/compare_scaffolding.py
+backend/serverless/debug_clash.py
+backend/serverless/production_run.py
+backend/serverless/sweep_analysis.py
+backend/serverless/validate_designs.py
+
+# Sweep/experiment configs (local experiment parameters)
+backend/serverless/sweep_config_*.json
 
 # Environment files
 .env*.local

@@ -13,6 +13,7 @@ import {
   InterfaceLigandJobResult,
   InterfaceLigandDesign,
 } from './tasks/InterfaceLigandResultsPanel';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Import task forms
 import {
@@ -57,6 +58,7 @@ export function RFD3Panel() {
     setSelectedDesignTask,
     setActiveTab,
   } = useStore();
+  const { user, isConfigured: authConfigured, signInWithGoogle } = useAuth();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<{
@@ -104,6 +106,12 @@ export function RFD3Panel() {
   };
 
   const handleSubmit = async (request: RFD3Request) => {
+    if (authConfigured && !user && process.env.NODE_ENV !== 'development') {
+      addNotification({ type: 'error', title: 'Sign in required', message: 'Please sign in to submit designs' });
+      signInWithGoogle();
+      return;
+    }
+
     if (!health) {
       setError({ message: 'Backend not connected' });
       return;
@@ -136,6 +144,7 @@ export function RFD3Panel() {
         runpod_id: response.job_id,
         type: 'rfd3',
         request: request as Record<string, any>,
+        user_id: user?.id ?? null,
       });
 
       let result;

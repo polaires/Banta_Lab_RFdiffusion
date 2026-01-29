@@ -95,8 +95,8 @@ export default function Home() {
       timestamp: formatTimestamp(job.completedAt || job.createdAt),
     }));
 
-  // Show viewer for rfd3, rf3, and jobs tabs
-  const showViewer = activeTab === 'rfd3' || activeTab === 'rf3' || activeTab === 'jobs';
+  // Show viewer for rfd3, rf3, jobs tabs, and AI mode when a structure is loaded
+  const showViewer = activeTab === 'rfd3' || activeTab === 'rf3' || activeTab === 'jobs' || (!manualMode && !!selectedPdb);
 
   // Handle connection
   const handleConnect = async (mode: 'runpod' | 'traditional' | 'local', url: string) => {
@@ -183,7 +183,6 @@ export default function Home() {
             // Connection props (moved from header)
             connectionStatus={connectionStatus}
             onConnectionClick={() => setConnectionModalOpen(true)}
-            onUserClick={() => {/* TODO: user menu */}}
           />
         }
         main={

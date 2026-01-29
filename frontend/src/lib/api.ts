@@ -13,6 +13,19 @@ import {
   getJobs as supabaseGetJobs,
   isSupabaseConfigured,
 } from './supabase';
+import { getCurrentUser } from './auth';
+
+/**
+ * Get the current authenticated user's ID, or null if not logged in.
+ */
+async function getCurrentUserId(): Promise<string | null> {
+  try {
+    const user = await getCurrentUser();
+    return user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -630,6 +643,7 @@ class FoundryAPI {
 
       // Save to Supabase in serverless mode
       if (isSupabaseConfigured()) {
+        const userId = await getCurrentUserId();
         await supabaseSaveJob({
           runpod_id: result.job_id,
           type: 'rfd3',
@@ -648,6 +662,7 @@ class FoundryAPI {
             ligand: request.ligand,
             unindex: request.unindex,
           },
+          user_id: userId,
         });
       }
 
@@ -725,10 +740,12 @@ class FoundryAPI {
 
       // Save to Supabase in serverless mode
       if (isSupabaseConfigured()) {
+        const userId = await getCurrentUserId();
         await supabaseSaveJob({
           runpod_id: result.job_id,
           type: 'rf3',
           request: { sequence_length: request.sequence?.length },
+          user_id: userId,
         });
       }
 
@@ -784,6 +801,7 @@ class FoundryAPI {
 
       // Save to Supabase in serverless mode
       if (isSupabaseConfigured()) {
+        const userId = await getCurrentUserId();
         await supabaseSaveJob({
           runpod_id: result.job_id,
           type: 'mpnn',
@@ -792,6 +810,7 @@ class FoundryAPI {
             temperature: request.temperature,
             model_type: request.model_type,
           },
+          user_id: userId,
         });
       }
 
@@ -1258,7 +1277,7 @@ class FoundryAPI {
     return;
   }
 
-  // Poll job status until completion
+  // Poll job status until completion with retry and exponential backoff
   async waitForJob(
     jobId: string,
     onStatusChange?: (status: JobStatus) => void,
@@ -1267,28 +1286,51 @@ class FoundryAPI {
     console.log(`[API] Starting to poll job ${jobId}...`);
     const startTime = Date.now();
     let pollCount = 0;
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 5;
+    const MAX_POLL_DURATION = 30 * 60 * 1000; // 30 minutes
 
     while (true) {
+      // Timeout guard
+      const elapsed = Date.now() - startTime;
+      if (elapsed > MAX_POLL_DURATION) {
+        throw new Error(`Job polling timed out after ${Math.round(elapsed / 60000)} minutes`);
+      }
+
       pollCount++;
-      const status = await this.getJobStatus(jobId);
 
-      // Log every 10th poll or status changes
-      if (pollCount % 10 === 1) {
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        console.log(`[API] Job ${jobId} status: ${status.status} (poll #${pollCount}, ${elapsed}s elapsed)`);
+      try {
+        const status = await this.getJobStatus(jobId);
+        consecutiveErrors = 0; // Reset on success
+
+        // Log every 10th poll
+        if (pollCount % 10 === 1) {
+          const elapsedSec = Math.round(elapsed / 1000);
+          console.log(`[API] Job ${jobId} status: ${status.status} (poll #${pollCount}, ${elapsedSec}s elapsed)`);
+        }
+
+        if (onStatusChange) {
+          onStatusChange(status);
+        }
+
+        if (status.status === 'completed' || status.status === 'failed') {
+          const elapsedSec = Math.round(elapsed / 1000);
+          console.log(`[API] Job ${jobId} finished with status: ${status.status} after ${elapsedSec}s (${pollCount} polls)`);
+          return status;
+        }
+      } catch (err) {
+        consecutiveErrors++;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.warn(`[API] Poll error for job ${jobId} (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}): ${errMsg}`);
+
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          throw new Error(`Lost connection to backend after ${MAX_CONSECUTIVE_ERRORS} consecutive poll failures: ${errMsg}`);
+        }
       }
 
-      if (onStatusChange) {
-        onStatusChange(status);
-      }
-
-      if (status.status === 'completed' || status.status === 'failed') {
-        const elapsed = Math.round((Date.now() - startTime) / 1000);
-        console.log(`[API] Job ${jobId} finished with status: ${status.status} after ${elapsed}s (${pollCount} polls)`);
-        return status;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, pollInterval));
+      // Exponential backoff on errors: 2s, 4s, 8s, 16s, 32s (capped)
+      const backoff = Math.min(pollInterval * Math.pow(2, consecutiveErrors), 32000);
+      await new Promise(resolve => setTimeout(resolve, backoff));
     }
   }
 

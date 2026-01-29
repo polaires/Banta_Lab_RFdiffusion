@@ -8,6 +8,7 @@ import { ExportPanel } from './ExportPanel';
 import type { ConfidenceMetrics, RMSDResult } from '@/lib/api';
 import { saveJob as saveJobToSupabase, updateJob as updateJobInSupabase } from '@/lib/supabase';
 import { FlaskConical, ArrowRight, ChevronUp, ChevronDown, Library, CheckCircle, X, Upload, Info, AlertCircle, Loader2, Play, Calculator } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 const EXAMPLE_SEQUENCES = {
   'GFP (partial)': 'MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLKFICTTGKLPVPWPTLVTTLTYGVQCFSRYPDHMKQHDFFKSAMPEGYVQERTIFFKDDGNYKTRAEVKFEGDTLVNRIELKGIDFKEDGNILGHKLEYNYNSHNVYIMADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITLGMDELYK',
@@ -29,6 +30,7 @@ export function RF3Panel() {
     latestRfd3Design,
     setLatestRmsdResult,
   } = useStore();
+  const { user, isConfigured: authConfigured, signInWithGoogle } = useAuth();
   const [sequence, setSequence] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +79,12 @@ export function RF3Panel() {
   };
 
   const handleSubmit = async () => {
+    if (authConfigured && !user && process.env.NODE_ENV !== 'development') {
+      addNotification({ type: 'error', title: 'Sign in required', message: 'Please sign in to submit designs' });
+      signInWithGoogle();
+      return;
+    }
+
     if (!health) {
       setError('Backend not connected');
       return;
@@ -113,6 +121,7 @@ export function RF3Panel() {
         runpod_id: response.job_id,
         type: 'rf3',
         request: { sequence: cleanSeq },
+        user_id: user?.id ?? null,
       });
 
       const result = await api.waitForJob(response.job_id, (status) => {

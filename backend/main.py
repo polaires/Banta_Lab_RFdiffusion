@@ -16,7 +16,7 @@ Deploy to RunPod:
 2. Run: uvicorn main:app --host 0.0.0.0 --port 8000
 """
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, model_validator, Field
 from typing import Optional, List, Dict, Any, Literal
@@ -33,6 +33,10 @@ from contextlib import asynccontextmanager
 
 MOCK_MODE = os.environ.get("MOCK_MODE", "auto").lower()
 CHECKPOINT_DIR = os.environ.get("FOUNDRY_CHECKPOINT_DIRS", "/workspace/checkpoints")
+
+# Auth configuration (optional)
+SUPABASE_JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
+FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")
 
 import sys
 VENV_BIN_DIR = os.path.dirname(sys.executable)
@@ -64,6 +68,33 @@ def get_cli_path(cmd: str) -> str:
     if CLI_PREFIX:
         return os.path.join(CLI_PREFIX, cmd)
     return cmd
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[Dict[str, Any]]:
+    """
+    Optional JWT validation for Supabase Auth.
+    Returns decoded user claims if valid, None otherwise.
+    Soft validation: does not block requests if JWT is missing/invalid.
+    """
+    if not SUPABASE_JWT_SECRET or not authorization:
+        return None
+
+    try:
+        import jwt as pyjwt
+        token = authorization.replace("Bearer ", "")
+        decoded = pyjwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            audience="authenticated",
+        )
+        return decoded
+    except ImportError:
+        # PyJWT not installed — skip validation
+        return None
+    except Exception:
+        # Invalid token — return None (soft fail)
+        return None
 
 
 def check_foundry_available() -> bool:
@@ -161,7 +192,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

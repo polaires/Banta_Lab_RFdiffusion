@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { saveJob as saveJobToSupabase, updateJob as updateJobInSupabase } from '@/lib/supabase';
 import { Sparkles, FlaskConical, Dna, Info, SlidersHorizontal, ChevronDown, AlertCircle, Loader2, Play, CheckCircle, Download, Upload } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 type ModelType = 'ligand_mpnn' | 'protein_mpnn';
 
@@ -16,8 +17,9 @@ export function MPNNPanel() {
     addNotification,
     latestDesignPdb,
     latestRfd3Design,
-    setLastCompletedJobType
+    setLastCompletedJobType,
   } = useStore();
+  const { user, isConfigured: authConfigured, signInWithGoogle } = useAuth();
   const [pdbContent, setPdbContent] = useState('');
   const [numSequences, setNumSequences] = useState(8);
   const [temperature, setTemperature] = useState(0.1);
@@ -54,6 +56,12 @@ export function MPNNPanel() {
   };
 
   const handleSubmit = async () => {
+    if (authConfigured && !user && process.env.NODE_ENV !== 'development') {
+      addNotification({ type: 'error', title: 'Sign in required', message: 'Please sign in to submit designs' });
+      signInWithGoogle();
+      return;
+    }
+
     if (!health) {
       setError('Backend not connected');
       return;
@@ -101,6 +109,7 @@ export function MPNNPanel() {
         runpod_id: response.job_id,
         type: 'mpnn',
         request: { num_sequences: numSequences, temperature, model_type: modelType },
+        user_id: user?.id ?? null,
       });
 
       const jobResult = await api.waitForJob(response.job_id, (status) => {

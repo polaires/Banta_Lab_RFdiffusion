@@ -80,7 +80,7 @@ export interface UserProfile {
 // Get or create Supabase client
 let supabaseAuth: SupabaseClient | null = null;
 
-function getSupabaseClient(): SupabaseClient | null {
+export function getSupabaseClient(): SupabaseClient | null {
   if (supabaseAuth) return supabaseAuth;
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

@@ -5,6 +5,7 @@ import { useStore } from '@/lib/store';
 import api from '@/lib/api';
 import { getJobs as getJobsFromSupabase, deleteJob as deleteJobFromSupabase, isSupabaseConfigured } from '@/lib/supabase';
 import { ErrorDetails } from './ErrorDetails';
+import { useAuth } from '@/contexts/AuthContext';
 import { Clock, Loader2, CheckCircle, AlertCircle, Building2, Brain, Type, History, Search, Inbox, ChevronDown, Timer, Eye, Trash2, type LucideIcon } from 'lucide-react';
 
 // Status display configuration
@@ -75,7 +76,8 @@ function getExpirationInfo(createdAt: string): { remaining: string; isExpiringSo
 }
 
 export function DesignHistoryPanel() {
-  const { jobs, removeJob, setSelectedPdb, addJob, cleanupExpiredJobs } = useStore();
+  const { jobs, removeJob, setSelectedPdb, addJob, cleanupExpiredJobs, clearJobs } = useStore();
+  const { user, isConfigured: authConfigured } = useAuth();
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('date');
@@ -90,13 +92,26 @@ export function DesignHistoryPanel() {
     return () => clearInterval(interval);
   }, [cleanupExpiredJobs]);
 
-  // Load job history from Supabase on mount
+  // Reset history when user changes (sign in/out)
+  const [lastUserId, setLastUserId] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    const currentUserId = user?.id ?? null;
+    if (lastUserId !== undefined && lastUserId !== currentUserId) {
+      // User changed — clear local jobs and re-fetch from Supabase
+      clearJobs();
+      setHistoryLoaded(false);
+    }
+    setLastUserId(currentUserId);
+  }, [user?.id, lastUserId, clearJobs]);
+
+  // Load job history from Supabase on mount and when user changes
   useEffect(() => {
     if (historyLoaded || !isSupabaseConfigured()) return;
 
     const loadHistory = async () => {
       setLoadingHistory(true);
       try {
+        // RLS will automatically filter by user when authenticated
         const supabaseJobs = await getJobsFromSupabase({ limit: 100 });
         const existingIds = new Set(jobs.map(j => j.id));
 
@@ -231,7 +246,9 @@ export function DesignHistoryPanel() {
           <h2 className="text-xl font-bold text-foreground">Design History</h2>
         </div>
         <p className="text-muted-foreground text-sm">
-          All your protein designs in one place. Failed designs are automatically removed after 24 hours.
+          {authConfigured && user
+            ? `Designs for ${user.email}. Failed designs are automatically removed after 24 hours.`
+            : 'All your protein designs in one place. Failed designs are automatically removed after 24 hours.'}
         </p>
       </div>
 

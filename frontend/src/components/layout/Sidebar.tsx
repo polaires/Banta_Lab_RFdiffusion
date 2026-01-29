@@ -13,6 +13,7 @@ import {
   User,
   ChevronDown,
 } from 'lucide-react';
+import { UserMenu } from '@/components/auth/UserMenu';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -45,11 +46,9 @@ interface SidebarProps {
   onNewDesign: () => void;
   onHistoryClick: (id: string) => void;
   onSettingsClick: () => void;
-  // Connection & user props (previously in header)
+  // Connection props (previously in header)
   connectionStatus?: 'connected' | 'disconnected' | 'connecting';
   onConnectionClick?: () => void;
-  userName?: string;
-  onUserClick?: () => void;
 }
 
 interface WorkflowStepItemProps {
@@ -71,8 +70,6 @@ export function Sidebar({
   onSettingsClick,
   connectionStatus = 'disconnected',
   onConnectionClick,
-  userName,
-  onUserClick,
 }: SidebarProps) {
   return (
     <TooltipProvider>
@@ -88,14 +85,7 @@ export function Sidebar({
               </div>
             </div>
             {/* User menu */}
-            <button
-              onClick={onUserClick}
-              className="p-1 rounded-md hover:bg-sidebar-accent transition-colors"
-            >
-              <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center">
-                <User className="h-3.5 w-3.5 text-primary-foreground" />
-              </div>
-            </button>
+            <UserMenu />
           </div>
         </div>
 

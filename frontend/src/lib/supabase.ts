@@ -30,7 +30,8 @@
  * ```
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseClient } from './auth';
 
 // Types
 export interface JobRecord {
@@ -42,27 +43,15 @@ export interface JobRecord {
   result: Record<string, any> | null;
   created_at: string;
   completed_at: string | null;
+  user_id: string | null;
 }
 
 export type JobInsert = Omit<JobRecord, 'id' | 'created_at'>;
 export type JobUpdate = Partial<Omit<JobRecord, 'id' | 'runpod_id' | 'created_at'>>;
 
-// Supabase client singleton
-let supabase: SupabaseClient | null = null;
-
+// Use the unified auth-aware Supabase client
 function getSupabase(): SupabaseClient | null {
-  if (supabase) return supabase;
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !anonKey) {
-    console.warn('[Supabase] Not configured. Job history will not persist.');
-    return null;
-  }
-
-  supabase = createClient(url, anonKey);
-  return supabase;
+  return getSupabaseClient();
 }
 
 /**
@@ -82,6 +71,7 @@ export async function saveJob(job: {
   runpod_id: string;
   type: 'rfd3' | 'rf3' | 'mpnn';
   request?: Record<string, any>;
+  user_id?: string | null;
 }): Promise<JobRecord | null> {
   const client = getSupabase();
   if (!client) return null;
@@ -94,6 +84,7 @@ export async function saveJob(job: {
         type: job.type,
         status: 'pending',
         request: job.request || null,
+        ...(job.user_id ? { user_id: job.user_id } : {}),
       }, { onConflict: 'runpod_id' })
       .select()
       .single();

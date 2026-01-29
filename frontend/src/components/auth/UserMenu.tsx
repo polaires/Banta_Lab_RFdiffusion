@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { LogOut } from 'lucide-react';
+import { useStore } from '@/lib/store';
+import { LogOut, FlaskConical, CheckCircle } from 'lucide-react';
 
 export function UserMenu() {
   const { user, loading, isConfigured, signInWithGoogle, signOut } = useAuth();
@@ -63,6 +64,13 @@ export function UserMenu() {
     );
   }
 
+  // Job stats
+  const jobs = useStore((state) => state.jobs);
+  const jobStats = useMemo(() => ({
+    total: jobs.length,
+    completed: jobs.filter((j) => j.status === 'completed').length,
+  }), [jobs]);
+
   // Logged in - show avatar with dropdown
   const avatarUrl = user.user_metadata?.avatar_url;
   const displayName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
@@ -101,6 +109,18 @@ export function UserMenu() {
           <div className="px-4 py-2 border-b border-border">
             <p className="text-sm font-medium text-foreground truncate">{displayName}</p>
             <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+          </div>
+
+          {/* Job stats */}
+          <div className="px-4 py-2 border-b border-border flex items-center gap-3">
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <FlaskConical className="w-3.5 h-3.5" />
+              <span>{jobStats.total} designs</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <CheckCircle className="w-3.5 h-3.5 text-primary" />
+              <span>{jobStats.completed} completed</span>
+            </div>
           </div>
 
           {/* Menu items */}

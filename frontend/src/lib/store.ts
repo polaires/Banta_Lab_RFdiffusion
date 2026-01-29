@@ -8,7 +8,13 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 
 // Store version for migration handling
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
+
+// Maximum conversation messages to persist (prevent localStorage bloat)
+const MAX_PERSISTED_MESSAGES = 100;
+
+// Maximum serialized size for job result payloads before truncation
+const MAX_JOB_RESULT_SIZE = 50_000;
 
 // Maximum number of jobs to keep in history
 const MAX_JOB_HISTORY = 100;
@@ -157,6 +163,7 @@ export type WorkflowPhase =
   | 'interview'
   | 'confirming'
   | 'running'
+  | 'pipeline_active'
   | 'evaluating'
   | 'complete'
   | 'error';
@@ -177,6 +184,7 @@ export interface AICaseStudyState {
   evaluationResult: DesignEvaluation | null;
   jobProgress: number;
   currentStage: string | null;  // Current stage message for progress display
+  activePipelineId: string | null;  // ID of currently running modular pipeline
 }
 
 // Notification types for workflow guidance
@@ -217,6 +225,7 @@ interface AppState {
   addJob: (job: Job) => void;
   updateJob: (id: string, updates: Partial<Job>) => void;
   removeJob: (id: string) => void;
+  clearJobs: () => void;
   cleanupExpiredJobs: () => void;
 
   // Selected structure for visualization
@@ -522,17 +531,21 @@ export const useStore = create<AppState>()(
   removeJob: (id) => set((state) => ({
     jobs: state.jobs.filter((job) => job.id !== id)
   })),
+  clearJobs: () => set({ jobs: [] }),
   cleanupExpiredJobs: () => set((state) => {
     const now = Date.now();
     const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
     return {
       jobs: state.jobs.filter((job) => {
-        // Keep all non-failed jobs
-        if (job.status !== 'failed') return true;
-        // Remove failed jobs older than 24 hours
         const createdAt = new Date(job.createdAt).getTime();
-        const expiresAt = createdAt + TWENTY_FOUR_HOURS;
-        return now < expiresAt;
+        // Remove failed jobs older than 24 hours
+        if (job.status === 'failed') return now < createdAt + TWENTY_FOUR_HOURS;
+        // Remove stale running/pending jobs older than 6 hours (orphaned)
+        if (job.status === 'running' || job.status === 'pending') {
+          return now < createdAt + SIX_HOURS;
+        }
+        return true;
       }),
     };
   }),
@@ -680,6 +693,7 @@ export const useStore = create<AppState>()(
     evaluationResult: null,
     jobProgress: 0,
     currentStage: null,
+    activePipelineId: null,
   },
   setAiCaseStudy: (updates) => set((state) => ({
     aiCaseStudy: { ...state.aiCaseStudy, ...updates },
@@ -1167,9 +1181,40 @@ export const useStore = create<AppState>()(
       version: STORE_VERSION,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        // Only persist jobs and backend URL - not transient UI state
-        jobs: state.jobs,
+        // Persist jobs (strip large payloads) and backend URL
+        jobs: state.jobs.map(job => {
+          if (job.result) {
+            try {
+              const size = JSON.stringify(job.result).length;
+              if (size > MAX_JOB_RESULT_SIZE) {
+                // Strip large design data but keep metadata
+                return {
+                  ...job,
+                  result: {
+                    ...job.result,
+                    designs: undefined,
+                    predictions: undefined,
+                    sequences: undefined,
+                  },
+                };
+              }
+            } catch { /* non-serializable, keep as-is */ }
+          }
+          return job;
+        }),
         backendUrl: state.backendUrl,
+        // Persist AI assistant state (excluding large/transient fields)
+        aiCaseStudy: {
+          conversation: state.aiCaseStudy.conversation.slice(-MAX_PERSISTED_MESSAGES),
+          pdbId: state.aiCaseStudy.pdbId,
+          targetMetal: state.aiCaseStudy.targetMetal,
+          workflowPhase: state.aiCaseStudy.workflowPhase,
+          userPreferences: state.aiCaseStudy.userPreferences,
+          pendingJobId: state.aiCaseStudy.pendingJobId,
+          evaluationResult: state.aiCaseStudy.evaluationResult,
+          // NOT persisted: isProcessing, jobProgress, currentStage, currentStep
+          // NOT persisted: pdbContent, analysisResult, recommendation (too large)
+        },
       }),
       migrate: (persistedState: unknown, version: number) => {
         // Handle migrations from older versions
@@ -1186,12 +1231,50 @@ export const useStore = create<AppState>()(
           }
         }
 
+        if (version < 3) {
+          // v2 -> v3: Initialize AI case study defaults if missing
+          const aiState = (state as Record<string, unknown>).aiCaseStudy as Partial<AICaseStudyState> | undefined;
+          if (!aiState) {
+            (state as Record<string, unknown>).aiCaseStudy = {
+              pdbId: null,
+              pdbContent: null,
+              targetMetal: null,
+              analysisResult: null,
+              recommendation: null,
+              conversation: [],
+              isProcessing: false,
+              currentStep: 'idle',
+              workflowPhase: 'idle',
+              userPreferences: null,
+              pendingJobId: null,
+              evaluationResult: null,
+              jobProgress: 0,
+              currentStage: null,
+            };
+          } else if (aiState.workflowPhase === 'running') {
+            // Session was interrupted — reset running state to error
+            aiState.workflowPhase = 'error';
+          }
+        }
+
         // Enforce max job limit on load
         if (state.jobs && state.jobs.length > MAX_JOB_HISTORY) {
           state.jobs = state.jobs.slice(0, MAX_JOB_HISTORY);
         }
 
         return state as AppState;
+      },
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<AppState>;
+        // Deep merge aiCaseStudy so persisted fields merge with defaults (not replace)
+        const mergedAiCaseStudy = persisted.aiCaseStudy
+          ? { ...currentState.aiCaseStudy, ...persisted.aiCaseStudy }
+          : currentState.aiCaseStudy;
+        return {
+          ...currentState,
+          ...persisted,
+          aiCaseStudy: mergedAiCaseStudy,
+        };
       },
     }
   )

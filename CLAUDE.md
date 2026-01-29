@@ -52,6 +52,7 @@ All endpoints via `POST http://localhost:8000/runsync` (local) or RunPod API:
 | `mpnn` | Sequence design |
 | `validate_design` | Full validation pipeline (MPNN + ESMFold + RF3) |
 | `ai_design` | NL-driven end-to-end design pipeline |
+| `workflow_run` | Modular pipeline via JSON workflow spec |
 | `interface_ligand_design` | Ligand-binding dimer |
 | `interface_metal_design` | Metal-coordinated dimer |
 | `binding_eval` | GNINA scoring |
@@ -61,7 +62,7 @@ All endpoints via `POST http://localhost:8000/runsync` (local) or RunPod API:
 
 ```
 backend/serverless/               # Main API handler (RunPod serverless)
-  handler.py                      #   API router (all tasks)
+  handler.py                      #   API router (all tasks incl. workflow_run)
   inference_utils.py              #   RFD3, RF3, MPNN inference engines
   esmfold_utils.py                #   ESMFold + RF3 structure validation (Kabsch RMSD)
   ai_design_pipeline.py           #   NL → backbone → sequence → validation pipeline
@@ -69,19 +70,32 @@ backend/serverless/               # Main API handler (RunPod serverless)
   scaffolding_workflow.py         #   Motif-based scaffold design from PDB
   nl_design_parser.py             #   Natural language → DesignIntent
   ligand_resolver.py              #   Ligand name → SMILES/SDF resolution
-  rfd3_config_generator.py        #   Intent → RFD3 config generation
+  rfd3_config_generator.py        #   Intent → RFD3 config + scaffold_to_rfd3_params()
   design_rules.py                 #   Decision engine (stability profiles, bias)
-  enzyme_chemistry.py             #   Enzyme class detection + activity preservation
-  minimal_motif_selector.py       #   Evidence-based motif residue selection
+  filter_evaluator.py             #   FILTER_PRESETS + FilterEvaluator class
   unified_analyzer.py             #   Comprehensive design analysis (geometry, contacts, etc.)
-  metal_validation.py             #   Metal coordination validation
-  rosetta_utils.py                #   PyRosetta refinement + scoring
+  pipeline_types.py               #   StepContext, PipelineStep protocol, result dataclasses
+  inference_backend.py            #   InProcessBackend, HTTPBackend, create_backend()
+  workflow_runner.py              #   WorkflowRunner + run_workflow_spec()
+  iteration_strategies.py         #   ScoutStrategy, SweepStrategy
+  pipeline_modules/               #   Composable pipeline step modules
+    __init__.py                   #     MODULE_REGISTRY (all 8 modules)
+    intent_parser.py              #     M1: NL parse + ligand resolve
+    design_configurator.py        #     M2: Intent → RFD3/MPNN configs
+    scaffolder.py                 #     M3: PDB motif extraction
+    backbone_generator.py         #     M4: RFD3 backbone generation
+    sequence_designer.py          #     M5: MPNN sequence design
+    structure_predictor.py        #     M6: RF3/ESMFold prediction
+    analyzer.py                   #     M7: Analysis + filtering
+    reporter.py                   #     M8: Report generation
   shared/                         #   Shared utilities (interaction_analysis, etc.)
   run_50_designs.py               #   CLI: batch design + RF3 validation script
   check_rmsd_rf3.py               #   CLI: RF3 RMSD validation script
 frontend/src/                     # React components (Next.js)
   components/ai/                  #   AI design panel + pipeline workflow
+  components/pipeline/            #   PipelineRunner, WorkflowProgressCard
   hooks/                          #   useAIDesign hook
+  lib/workflow-types.ts           #   WorkflowSpec, WorkflowProgress TS interfaces
 docs/                             # All documentation
   getting-started/                #   Setup guides
   archive/                        #   Old/superseded docs
@@ -95,6 +109,73 @@ scripts/                          # Utility scripts
   demos/                          #   Demo implementations
   tests/                          #   Test scripts
 ```
+
+## Modular Pipeline Architecture
+
+Composable "Lego" modules that the AI assistant can chain via Python or JSON workflow specs.
+
+### Modules (in `backend/serverless/pipeline_modules/`)
+
+| Module | Key | Wraps |
+|--------|-----|-------|
+| IntentParser | `intent_parser` | NLDesignParser + LigandResolver |
+| DesignConfigurator | `design_configurator` | design_rules + RFD3ConfigGenerator |
+| Scaffolder | `scaffolder` | ScaffoldingWorkflow |
+| BackboneGenerator | `backbone_generator` | inference_utils.run_rfd3_inference |
+| SequenceDesigner | `sequence_designer` | inference_utils.run_mpnn_inference |
+| StructurePredictor | `structure_predictor` | inference_utils.run_rf3_inference |
+| Analyzer | `analyzer` | UnifiedDesignAnalyzer + FILTER_PRESETS |
+| Reporter | `reporter` | Summary generation |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `pipeline_types.py` | `StepContext` (shared state), `PipelineStep` protocol, result dataclasses |
+| `inference_backend.py` | `InProcessBackend` (GPU) / `HTTPBackend` (Docker API) / `create_backend("auto")` |
+| `workflow_runner.py` | `WorkflowRunner.from_spec(json)` — JSON workflow interpreter, checkpointing, progress |
+| `iteration_strategies.py` | `ScoutStrategy` (pre-filter backbones), `SweepStrategy` (parameter grid) |
+| `filter_evaluator.py` | `FILTER_PRESETS` dict — centralized min/max thresholds for all design types |
+
+### Composing Workflows
+
+**JSON spec** (AI generates, handler.py executes via `workflow_run` task):
+```json
+{
+  "name": "metal_binding_design",
+  "params": {"pdb_id": "4CVB", "ligand": "PQQ", "metal": "CA", "num_designs": 50},
+  "steps": [
+    {"module": "scaffolder"},
+    {"module": "design_configurator"},
+    {"module": "backbone_generator"},
+    {"module": "sequence_designer"},
+    {"module": "structure_predictor"},
+    {"module": "analyzer", "params": {"filter_preset": "metal_binding"}},
+    {"module": "reporter"}
+  ],
+  "strategy": {"type": "scout", "ptm_threshold": 0.6}
+}
+```
+
+**Python** (direct composition):
+```python
+from pipeline_modules import BackboneGenerator, SequenceDesigner, StructurePredictor, Analyzer
+from pipeline_types import StepContext
+from inference_backend import create_backend
+
+ctx = StepContext(backend=create_backend("auto"), params={"num_designs": 10})
+ctx.rfd3_config = {"contig": "80-120", "cfg_scale": 2.0}
+for step in [BackboneGenerator(), SequenceDesigner(), StructurePredictor(), Analyzer()]:
+    ctx = step.run(ctx)
+```
+
+### Design Rules
+
+- Modules **wrap** existing code — never rewrite `inference_utils.py`, `design_rules.py`, etc.
+- `StepContext` holds PDB/FASTA as **strings** (matches actual inference patterns)
+- `backend` field on StepContext abstracts in-process vs HTTP execution
+- `FILTER_PRESETS` uses `{"min": X}` for quality scores, `{"max": X}` for error metrics
+- Frontend uses `'workflow'` job type with `WorkflowProgressCard` for step-by-step display
 
 ## Current Focus
 

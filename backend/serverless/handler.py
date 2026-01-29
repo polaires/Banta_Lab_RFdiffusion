@@ -535,10 +535,23 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             if not AI_DESIGN_PIPELINE_AVAILABLE:
                 return {"status": "failed", "error": "AI design pipeline not available"}
             return handle_ai_design_export(job_input)
+        # Modular workflow execution via JSON spec
+        elif task == "workflow_run":
+            from workflow_runner import WorkflowRunner
+            runner, steps, ctx = WorkflowRunner.from_spec(job_input)
+            try:
+                result_ctx = runner.run(steps, ctx)
+                return {"status": "completed", "result": result_ctx.to_dict()}
+            except Exception as wf_err:
+                # Return partial results from completed steps
+                partial = ctx.to_dict()
+                partial["workflow_error"] = str(wf_err)
+                partial["workflow_progress"] = runner.get_progress(ctx)
+                return {"status": "failed", "error": str(wf_err), "partial_result": partial}
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, ai_design, ai_design_export, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, ai_design, ai_design_export, workflow_run, download_checkpoints, delete_file"
             }
 
     except Exception as e:

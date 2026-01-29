@@ -64,7 +64,7 @@ export interface StepExecutionContext {
   /** Callback for granular progress within a step (0-100) */
   onProgress: (percent: number, message?: string) => void;
   /** Callback when a backend job is created */
-  onJobCreated?: (jobId: string, type: 'rfd3' | 'rf3' | 'mpnn') => void;
+  onJobCreated?: (jobId: string, type: 'rfd3' | 'rf3' | 'mpnn' | 'workflow') => void;
 }
 
 // ---- Parameter Schema ----

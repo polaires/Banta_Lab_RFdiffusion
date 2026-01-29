@@ -311,7 +311,7 @@ export interface ExportResult {
 export interface StoredStructure {
   pdb: string;
   cif?: string;
-  type: 'rfd3' | 'rf3' | 'mpnn';
+  type: 'rfd3' | 'rf3' | 'mpnn' | 'workflow';
   confidences?: ConfidenceMetrics;
 }
 
@@ -843,6 +843,47 @@ class FoundryAPI {
       job_id: jobId,
       status: output.status === 'completed' ? 'completed' : 'failed',
       message: output.status === 'completed' ? 'MPNN design completed' : (output.error || 'MPNN design failed'),
+      result: jobResult,
+      error: output.error,
+      syncCompleted: true,
+    };
+  }
+
+  // Workflow execution via modular pipeline
+  async submitWorkflow(spec: import('./workflow-types').WorkflowSpec): Promise<JobResponse & { result?: any; error?: string; syncCompleted?: boolean }> {
+    const jobId = `workflow-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Traditional mode: synchronous call through RunPod
+    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const response = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input: { task: 'workflow_run', ...spec } }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      return {
+        job_id: jobId,
+        status: 'failed',
+        message: error.detail || 'Workflow submission failed',
+        error: error.detail,
+      };
+    }
+
+    const result = await response.json();
+    const output = result.output || {};
+
+    const jobResult = {
+      type: 'workflow' as const,
+      data: output.result || output,
+    };
+    this.syncJobResults.set(jobId, jobResult);
+
+    return {
+      job_id: jobId,
+      status: output.status === 'completed' ? 'completed' : 'failed',
+      message: output.status === 'completed' ? 'Workflow completed' : (output.error || 'Workflow failed'),
       result: jobResult,
       error: output.error,
       syncCompleted: true,

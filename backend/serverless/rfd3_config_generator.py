@@ -649,6 +649,66 @@ class RFD3ConfigGenerator:
 
 
 # =============================================================================
+# Scaffold → RFD3 Parameter Mapping
+# =============================================================================
+
+def scaffold_to_rfd3_params(scaffold_result) -> Dict[str, Any]:
+    """
+    Convert a ScaffoldResult into RFD3 API parameters.
+
+    This bridges the scaffolding workflow output to RFD3 input,
+    used by the Scaffolder module (M3) to update the RFD3 config.
+
+    Args:
+        scaffold_result: ScaffoldResult from scaffolding_workflow.py
+            or a dict with motif_pdb/pdb_content, residues, etc.
+
+    Returns:
+        Dict of RFD3 API parameters to merge into config.
+    """
+    params: Dict[str, Any] = {}
+
+    # Extract PDB content
+    if hasattr(scaffold_result, "motif_pdb"):
+        pdb_content = scaffold_result.motif_pdb
+    elif hasattr(scaffold_result, "pdb_content"):
+        pdb_content = scaffold_result.pdb_content
+    elif isinstance(scaffold_result, dict):
+        pdb_content = scaffold_result.get("motif_pdb") or scaffold_result.get("pdb_content")
+    else:
+        pdb_content = None
+
+    if pdb_content:
+        params["pdb_content"] = pdb_content
+
+    # Extract fixed atoms (metal + ligand positions)
+    fixed_atoms: Dict[str, str] = {}
+    metal_type = getattr(scaffold_result, "metal_type", None)
+    if isinstance(scaffold_result, dict):
+        metal_type = scaffold_result.get("metal_type", metal_type)
+    if metal_type:
+        fixed_atoms["X1"] = "all"
+
+    ligand_code = getattr(scaffold_result, "ligand_code", None)
+    if isinstance(scaffold_result, dict):
+        ligand_code = scaffold_result.get("ligand_code", ligand_code)
+    if ligand_code:
+        fixed_atoms["L1"] = "all"
+
+    if fixed_atoms:
+        params["select_fixed_atoms"] = fixed_atoms
+
+    # Extract hotspots from scaffold residues
+    residues = getattr(scaffold_result, "residues", None)
+    if isinstance(scaffold_result, dict):
+        residues = scaffold_result.get("residues", residues)
+    if residues:
+        params["hotspots"] = ["L1"]
+
+    return params
+
+
+# =============================================================================
 # Convenience Functions
 # =============================================================================
 

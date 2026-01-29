@@ -37,7 +37,7 @@ import { getSupabaseClient } from './auth';
 export interface JobRecord {
   id: string;
   runpod_id: string;
-  type: 'rfd3' | 'rf3' | 'mpnn';
+  type: 'rfd3' | 'rf3' | 'mpnn' | 'workflow';
   status: 'pending' | 'running' | 'completed' | 'failed';
   request: Record<string, any> | null;
   result: Record<string, any> | null;
@@ -69,7 +69,7 @@ export function isSupabaseConfigured(): boolean {
  */
 export async function saveJob(job: {
   runpod_id: string;
-  type: 'rfd3' | 'rf3' | 'mpnn';
+  type: 'rfd3' | 'rf3' | 'mpnn' | 'workflow';
   request?: Record<string, any>;
   user_id?: string | null;
 }): Promise<JobRecord | null> {
@@ -163,7 +163,7 @@ export async function getJob(runpodId: string): Promise<JobRecord | null> {
  */
 export async function getJobs(options?: {
   limit?: number;
-  type?: 'rfd3' | 'rf3' | 'mpnn';
+  type?: 'rfd3' | 'rf3' | 'mpnn' | 'workflow';
   status?: string;
 }): Promise<JobRecord[]> {
   const client = getSupabase();

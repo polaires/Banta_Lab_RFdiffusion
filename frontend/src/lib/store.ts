@@ -129,7 +129,7 @@ interface ErrorContext {
 
 interface Job {
   id: string;
-  type: 'rfd3' | 'rf3' | 'mpnn';
+  type: 'rfd3' | 'rf3' | 'mpnn' | 'workflow';
   status: 'pending' | 'running' | 'completed' | 'failed';
   createdAt: string;
   completedAt?: string;
@@ -138,6 +138,10 @@ interface Job {
   errorType?: string;
   traceback?: string;
   errorContext?: ErrorContext;
+  /** For workflow jobs: the original spec */
+  workflowSpec?: import('./workflow-types').WorkflowSpec;
+  /** For workflow jobs: per-step progress */
+  workflowProgress?: import('./workflow-types').WorkflowProgress;
 }
 
 // Tab type for navigation
@@ -250,8 +254,8 @@ interface AppState {
   // Panel data flow - latest design for MPNN input
   latestDesignPdb: string | null;
   setLatestDesignPdb: (pdb: string | null) => void;
-  lastCompletedJobType: 'rfd3' | 'rf3' | 'mpnn' | null;
-  setLastCompletedJobType: (type: 'rfd3' | 'rf3' | 'mpnn' | null) => void;
+  lastCompletedJobType: 'rfd3' | 'rf3' | 'mpnn' | 'workflow' | null;
+  setLastCompletedJobType: (type: 'rfd3' | 'rf3' | 'mpnn' | 'workflow' | null) => void;
 
   // Enhanced cross-panel data flow (v2.0)
   latestRfd3Design: StoredDesign | null;

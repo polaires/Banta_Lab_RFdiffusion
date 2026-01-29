@@ -8,6 +8,52 @@ import json
 from typing import Dict, Any, List, Optional
 
 
+# Centralized filter presets — threshold dicts for common design types.
+# These can be used directly by the Analyzer module (M7) without
+# requiring JSON files on disk.
+#
+# Each metric uses {"min": X} (value must be >= X) or {"max": X} (value must be <= X).
+# "min" is for quality scores (ptm, plddt, iptm) — higher is better.
+# "max" is for distance/error metrics (rmsd, pae) — lower is better.
+FILTER_PRESETS = {
+    "ppi_binder": {
+        "inter_chain_pae": {"max": 1.5},
+        "ptm": {"min": 0.8},
+        "ca_rmsd": {"max": 2.5},
+    },
+    "small_molecule": {
+        "backbone_rmsd": {"max": 1.5},
+        "ligand_rmsd": {"max": 5.0},
+        "iptm": {"min": 0.8},
+    },
+    "metal_binding": {
+        "coordination_number": {"min": 6},
+        "geometry_rmsd": {"max": 2.0},
+        "plddt": {"min": 0.70},
+    },
+    "metal_binding_strict": {
+        "coordination_number": {"min": 8},
+        "geometry_rmsd": {"max": 0.8},
+        "plddt": {"min": 0.85},
+    },
+    "dna_binder": {
+        "dna_aligned_rmsd": {"max": 5.0},
+    },
+    "enzyme_scaffold": {
+        "motif_all_atom_rmsd": {"max": 1.5},
+    },
+    "scout_relaxed": {
+        "ptm": {"min": 0.6},
+        "plddt": {"min": 0.65},
+    },
+    "production_strict": {
+        "ptm": {"min": 0.8},
+        "plddt": {"min": 0.75},
+        "backbone_rmsd": {"max": 1.5},
+    },
+}
+
+
 class FilterEvaluator:
     """
     Evaluates metrics against filter presets.

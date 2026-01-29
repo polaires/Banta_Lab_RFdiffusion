@@ -18,6 +18,7 @@ const typeConfig = {
   rfd3: { color: 'bg-blue-600', label: 'RFD3' },
   rf3: { color: 'bg-emerald-600', label: 'RF3' },
   mpnn: { color: 'bg-violet-600', label: 'MPNN' },
+  workflow: { color: 'bg-amber-600', label: 'Workflow' },
 };
 
 export function JobsPanel() {

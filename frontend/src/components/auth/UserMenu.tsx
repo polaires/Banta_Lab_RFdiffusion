@@ -9,8 +9,9 @@ export function UserMenu() {
   const { user, loading, isConfigured, signInWithGoogle, signOut } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const jobs = useStore((state) => state.jobs);
 
-  // Close menu when clicking outside
+  // All hooks must be called before any early returns
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -21,6 +22,11 @@ export function UserMenu() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const jobStats = useMemo(() => ({
+    total: jobs.length,
+    completed: jobs.filter((j) => j.status === 'completed').length,
+  }), [jobs]);
 
   // Don't render if auth not configured
   if (!isConfigured) {
@@ -63,13 +69,6 @@ export function UserMenu() {
       </button>
     );
   }
-
-  // Job stats
-  const jobs = useStore((state) => state.jobs);
-  const jobStats = useMemo(() => ({
-    total: jobs.length,
-    completed: jobs.filter((j) => j.status === 'completed').length,
-  }), [jobs]);
 
   // Logged in - show avatar with dropdown
   const avatarUrl = user.user_metadata?.avatar_url;

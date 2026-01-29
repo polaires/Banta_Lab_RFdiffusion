@@ -296,11 +296,13 @@ try:
         AIDesignPipeline,
         PipelineResult,
         handle_ai_design,
+        handle_ai_design_export,
     )
     AI_DESIGN_PIPELINE_AVAILABLE = True
 except ImportError as e:
     AI_DESIGN_PIPELINE_AVAILABLE = False
     handle_ai_design = None
+    handle_ai_design_export = None
     print(f"[Handler] Warning: ai_design_pipeline not available: {e}")
 
 # ============== Ligand H-bond Presets ==============
@@ -528,10 +530,15 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
             if not AI_DESIGN_PIPELINE_AVAILABLE:
                 return {"status": "failed", "error": "AI design pipeline not available"}
             return handle_ai_design(job_input)
+        # AI design export (FASTA, CSV, summary from design history)
+        elif task == "ai_design_export":
+            if not AI_DESIGN_PIPELINE_AVAILABLE:
+                return {"status": "failed", "error": "AI design pipeline not available"}
+            return handle_ai_design_export(job_input)
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, ai_design, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, ai_design, ai_design_export, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -10675,7 +10682,10 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
                     pae = confidences.get("overall_pae", 10.0)
 
                 # Assign quality tier and status
-                metrics = {"plddt": plddt, "ptm": ptm, "coordination_number": 7, "geometry_rmsd": 1.5}
+                # Note: coordination_number and geometry_rmsd are not computed in sweep mode
+                # (requires metal validation which is done post-sweep). Tier assignment uses
+                # pLDDT/pTM only when coordination metrics are unavailable.
+                metrics = {"plddt": plddt, "ptm": ptm}
                 tier = assign_quality_tier(metrics)
                 status = determine_status(tier, plddt, ptm)
 

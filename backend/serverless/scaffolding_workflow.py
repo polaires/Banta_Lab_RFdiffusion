@@ -4,6 +4,11 @@ Scaffolding Workflow for AI Design Pipeline.
 Wraps existing handler.py scaffolding functions for use with AI-driven design.
 Enables queries like "scaffold the PQQ-Ca pocket of 4CVB".
 
+Supports generalizable theozyme scaffolding:
+- Ligand code normalization (human names → PDB 3-letter codes)
+- Metal substitution (extract MG site, rewrite as TB for lanthanide design)
+- HSAB-based compatibility checking for metal substitution
+
 This module provides:
 - ScaffoldingWorkflow: Main workflow class for motif scaffolding
 - ScaffoldResult: Result dataclass with all scaffolding info
@@ -24,7 +29,188 @@ from metal_site_fetcher import (
     REFERENCE_STRUCTURES,
 )
 
+# Import metal chemistry for substitution compatibility
+from metal_chemistry import (
+    METAL_DATABASE,
+    get_hsab_class,
+    get_coordination_number_range,
+)
+
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# LIGAND NAME → PDB 3-LETTER CODE MAPPING
+# =============================================================================
+
+LIGAND_NAME_TO_PDB_CODE: Dict[str, str] = {
+    # Citrate
+    "citrate": "CIT",
+    "citric acid": "CIT",
+    "citric": "CIT",
+    # PQQ
+    "pqq": "PQQ",
+    "pyrroloquinoline quinone": "PQQ",
+    "pyrroloquinoline": "PQQ",
+    # Heme / Porphyrin
+    "heme": "HEM",
+    "hem": "HEM",
+    "protoporphyrin": "HEM",
+    # Nucleotides
+    "atp": "ATP",
+    "adp": "ADP",
+    "amp": "AMP",
+    "gtp": "GTP",
+    "gdp": "GDP",
+    # Cofactors
+    "nad": "NAD",
+    "nad+": "NAD",
+    "nadh": "NAI",
+    "nadp": "NAP",
+    "nadp+": "NAP",
+    "nadph": "NDP",
+    "fad": "FAD",
+    "fmn": "FMN",
+    "plp": "PLP",
+    "pyridoxal phosphate": "PLP",
+    # Common small molecules
+    "acetate": "ACT",
+    "phosphate": "PO4",
+    "sulfate": "SO4",
+    "carbonate": "CO3",
+    "oxalate": "OXL",
+    "malonate": "MLN",
+    "succinate": "SIN",
+    "tartrate": "TAR",
+    "edta": "EDO",
+    "glycerol": "GOL",
+}
+
+
+def normalize_ligand_code(ligand_code: str) -> str:
+    """Normalize a human-readable ligand name to its PDB 3-letter code.
+
+    If the input is already a valid 3-letter code (uppercase, 1-3 chars),
+    it is returned as-is. Otherwise, looks up the mapping table.
+
+    Args:
+        ligand_code: Human name ("citrate") or PDB code ("CIT")
+
+    Returns:
+        PDB 3-letter code (e.g., "CIT")
+    """
+    if not ligand_code:
+        return ligand_code
+
+    code_upper = ligand_code.strip().upper()
+
+    # If it's already a short uppercase code (1-3 chars), return as-is
+    # This handles cases where the caller already passes "CIT", "PQQ", etc.
+    if len(code_upper) <= 3 and code_upper.isalnum():
+        return code_upper
+
+    # Look up the mapping table (case-insensitive)
+    code_lower = ligand_code.strip().lower()
+    if code_lower in LIGAND_NAME_TO_PDB_CODE:
+        return LIGAND_NAME_TO_PDB_CODE[code_lower]
+
+    # Fallback: return uppercase (might be a 3-letter code we don't know)
+    return code_upper
+
+
+# =============================================================================
+# METAL SUBSTITUTION COMPATIBILITY
+# =============================================================================
+
+# Known metals that appear in PDB HETATM records
+KNOWN_PDB_METALS = {
+    "ZN", "FE", "MG", "CA", "MN", "CU", "CO", "NI",
+    "TB", "EU", "GD", "LA", "CE", "SM", "YB", "DY",
+    "CD", "HG", "PB", "MO", "W", "V", "CR", "PT", "RU",
+}
+
+
+def scan_pdb_hetatm(pdb_content: str) -> Tuple[Set[str], Set[str]]:
+    """Scan PDB content and return sets of metals and ligands found.
+
+    Args:
+        pdb_content: Raw PDB file content
+
+    Returns:
+        (metals_found, ligands_found) — sets of 3-letter residue names
+    """
+    metals = set()
+    ligands = set()
+
+    for line in pdb_content.split('\n'):
+        if line.startswith('HETATM'):
+            res_name = line[17:20].strip()
+            if res_name in KNOWN_PDB_METALS:
+                metals.add(res_name)
+            elif len(res_name) >= 1 and res_name not in {"HOH", "WAT", "DOD"}:
+                ligands.add(res_name)
+
+    return metals, ligands
+
+
+def is_metal_substitution_compatible(source_metal: str, target_metal: str) -> bool:
+    """Check if a source metal site can serve as geometric template for target metal.
+
+    Compatibility requires:
+    1. Both metals in METAL_DATABASE
+    2. Same HSAB class (hard↔hard, borderline↔borderline, soft↔soft)
+    3. Same dominant donor preference (O-preferring, N-preferring, or S-preferring)
+
+    Examples:
+        MG → TB: both hard, both O-preferring → True
+        CA → EU: both hard, both O-preferring → True
+        ZN → TB: borderline vs hard → False
+        ZN → FE: both borderline → True
+
+    Args:
+        source_metal: Metal found in the PDB (e.g., "MG")
+        target_metal: Metal the user wants (e.g., "TB")
+
+    Returns:
+        True if the source site geometry is suitable as a template for the target
+    """
+    source_metal = source_metal.upper()
+    target_metal = target_metal.upper()
+
+    if source_metal == target_metal:
+        return True
+
+    if source_metal not in METAL_DATABASE or target_metal not in METAL_DATABASE:
+        return False
+
+    # Get HSAB classes
+    src_info = METAL_DATABASE[source_metal]
+    tgt_info = METAL_DATABASE[target_metal]
+
+    src_ox = src_info.get("default_oxidation", 2)
+    tgt_ox = tgt_info.get("default_oxidation", 2)
+
+    try:
+        src_hsab = get_hsab_class(source_metal, src_ox)
+        tgt_hsab = get_hsab_class(target_metal, tgt_ox)
+    except (ValueError, KeyError):
+        return False
+
+    # Rule 1: Same HSAB class
+    if src_hsab != tgt_hsab:
+        return False
+
+    # Rule 2: Same dominant donor preference
+    src_donors = src_info.get("preferred_donors", {}).get(src_ox, {}).get("catalytic", {})
+    tgt_donors = tgt_info.get("preferred_donors", {}).get(tgt_ox, {}).get("catalytic", {})
+
+    if src_donors and tgt_donors:
+        src_best = max(src_donors, key=src_donors.get) if src_donors else None
+        tgt_best = max(tgt_donors, key=tgt_donors.get) if tgt_donors else None
+        if src_best != tgt_best:
+            return False
+
+    return True
 
 
 # =============================================================================
@@ -212,16 +398,22 @@ class ScaffoldingWorkflow:
         Run scaffolding workflow.
 
         Steps:
-        1. Fetch PDB structure from RCSB
-        2. Find active site (metal + ligand + coordinating residues)
-        3. Extract motif with fixed atoms
-        4. Build scaffolding contig
-        5. Determine conditioning parameters
+        1. Normalize ligand code (human name → PDB 3-letter code)
+        2. Fetch PDB structure from RCSB
+        3. Find active site (with metal substitution fallback)
+        4. Extract motif with fixed atoms
+        5. Build scaffolding contig
+        6. Determine conditioning parameters
+
+        Supports theozyme scaffolding: if the requested metal is not in the
+        PDB but a compatible metal is found (same HSAB class + donor preference),
+        the compatible metal's site is extracted and the metal is rewritten
+        in the output theozyme PDB.
 
         Args:
             pdb_id: 4-character PDB ID (e.g., "4CVB")
-            metal: Metal element symbol (e.g., "CA", "ZN")
-            ligand_code: Ligand 3-letter code (e.g., "PQQ", "CIT")
+            metal: Metal element symbol (e.g., "CA", "ZN", "TB")
+            ligand_code: Ligand name or 3-letter code (e.g., "citrate", "PQQ", "CIT")
             chain_length: Chain length range for designed linkers (e.g., "80-120")
             coordination_cutoff: Distance cutoff for metal coordination (default: 3.0 Å)
             include_second_shell: Include second-shell residues in motif
@@ -234,7 +426,18 @@ class ScaffoldingWorkflow:
         cutoff = coordination_cutoff or self.default_cutoff
         ligand_cutoff = ligand_contact_cutoff or self.default_ligand_cutoff
 
+        # Step 0: Normalize ligand code (human name → PDB 3-letter code)
+        original_ligand_name = ligand_code
+        if ligand_code:
+            ligand_code = normalize_ligand_code(ligand_code)
+            if ligand_code != original_ligand_name:
+                logger.info(f"Ligand code normalized: '{original_ligand_name}' → '{ligand_code}'")
+
         logger.info(f"ScaffoldingWorkflow: PDB={pdb_id}, Metal={metal}, Ligand={ligand_code}, all_contacts={include_all_ligand_contacts}")
+
+        # Track metal substitution for theozyme rewriting
+        substituted_from = None  # Source metal found in PDB (e.g., "MG")
+        target_metal = metal     # Metal the user requested (e.g., "TB")
 
         try:
             # Step 1: Fetch structure from RCSB
@@ -246,13 +449,31 @@ class ScaffoldingWorkflow:
                     error_message=f"Could not fetch PDB: {pdb_id}",
                 )
 
-            # Step 2: Find active site
+            # Step 2: Find active site (with metal substitution fallback)
+            active_site = None
+
             if metal and ligand_code:
-                # Use metal-ligand active site finder
+                # Try direct match first
                 active_site = await asyncio.to_thread(
                     find_metal_ligand_active_site,
                     pdb_id, metal, ligand_code, cutoff
                 )
+
+                # Fallback: metal substitution if direct match fails
+                if not active_site:
+                    sub_result = self._find_site_with_metal_substitution(
+                        pdb_content, pdb_id, metal, ligand_code, cutoff
+                    )
+                    if sub_result:
+                        active_site = sub_result["active_site"]
+                        substituted_from = sub_result["source_metal"]
+                        # Use source metal for PDB parsing, target metal for output
+                        metal = sub_result["source_metal"]
+                        logger.info(
+                            f"Metal substitution: {substituted_from} → {target_metal} "
+                            f"(HSAB-compatible, site extracted from {pdb_id})"
+                        )
+
             elif metal:
                 # Extract metal coordination only
                 coord_info = await asyncio.to_thread(
@@ -269,17 +490,37 @@ class ScaffoldingWorkflow:
                         "coordinating_atoms": coord_info.get("coordinating_atoms", []),
                         "coordination_number": coord_info.get("coordination_number", 0),
                     }
-                else:
-                    active_site = None
+
+                # Fallback: try substitution for metal-only queries too
+                if not active_site:
+                    sub_result = self._find_site_with_metal_substitution(
+                        pdb_content, pdb_id, target_metal, ligand_code, cutoff
+                    )
+                    if sub_result:
+                        active_site = sub_result["active_site"]
+                        substituted_from = sub_result["source_metal"]
+                        metal = sub_result["source_metal"]
             else:
                 # Try to auto-detect metal from PDB
                 active_site = self._auto_detect_active_site(pdb_content, cutoff)
 
             if not active_site:
+                # Provide helpful error listing what's actually in the PDB
+                metals_found, ligands_found = scan_pdb_hetatm(pdb_content)
+                error_parts = [f"No active site found in {pdb_id}."]
+                if metals_found:
+                    error_parts.append(f"Metals in PDB: {', '.join(sorted(metals_found))}")
+                if ligands_found:
+                    error_parts.append(f"Ligands in PDB: {', '.join(sorted(ligands_found))}")
+                if target_metal and target_metal not in metals_found:
+                    error_parts.append(
+                        f"Requested metal {target_metal} not found and no "
+                        f"HSAB-compatible substitute available."
+                    )
                 return ScaffoldResult(
                     motif_pdb="",
                     success=False,
-                    error_message=f"No active site found in {pdb_id}",
+                    error_message=" ".join(error_parts),
                 )
 
             # Step 3: Extract coordinating residues
@@ -340,6 +581,7 @@ class ScaffoldingWorkflow:
             # Step 4: Build theozyme PDB (catalytic residues + ligand/metal)
             # This is the RECOMMENDED approach: extract theozyme, let RFD3 design entire scaffold
             # NO blocker residues needed - RFD3 respects ligand when using proper parameters
+            # If metal was substituted, rewrite HETATM to use the target metal
             motif_pdb, scaffold_residue_ids = self._extract_theozyme_pdb(
                 pdb_content,
                 active_site,
@@ -347,6 +589,7 @@ class ScaffoldingWorkflow:
                 metal,
                 ligand_code,
                 all_residue_keys=all_residue_keys,
+                target_metal=target_metal if substituted_from else None,
             )
 
             # Step 5: Build parameters for Enzyme Scaffold Design approach
@@ -363,11 +606,13 @@ class ScaffoldingWorkflow:
             unindex = ",".join(scaffold_residue_ids)
 
             # Build ligand_codes string: comma-separated 3-letter codes
+            # Use target_metal (user's requested metal) for output, not source metal
+            output_metal = target_metal if substituted_from else metal
             ligand_codes_list = []
             if ligand_code:
                 ligand_codes_list.append(ligand_code.upper())
-            if metal:
-                ligand_codes_list.append(metal.upper())
+            if output_metal:
+                ligand_codes_list.append(output_metal.upper())
             ligand_codes_str = ",".join(ligand_codes_list)
 
             # Step 6: Determine conditioning parameters
@@ -377,8 +622,8 @@ class ScaffoldingWorkflow:
             # Fix ligand position (always recommended)
             if ligand_code:
                 fixed_atoms[ligand_code.upper()] = "ALL"
-            if metal:
-                fixed_atoms[metal.upper()] = "ALL"
+            if output_metal:
+                fixed_atoms[output_metal.upper()] = "ALL"
 
             # Fix catalytic residue atoms — use per-residue atoms from motif selector
             # when available, otherwise fall back to uniform fixed_atom_type
@@ -412,7 +657,7 @@ class ScaffoldingWorkflow:
                     fixed_atoms[res_id] = fixed_atom_type
 
             # RASA targets: bury metal and ligand to create proper pocket
-            rasa_targets = self._determine_rasa_targets_renumbered(metal, ligand_code)
+            rasa_targets = self._determine_rasa_targets_renumbered(output_metal, ligand_code)
 
             # H-bond conditioning from ligand chemistry
             hbond_acceptors, hbond_donors = self._determine_hbond_conditioning(
@@ -445,8 +690,9 @@ class ScaffoldingWorkflow:
                 motif_result=minimal_motif_result,
                 source_info={
                     "pdb_id": pdb_id.upper(),
-                    "metal": metal,
+                    "metal": output_metal,
                     "ligand": ligand_code,
+                    "original_ligand_name": original_ligand_name,
                     "metal_chain": active_site.get("metal_chain"),
                     "metal_resnum": active_site.get("metal_resnum"),
                     "coordination_number": active_site.get("coordination_number", 0),
@@ -455,8 +701,12 @@ class ScaffoldingWorkflow:
                     "include_all_contacts": include_all_ligand_contacts,
                     "total_pocket_residues": len(unique_residues),
                     "catalytic_residue_ids": scaffold_residue_ids,
-                    "design_approach": "enzyme_scaffold",  # Marks new approach
+                    "design_approach": "enzyme_scaffold",
                     "use_minimal_motif": use_minimal_motif,
+                    # Metal substitution metadata
+                    "metal_substituted": substituted_from is not None,
+                    "substituted_from": substituted_from,
+                    "substituted_to": target_metal if substituted_from else None,
                 },
                 success=True,
             )
@@ -494,6 +744,122 @@ class ScaffoldingWorkflow:
                     "coordination_number": coord_info.get("coordination_number", 0),
                 }
 
+        return None
+
+    def _find_site_with_metal_substitution(
+        self,
+        pdb_content: str,
+        pdb_id: str,
+        target_metal: str,
+        ligand_code: Optional[str],
+        cutoff: float,
+    ) -> Optional[Dict[str, Any]]:
+        """Find an active site using a compatible substitute metal.
+
+        When the user requests a metal (e.g., TB) that isn't in the PDB,
+        this method scans the PDB for metals with compatible HSAB chemistry
+        and extracts the site using the substitute. The caller is responsible
+        for rewriting the metal in the output theozyme.
+
+        Args:
+            pdb_content: Raw PDB file content (already fetched)
+            pdb_id: PDB ID for logging and API calls
+            target_metal: Metal the user wants (e.g., "TB")
+            ligand_code: Normalized ligand 3-letter code (e.g., "CIT") or None
+            cutoff: Coordination distance cutoff in Angstroms
+
+        Returns:
+            Dict with keys:
+                "active_site": active site dict from find_metal_ligand_active_site
+                "source_metal": the substitute metal found in PDB (e.g., "MG")
+                "target_metal": the user's requested metal (e.g., "TB")
+                "cn_warning": optional warning about coordination number difference
+            Or None if no compatible substitute found.
+        """
+        metals_found, ligands_found = scan_pdb_hetatm(pdb_content)
+
+        if not metals_found:
+            logger.info(f"No metals found in {pdb_id} for substitution")
+            return None
+
+        # Check each found metal for HSAB compatibility
+        compatible = []
+        for source_metal in sorted(metals_found):
+            if source_metal == target_metal:
+                continue  # Already tried direct match
+            if is_metal_substitution_compatible(source_metal, target_metal):
+                compatible.append(source_metal)
+
+        if not compatible:
+            logger.info(
+                f"No HSAB-compatible metals for {target_metal} in {pdb_id}. "
+                f"Found: {sorted(metals_found)}"
+            )
+            return None
+
+        logger.info(
+            f"Found {len(compatible)} compatible substitute(s) for {target_metal}: "
+            f"{compatible}"
+        )
+
+        # Try each compatible metal (prefer the first that works with the ligand)
+        for source_metal in compatible:
+            active_site = None
+
+            if ligand_code:
+                active_site = find_metal_ligand_active_site(
+                    pdb_id, source_metal, ligand_code, cutoff
+                )
+            else:
+                coord_info = extract_metal_coordination(
+                    pdb_content, source_metal, cutoff
+                )
+                if coord_info.get("coordination_number", 0) > 0:
+                    active_site = {
+                        "pdb_id": pdb_id.upper(),
+                        "metal": source_metal,
+                        "metal_chain": coord_info.get("metal_chain", "A"),
+                        "metal_resnum": coord_info.get("metal_resnum", 0),
+                        "metal_coords": coord_info.get("metal_coords"),
+                        "coordinating_atoms": coord_info.get("coordinating_atoms", []),
+                        "coordination_number": coord_info.get("coordination_number", 0),
+                    }
+
+            if active_site:
+                # Build CN warning if ranges differ significantly
+                cn_warning = None
+                try:
+                    src_cn = get_coordination_number_range(
+                        source_metal,
+                        METAL_DATABASE[source_metal].get("default_oxidation", 2),
+                    )
+                    tgt_cn = get_coordination_number_range(
+                        target_metal,
+                        METAL_DATABASE[target_metal].get("default_oxidation", 2),
+                    )
+                    if src_cn and tgt_cn and tgt_cn[0] > src_cn[1]:
+                        cn_warning = (
+                            f"CN mismatch: {source_metal} typically {src_cn[0]}-{src_cn[1]}, "
+                            f"{target_metal} needs {tgt_cn[0]}-{tgt_cn[1]}. "
+                            f"RFD3/LigandMPNN will design additional coordinating residues."
+                        )
+                        logger.warning(cn_warning)
+                except (KeyError, ValueError):
+                    pass
+
+                logger.info(
+                    f"Metal substitution successful: {source_metal} → {target_metal} "
+                    f"in {pdb_id} (CN={active_site.get('coordination_number', '?')})"
+                )
+
+                return {
+                    "active_site": active_site,
+                    "source_metal": source_metal,
+                    "target_metal": target_metal,
+                    "cn_warning": cn_warning,
+                }
+
+        logger.info(f"Compatible metals found but none coordinate {ligand_code} in {pdb_id}")
         return None
 
     def _get_unique_residues(self, coord_atoms: List[Dict]) -> List[Dict]:
@@ -845,6 +1211,7 @@ class ScaffoldingWorkflow:
         metal: Optional[str],
         ligand_code: Optional[str],
         all_residue_keys: Optional[Set[Tuple[str, int]]] = None,
+        target_metal: Optional[str] = None,
     ) -> Tuple[str, List[str]]:
         """
         Extract theozyme PDB for Enzyme Scaffold Design approach.
@@ -861,9 +1228,11 @@ class ScaffoldingWorkflow:
             pdb_content: Full PDB content
             active_site: Active site dict from find_metal_ligand_active_site
             coord_residues: List of coordinating residue dicts
-            metal: Metal code (e.g., "CA")
+            metal: Metal code as found in PDB (e.g., "MG" — the source metal)
             ligand_code: Ligand code (e.g., "PQQ")
             all_residue_keys: Set of (chain, resnum) tuples to include
+            target_metal: If set, rewrite metal HETATM records to this symbol
+                         (e.g., "TB" when substituting MG → TB)
 
         Returns:
             Tuple of (theozyme_pdb_content, list_of_residue_ids)
@@ -954,10 +1323,23 @@ class ScaffoldingWorkflow:
         if output_lines:
             output_lines.append("TER")
 
-        # Metal atoms (keep original residue name, e.g., "CA")
+        # Metal atoms — rewrite residue name if target_metal substitution is active
         for line in metal_lines:
-            # Keep the metal residue name (e.g., "CA") - RFD3 recognizes it
-            new_line = renumber_atom_serial(line, atom_serial)
+            new_line = line
+            if target_metal and target_metal.upper() != metal_upper:
+                # Rewrite the residue name (cols 17-20) and atom name (cols 12-16)
+                # and element (cols 76-78) to the target metal
+                tgt = target_metal.upper()
+                # Residue name: right-justified in cols 17:20
+                new_line = new_line[:17] + f"{tgt:>3s}" + new_line[20:]
+                # Atom name: cols 12:16 — metal atoms use element as name
+                atom_name_field = f" {tgt:<3s}" if len(tgt) <= 2 else f"{tgt:<4s}"
+                new_line = new_line[:12] + atom_name_field + new_line[16:]
+                # Element symbol: cols 76:78 (right-justified)
+                if len(new_line) >= 78:
+                    new_line = new_line[:76] + f"{tgt:>2s}" + new_line[78:]
+                logger.info(f"Theozyme metal rewritten: {metal_upper} → {tgt}")
+            new_line = renumber_atom_serial(new_line, atom_serial)
             atom_serial += 1
             new_line = center_line(new_line)
             output_lines.append(new_line)

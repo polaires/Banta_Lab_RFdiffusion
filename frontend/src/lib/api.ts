@@ -1848,6 +1848,10 @@ class FoundryAPI {
   }> {
     console.log('[API] Starting metal binding sweep');
 
+    // Sweep can take 5-15 minutes depending on config count; use extended timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15 * 60 * 1000);
+
     const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1858,7 +1862,10 @@ class FoundryAPI {
           ...request,
         }
       }),
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       throw new Error(`Failed to start sweep: ${response.statusText}`);

@@ -119,8 +119,8 @@ class DesignResult:
     status: str = "pending"  # "pass", "review", "fail"
     seed: Optional[int] = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        return {
+    def to_dict(self, include_pdb: bool = True) -> Dict[str, Any]:
+        d = {
             "name": self.name,
             "config_name": self.config_name,
             "sequence": self.sequence,
@@ -134,6 +134,9 @@ class DesignResult:
             "status": self.status,
             "seed": self.seed,
         }
+        if include_pdb and self.pdb_content:
+            d["pdb_content"] = self.pdb_content
+        return d
 
 
 @dataclass
@@ -219,25 +222,34 @@ def assign_quality_tier(metrics: Dict[str, Any]) -> str:
     """
     Assign S/A/B/C/F quality tier based on design metrics.
 
+    When coordination geometry metrics (coordination_number, geometry_rmsd) are
+    available, they are used alongside pLDDT/pTM for full evaluation.
+    When only pLDDT/pTM are available (e.g., sweep mode before metal validation),
+    tier is assigned based on confidence metrics alone.
+
     Args:
-        metrics: Dict with plddt, ptm, coordination_number, geometry_rmsd, etc.
+        metrics: Dict with plddt, ptm, and optionally coordination_number, geometry_rmsd, etc.
 
     Returns:
         Tier string: "S", "A", "B", "C", or "F"
     """
     plddt = metrics.get("plddt", 0)
     ptm = metrics.get("ptm", 0)
-    cn = metrics.get("coordination_number", 0)
-    rmsd = metrics.get("geometry_rmsd", 999)
-    sasa = metrics.get("metal_sasa", 999)
+    cn = metrics.get("coordination_number")
+    rmsd = metrics.get("geometry_rmsd")
+
+    has_metal_metrics = cn is not None and rmsd is not None
 
     for tier in ["S", "A", "B", "C"]:
         thresh = QUALITY_THRESHOLDS[tier]
-        if (plddt >= thresh["plddt"] and
-            ptm >= thresh.get("ptm", 0) and
-            cn >= thresh["coordination_number"] and
-            rmsd <= thresh["geometry_rmsd"]):
-            return tier
+        # Check confidence metrics (always required)
+        if plddt < thresh["plddt"] or ptm < thresh.get("ptm", 0):
+            continue
+        # Check metal coordination metrics only if available
+        if has_metal_metrics:
+            if cn < thresh["coordination_number"] or rmsd > thresh["geometry_rmsd"]:
+                continue
+        return tier
     return "F"
 
 

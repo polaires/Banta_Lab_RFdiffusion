@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import dynamic from 'next/dynamic';
 import {
   Sparkles,
   User,
@@ -50,7 +49,6 @@ import {
   BinderEvaluationCard,
   MetalScaffoldInterviewMode,
   MetalScaffoldDesignGallery,
-  AIDesignPipelineWorkflow,
   type LigandPreferences,
   type LigandAnalysis,
   type LigandEvaluation,
@@ -60,7 +58,10 @@ import {
   type MetalScaffoldPreferences,
   type MetalScaffoldDesignResult,
 } from './ai';
-import { useAIDesign } from '@/hooks/useAIDesign';
+// useAIDesign hook removed — NL queries now route through modular PipelineRunner
+import { PipelineRunner } from '@/components/pipeline';
+import { getPipeline } from '@/lib/pipelines';
+import type { StepResult } from '@/lib/pipeline-types';
 import {
   BinderResultsPanel,
   PipelineFunnel,
@@ -69,21 +70,6 @@ import {
   type BinderStatistics,
 } from './binder';
 
-// Dynamic import of ProteinViewer to avoid SSR issues with Molstar
-const ProteinViewer = dynamic(
-  () => import('@/components/ProteinViewer').then((mod) => mod.ProteinViewer),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="w-full h-[300px] bg-muted rounded-lg flex items-center justify-center">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <div className="w-5 h-5 border-2 border-muted-foreground/40 border-t-transparent rounded-full animate-spin" />
-          Loading viewer...
-        </div>
-      </div>
-    ),
-  }
-);
 
 /**
  * AI Design Assistant Panel
@@ -371,49 +357,6 @@ function PreferenceRow({ label, value, isLast = false }: { label: string; value:
   );
 }
 
-// Structure Viewer section
-function StructureViewerSection({
-  pdbContent,
-  title,
-  badge,
-  colorLegend,
-  emptyMessage,
-}: {
-  pdbContent: string | null;
-  title: string;
-  badge?: string;
-  colorLegend?: React.ReactNode;
-  emptyMessage?: string;
-}) {
-  return (
-    <div className="bg-card rounded-xl border border-border overflow-hidden">
-      <div className="bg-muted px-4 py-2 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Box className="h-5 w-5 text-primary" />
-          <h4 className="font-semibold text-foreground text-sm">{title}</h4>
-          {badge && (
-            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-              {badge}
-            </span>
-          )}
-        </div>
-        {colorLegend}
-      </div>
-      <div className="relative">
-        {pdbContent ? (
-          <ProteinViewer pdbContent={pdbContent} className="h-[350px]" />
-        ) : (
-          <div className="h-[350px] bg-gradient-to-br from-muted to-background flex flex-col items-center justify-center text-muted-foreground">
-            <Box className="h-10 w-10 mb-2 text-muted-foreground/60" />
-            <p className="text-sm font-medium">{emptyMessage || 'No Structure Available'}</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">Connect to backend to view actual designs</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function AIDesignAssistantPanel() {
   const {
     aiCaseStudy,
@@ -478,42 +421,6 @@ export function AIDesignAssistantPanel() {
   // Viewer state
   const [viewerPdbContent, setViewerPdbContent] = useState<string | null>(null);
 
-  // Natural Language AI Design state
-  const [isNLDesign, setIsNLDesign] = useState(false);
-
-  // Determine API URL based on backend URL
-  // If using local Docker (localhost:8000), use traditional proxy
-  // If using RunPod cloud, use runpod proxy
-  const isLocalBackend = backendUrl.includes('localhost') || backendUrl.includes('127.0.0.1');
-  const aiDesignApiUrl = isLocalBackend
-    ? `/api/traditional/runsync?url=${encodeURIComponent(backendUrl)}`
-    : '/api/runpod/runsync';
-
-  const {
-    stage: nlStage,
-    stageInfo: nlStageInfo,
-    result: nlResult,
-    error: nlError,
-    isRunning: nlIsRunning,
-    runAIDesign,
-    reset: resetNLDesign
-  } = useAIDesign({
-    apiUrl: aiDesignApiUrl,
-    onStageChange: (stage) => {
-      // Update conversation with stage changes
-      if (stage === 'parsing') {
-        addAiMessage({ role: 'assistant', content: 'Understanding your design request...' });
-      } else if (stage === 'resolving') {
-        addAiMessage({ role: 'assistant', content: 'Resolving ligand structure and chemistry...' });
-      } else if (stage === 'backbone') {
-        addAiMessage({ role: 'assistant', content: 'Generating backbone structures with RFD3...' });
-      } else if (stage === 'sequence') {
-        addAiMessage({ role: 'assistant', content: 'Designing sequences with LigandMPNN...' });
-      } else if (stage === 'validation') {
-        addAiMessage({ role: 'assistant', content: 'Validating structures with ESMFold...' });
-      }
-    }
-  });
 
   const workflowPhase = (aiCaseStudy.workflowPhase || 'idle') as WorkflowPhase;
   const isRunningJob = workflowState.isRunning;
@@ -522,6 +429,65 @@ export function AIDesignAssistantPanel() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [aiCaseStudy.conversation, workflowPhase]);
+
+  // Resume polling for pending jobs after page refresh
+  useEffect(() => {
+    const pendingJobId = aiCaseStudy.pendingJobId;
+    const phase = aiCaseStudy.workflowPhase;
+    if (!pendingJobId || phase !== 'running') return;
+
+    let cancelled = false;
+
+    const resumePolling = async () => {
+      addAiMessage({ role: 'system', content: 'Reconnecting to running job...' });
+      try {
+        const status = await api.waitForJob(
+          pendingJobId,
+          (pollStatus) => {
+            if (cancelled) return;
+            if (pollStatus.status === 'running') {
+              setAiCaseStudy({ jobProgress: 50 }); // Approximate — exact progress unknown after refresh
+            }
+          }
+        );
+
+        if (cancelled) return;
+
+        if (status.status === 'completed') {
+          addAiMessage({ role: 'assistant', content: 'Job completed successfully! Processing results...' });
+          setAiCaseStudy({
+            workflowPhase: 'complete',
+            pendingJobId: null,
+            jobProgress: 100,
+          });
+        } else {
+          addAiMessage({ role: 'assistant', content: `Job finished with status: ${status.status}. You can retry the design.` });
+          setAiCaseStudy({
+            workflowPhase: 'error',
+            pendingJobId: null,
+            jobProgress: 0,
+          });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const errMsg = err instanceof Error ? err.message : 'Unknown error';
+        // Job may have expired or backend restarted
+        addAiMessage({
+          role: 'assistant',
+          content: `Could not reconnect to job: ${errMsg}. Please resubmit your design request.`,
+        });
+        setAiCaseStudy({
+          workflowPhase: 'error',
+          pendingJobId: null,
+          jobProgress: 0,
+        });
+      }
+    };
+
+    resumePolling();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Mount only — checks persisted state from localStorage
 
   // Check if input is a natural language query vs PDB code
   const isNaturalLanguageQuery = (input: string): boolean => {
@@ -535,35 +501,20 @@ export function AIDesignAssistantPanel() {
     return nlKeywords.some(kw => trimmed.toLowerCase().includes(kw));
   };
 
-  // Handle natural language design query
+  // Handle natural language design query — routes through modular PipelineRunner
   const handleNLDesign = async (query: string) => {
-    setIsNLDesign(true);
     setPdbInput('');
     addAiMessage({ role: 'user', content: query });
-    setAiCaseStudy({ workflowPhase: 'running', isProcessing: true });
+    addAiMessage({ role: 'assistant', content: 'Starting the design pipeline for your request...' });
 
-    const result = await runAIDesign(query, {
-      numDesigns: 4,
-      numSequences: 8,
-      validate: true
+    // Route through the modular pipeline system instead of legacy useAIDesign hook
+    setAiCaseStudy({
+      workflowPhase: 'pipeline_active',
+      activePipelineId: 'natural-language',
+      isProcessing: true,
+      // Store query for pipeline initial params
+      nlQuery: query,
     });
-
-    if (result?.success) {
-      setAiCaseStudy({ workflowPhase: 'complete', isProcessing: false });
-      addAiMessage({
-        role: 'assistant',
-        content: `Design complete!\n\n**Results:**\n- Backbones generated: ${result.num_backbones}\n- Sequences designed: ${result.num_sequences}\n- Pass rate: ${(result.pass_rate * 100).toFixed(0)}%\n${result.best_plddt ? `- Best pLDDT: ${result.best_plddt.toFixed(2)}` : ''}\n\n${result.recommendations?.length ? '**Recommendations:**\n' + result.recommendations.map(r => `- ${r}`).join('\n') : ''}`
-      });
-      if (result.best_sequence_pdb) {
-        setSelectedPdb(result.best_sequence_pdb);
-      }
-    } else {
-      setAiCaseStudy({ workflowPhase: 'idle', isProcessing: false });
-      addAiMessage({
-        role: 'assistant',
-        content: `Design failed: ${nlError || 'Unknown error'}. Please try again with a different query.`
-      });
-    }
   };
 
   // Handle structure input (PDB code or natural language)
@@ -943,6 +894,16 @@ export function AIDesignAssistantPanel() {
   const handleRunDesign = async () => {
     if (!userPreferences) return;
 
+    // FIX #10: Use modular pipeline when backend is connected
+    if (isBackendConnected) {
+      setAiCaseStudy({ workflowPhase: 'pipeline_active', activePipelineId: 'metal-binding' });
+      addAiMessage({
+        role: 'assistant',
+        content: `Starting modular metal binding pipeline for ${userPreferences.targetMetalLabel ?? 'metal'} coordination design. You can review results at each step.`,
+      });
+      return;
+    }
+
     setAiCaseStudy({ workflowPhase: 'running' });
 
     const params = translatePreferencesToParams(userPreferences, analysisResult, structureInfo);
@@ -989,6 +950,16 @@ export function AIDesignAssistantPanel() {
   // Run ligand design
   const handleRunLigandDesign = async () => {
     if (!ligandPreferences) return;
+
+    // FIX #10: Use modular pipeline when backend is connected
+    if (isBackendConnected) {
+      setAiCaseStudy({ workflowPhase: 'pipeline_active', activePipelineId: 'ligand-dimer' });
+      addAiMessage({
+        role: 'assistant',
+        content: `Starting modular ligand dimer pipeline for ${ligandPreferences.ligandLabel ?? 'ligand'} interface design. You can review results at each step.`,
+      });
+      return;
+    }
 
     setAiCaseStudy({ workflowPhase: 'running' });
 
@@ -1047,6 +1018,16 @@ export function AIDesignAssistantPanel() {
   // Run binder design
   const handleRunBinderDesign = async () => {
     if (!binderPreferences) return;
+
+    // FIX #10: Use modular pipeline when backend is connected
+    if (isBackendConnected) {
+      setAiCaseStudy({ workflowPhase: 'pipeline_active', activePipelineId: 'binder' });
+      addAiMessage({
+        role: 'assistant',
+        content: `Starting modular binder design pipeline. You can review results at each step.`,
+      });
+      return;
+    }
 
     setAiCaseStudy({ workflowPhase: 'running' });
 
@@ -1122,6 +1103,7 @@ export function AIDesignAssistantPanel() {
         setSelectedBinderDesign(result.designs[0]);
         if (result.designs[0].pdb_content) {
           setViewerPdbContent(result.designs[0].pdb_content);
+          setSelectedPdb(result.designs[0].pdb_content);
         }
       }
 
@@ -1241,12 +1223,23 @@ export function AIDesignAssistantPanel() {
     setSelectedMetalDesignId(design.id);
     if (design.pdbContent) {
       setViewerPdbContent(design.pdbContent);
+      setSelectedPdb(design.pdbContent);
     }
   };
 
   // Run metal scaffold design
   const handleRunMetalScaffoldDesign = async () => {
     if (!metalScaffoldPreferences) return;
+
+    // FIX #10: Use modular pipeline when backend is connected
+    if (isBackendConnected) {
+      setAiCaseStudy({ workflowPhase: 'pipeline_active', activePipelineId: 'metal-scaffold' });
+      addAiMessage({
+        role: 'assistant',
+        content: `Starting modular metal scaffold pipeline (${metalScaffoldPreferences.optimizationMode} mode). You can review results at each step.`,
+      });
+      return;
+    }
 
     setAiCaseStudy({ workflowPhase: 'running' });
 
@@ -1530,6 +1523,7 @@ export function AIDesignAssistantPanel() {
     setDesignResults([]);
     setSelectedDesignId(null);
     setViewerPdbContent(null);
+    setSelectedPdb(null);
     setAiCaseStudy({ workflowPhase: 'interview', evaluationResult: null });
     addAiMessage({ role: 'assistant', content: `Let's try again with different settings. What would you like to change?` });
   };
@@ -1558,6 +1552,10 @@ export function AIDesignAssistantPanel() {
     setDesignResults([]);
     setSelectedDesignId(null);
     setViewerPdbContent(null);
+    setSelectedPdb(null);
+    // Clear pipeline state so restored pipelines don't re-appear
+    setAiCaseStudy({ activePipelineId: null, nlQuery: null, workflowPhase: 'idle' });
+    try { sessionStorage.removeItem('pipeline-runtime-state'); } catch {}
   };
 
   // Quick start demos
@@ -1741,7 +1739,7 @@ export function AIDesignAssistantPanel() {
           </div>
         )}
 
-        {/* Job Progress */}
+        {/* Job Progress (legacy demo mode) */}
         {workflowPhase === 'running' && (
           <div className="pl-11">
             <JobProgressCard
@@ -1753,6 +1751,106 @@ export function AIDesignAssistantPanel() {
           </div>
         )}
 
+        {/* Pipeline Runner (modular step-by-step mode) */}
+        {workflowPhase === 'pipeline_active' && aiCaseStudy.activePipelineId && (() => {
+          const pipelineDef = getPipeline(aiCaseStudy.activePipelineId!);
+          if (!pipelineDef) return null;
+
+          // FIX #10: Gather initial params from case study state + design-specific preferences
+          const pipelineParams: Record<string, unknown> = {
+            pdb_content: aiCaseStudy.pdbContent,
+            pdb_id: aiCaseStudy.pdbId,
+            target_metal: aiCaseStudy.targetMetal || userPreferences?.targetMetal,
+          };
+
+          // NL pipeline: pass the user's natural language query
+          if (aiCaseStudy.nlQuery) {
+            pipelineParams.user_prompt = aiCaseStudy.nlQuery;
+          }
+
+          // Merge metal binding preferences
+          if (userPreferences) {
+            pipelineParams.designAggressiveness = userPreferences.designAggressiveness;
+            pipelineParams.coordinationPreference = userPreferences.coordinationPreference;
+            pipelineParams.numDesigns = userPreferences.numDesigns;
+            pipelineParams.targetMetalLabel = userPreferences.targetMetalLabel;
+          }
+
+          // Merge ligand dimer preferences
+          if (ligandPreferences) {
+            pipelineParams.ligand_smiles = ligandPreferences.ligandSmiles;
+            pipelineParams.ligandLabel = ligandPreferences.ligandLabel;
+            pipelineParams.chain_length = ligandPreferences.chainLength;
+            pipelineParams.num_designs = ligandPreferences.numDesigns;
+          }
+
+          // Merge binder preferences
+          if (binderPreferences) {
+            pipelineParams.target_pdb_id = binderPreferences.targetPdbId;
+            pipelineParams.target_pdb_content = binderPreferences.targetPdbContent;
+            pipelineParams.binder_length = binderPreferences.binderLength;
+            pipelineParams.num_designs = binderPreferences.numDesigns;
+            pipelineParams.quality_threshold = binderPreferences.qualityThreshold;
+            pipelineParams.protocol = binderPreferences.protocol;
+            pipelineParams.hotspot_method = binderPreferences.hotspotMethod;
+            pipelineParams.manual_hotspots = binderPreferences.manualHotspots;
+          }
+
+          // Merge metal scaffold preferences
+          if (metalScaffoldPreferences) {
+            pipelineParams.optimization_mode = metalScaffoldPreferences.optimizationMode;
+            pipelineParams.num_designs = metalScaffoldPreferences.numDesigns;
+            pipelineParams.designs_per_config = metalScaffoldPreferences.designsPerConfig;
+          }
+
+          // Merge analysis result params if available
+          if (aiCaseStudy.recommendation) {
+            const rec = aiCaseStudy.recommendation;
+            if (rec.contig) pipelineParams.contig = rec.contig;
+            if (rec.ligand) pipelineParams.ligand = rec.ligand;
+            if (rec.unindex) pipelineParams.unindex = rec.unindex;
+            if (rec.partial_t) pipelineParams.partial_t = rec.partial_t;
+          }
+
+          return (
+            <div className="pl-11">
+              <PipelineRunner
+                definition={pipelineDef}
+                initialParams={pipelineParams}
+                onStepComplete={(stepId, result) => {
+                  addAiMessage({
+                    role: 'assistant',
+                    content: `Step "${stepId}" completed: ${result.summary}`,
+                  });
+                }}
+                onPipelineComplete={() => {
+                  setAiCaseStudy({ workflowPhase: 'complete', activePipelineId: null });
+                  addAiMessage({
+                    role: 'assistant',
+                    content: 'Pipeline completed successfully! Review the final results above.',
+                  });
+                }}
+                onPipelineFailed={(stepId, error) => {
+                  addAiMessage({
+                    role: 'assistant',
+                    content: `Pipeline failed at step "${stepId}": ${error}`,
+                  });
+                }}
+                onDesignSelected={(pdbContent) => {
+                  setSelectedPdb(pdbContent);
+                }}
+                onCancel={() => {
+                  setAiCaseStudy({ workflowPhase: 'idle', activePipelineId: null });
+                  addAiMessage({
+                    role: 'assistant',
+                    content: 'Pipeline cancelled.',
+                  });
+                }}
+              />
+            </div>
+          );
+        })()}
+
         {/* Results - Metal Binding */}
         {workflowPhase === 'complete' && evaluationResult && userPreferences && !isLigandDesign && !isBinderDesign && !isMetalScaffoldDesign && (
           <div className="pl-11 space-y-4">
@@ -1762,11 +1860,10 @@ export function AIDesignAssistantPanel() {
               onRetry={handleRetry}
             />
             {viewerPdbContent && (
-              <StructureViewerSection
-                pdbContent={viewerPdbContent}
-                title="Designed Structure"
-                badge={`${userPreferences.targetMetalLabel} binding site`}
-              />
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 border border-border">
+                <Box className="h-4 w-4" />
+                <span>Structure displayed in side panel</span>
+              </div>
             )}
           </div>
         )}
@@ -1774,20 +1871,17 @@ export function AIDesignAssistantPanel() {
         {/* Results - Ligand Design */}
         {workflowPhase === 'complete' && ligandEvaluationResult && isLigandDesign && (
           <div className="pl-11 space-y-4">
-            <StructureViewerSection
-              pdbContent={viewerPdbContent}
-              title="Structure Viewer"
-              badge={selectedDesignId ? `Design #${designResults.find(d => d.id === selectedDesignId)?.rank || '?'}` : undefined}
-              colorLegend={
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <span className="w-3 h-3 rounded-full bg-purple-400" />
-                  <span>Chain A</span>
-                  <span className="ml-2 w-3 h-3 rounded-full bg-cyan-400" />
-                  <span>Chain B</span>
-                </div>
-              }
-              emptyMessage="Demo Mode - No Structure Available"
-            />
+            {viewerPdbContent && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 border border-border">
+                <Box className="h-4 w-4" />
+                <span>Structure displayed in side panel</span>
+                {selectedDesignId && (
+                  <span className="ml-auto text-foreground font-medium">
+                    Design #{designResults.find(d => d.id === selectedDesignId)?.rank || '?'}
+                  </span>
+                )}
+              </div>
+            )}
 
             {designResults.length > 0 && (
               <DesignGallery
@@ -1830,7 +1924,7 @@ export function AIDesignAssistantPanel() {
                   {binderDesigns.map((design) => (
                     <button
                       key={design.rank}
-                      onClick={() => setSelectedBinderDesign(design)}
+                      onClick={() => { setSelectedBinderDesign(design); if (design.pdb_content) setSelectedPdb(design.pdb_content); }}
                       className={`w-full text-left p-3 rounded-lg border transition-all ${
                         selectedBinderDesign?.rank === design.rank
                           ? 'border-primary bg-primary/5'
@@ -1863,21 +1957,13 @@ export function AIDesignAssistantPanel() {
               </div>
             )}
 
-            {/* Structure viewer for selected binder */}
+            {/* Structure indicator - viewer is in side panel */}
             {selectedBinderDesign?.pdb_content && (
-              <StructureViewerSection
-                pdbContent={selectedBinderDesign.pdb_content}
-                title="Structure Viewer"
-                badge={`Design #${selectedBinderDesign.rank}`}
-                colorLegend={
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <span className="w-3 h-3 rounded-full bg-muted-foreground/60" />
-                    <span>Target</span>
-                    <span className="ml-2 w-3 h-3 rounded-full bg-violet-400" />
-                    <span>Binder</span>
-                  </div>
-                }
-              />
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 border border-border">
+                <Box className="h-4 w-4" />
+                <span>Structure displayed in side panel</span>
+                <span className="ml-auto text-foreground font-medium">Design #{selectedBinderDesign.rank}</span>
+              </div>
             )}
 
             <button
@@ -1964,25 +2050,23 @@ export function AIDesignAssistantPanel() {
               </div>
             </div>
 
-            {/* Structure Viewer for selected design */}
-            <StructureViewerSection
-              pdbContent={viewerPdbContent}
-              title="Structure Viewer"
-              badge={
-                selectedMetalDesignId
-                  ? `${metalScaffoldDesigns.find(d => d.id === selectedMetalDesignId)?.name || 'Design'}`
-                  : undefined
-              }
-              colorLegend={
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <span className="w-3 h-3 rounded-full bg-primary/60" />
-                  <span>Scaffold</span>
-                  <span className="ml-2 w-3 h-3 rounded-full bg-amber-400" />
-                  <span>Metal Site</span>
-                </div>
-              }
-              emptyMessage="Select a design to view structure (demo mode - no PDB available)"
-            />
+            {/* Structure indicator - viewer is in side panel */}
+            {viewerPdbContent ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 border border-border">
+                <Box className="h-4 w-4" />
+                <span>Structure displayed in side panel</span>
+                {selectedMetalDesignId && (
+                  <span className="ml-auto text-foreground font-medium">
+                    {metalScaffoldDesigns.find(d => d.id === selectedMetalDesignId)?.name || 'Design'}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2 border border-border">
+                <Box className="h-4 w-4" />
+                <span>Select a design to view structure in side panel</span>
+              </div>
+            )}
 
             {/* Individual Design Results Gallery */}
             {metalScaffoldDesigns.length > 0 && (
@@ -2061,17 +2145,7 @@ export function AIDesignAssistantPanel() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* NL Design Pipeline Progress */}
-      {isNLDesign && nlIsRunning && (
-        <div className="mb-4">
-          <AIDesignPipelineWorkflow
-            currentStage={nlStage}
-            stageInfo={nlStageInfo}
-            error={nlError}
-            query={pdbInput}
-          />
-        </div>
-      )}
+      {/* NL Design Pipeline — now handled by PipelineRunner via pipeline_active phase */}
 
       {/* Input Area */}
       <div className="border-t border-border pt-4 mt-auto">
@@ -2089,7 +2163,7 @@ export function AIDesignAssistantPanel() {
                 }}
                 placeholder="Describe your protein design (e.g., 'Design a protein to bind citrate with terbium') or enter a PDB code"
                 className="w-full px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all resize-none min-h-[48px] max-h-[120px]"
-                disabled={aiCaseStudy.isProcessing || nlIsRunning}
+                disabled={aiCaseStudy.isProcessing}
                 rows={1}
                 style={{ height: 'auto', minHeight: '48px' }}
                 onInput={(e) => {
@@ -2101,15 +2175,15 @@ export function AIDesignAssistantPanel() {
             </div>
             <button
               onClick={handleStructureInput}
-              disabled={!pdbInput.trim() || aiCaseStudy.isProcessing || nlIsRunning}
+              disabled={!pdbInput.trim() || aiCaseStudy.isProcessing}
               className="px-6 py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground rounded-xl font-medium text-sm transition-all flex items-center gap-2 self-end"
             >
-              {nlIsRunning ? (
+              {aiCaseStudy.isProcessing ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
                 <Send className="h-5 w-5" />
               )}
-              {nlIsRunning ? 'Running...' : 'Send'}
+              {aiCaseStudy.isProcessing ? 'Running...' : 'Send'}
             </button>
           </div>
         ) : (
@@ -2120,10 +2194,10 @@ export function AIDesignAssistantPanel() {
               onChange={(e) => setFollowUpInput(e.target.value)}
               placeholder={workflowPhase === 'complete' ? "Ask a follow-up question..." : "Type a message..."}
               className="flex-1 px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all"
-              disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running'}
+              disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running' || workflowPhase === 'pipeline_active'}
             />
             <button
-              disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running' || !followUpInput.trim()}
+              disabled={aiCaseStudy.isProcessing || workflowPhase === 'interview' || workflowPhase === 'running' || workflowPhase === 'pipeline_active' || !followUpInput.trim()}
               className="px-4 py-3 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:cursor-not-allowed text-primary-foreground rounded-xl font-medium text-sm transition-all flex items-center gap-2"
             >
               <Send className="h-5 w-5" />
@@ -2135,6 +2209,7 @@ export function AIDesignAssistantPanel() {
           {workflowPhase === 'interview' && "Answer the questions above to configure your design"}
           {workflowPhase === 'confirming' && "Review your preferences and run the design"}
           {workflowPhase === 'running' && "Design in progress..."}
+          {workflowPhase === 'pipeline_active' && "Pipeline running — review each step above"}
           {workflowPhase === 'complete' && "Design complete! You can start a new design or continue exploring."}
         </p>
       </div>

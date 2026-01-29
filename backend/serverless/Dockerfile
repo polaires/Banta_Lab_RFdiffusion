@@ -202,6 +202,12 @@ COPY metal_site_fetcher.py /app/
 COPY metal_ligand_templates.py /app/
 COPY ligand_donors.py /app/
 
+# Copy metal binding pipeline and supporting modules
+COPY metal_binding_pipeline.py /app/
+COPY ligand_resolver.py /app/
+COPY rfd3_config_generator.py /app/
+COPY scaffolding_workflow.py /app/
+
 # Copy utils package (SASA calculator, DSSP for secondary structure)
 COPY utils/ /app/utils/
 

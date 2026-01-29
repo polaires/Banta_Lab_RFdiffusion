@@ -136,8 +136,19 @@ export function MolstarProvider({ children }: MolstarProviderProps) {
       const isCif = pdbContent.trimStart().startsWith('data_');
       const format = isCif ? 'mmcif' : 'pdb';
 
+      // Sanitize CIF entry ID — RF3/atomworks produces entry IDs with spaces
+      // and special characters (e.g. "data_name (A) pLDDT=0.80") that break
+      // Molstar's mmCIF parser. Replace with a simple identifier.
+      let contentToLoad = pdbContent;
+      if (isCif) {
+        contentToLoad = pdbContent.replace(
+          /^(data_)\S*.*$/m,
+          '$1structure'
+        );
+      }
+
       const data = await plugin.builders.data.rawData(
-        { data: pdbContent, label: 'structure' },
+        { data: contentToLoad, label: 'structure' },
         { state: { isGhost: true } }
       );
 

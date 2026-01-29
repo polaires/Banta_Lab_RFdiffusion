@@ -24,12 +24,11 @@ export function ConnectionStatus() {
       setHealth(healthResponse);
       setBackendUrl(inputUrl);
     } catch {
-      // Don't mark as disconnected if a job is running - backend may just be busy
-      // Only set health to null if no job is running
-      if (!isJobRunning) {
-        setHealth(null);
+      // Always reflect actual connection state — don't mask disconnections
+      setHealth(null);
+      if (isJobRunning) {
+        console.warn('[ConnectionStatus] Health check failed while job is running — job may still be processing on server');
       }
-      // If job is running, keep previous health status (assume still connected)
     } finally {
       setChecking(false);
     }

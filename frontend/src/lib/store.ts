@@ -185,6 +185,7 @@ export interface AICaseStudyState {
   jobProgress: number;
   currentStage: string | null;  // Current stage message for progress display
   activePipelineId: string | null;  // ID of currently running modular pipeline
+  nlQuery: string | null;            // Natural language query for NL pipeline
 }
 
 // Notification types for workflow guidance
@@ -694,6 +695,7 @@ export const useStore = create<AppState>()(
     jobProgress: 0,
     currentStage: null,
     activePipelineId: null,
+    nlQuery: null,
   },
   setAiCaseStudy: (updates) => set((state) => ({
     aiCaseStudy: { ...state.aiCaseStudy, ...updates },
@@ -1209,9 +1211,11 @@ export const useStore = create<AppState>()(
           pdbId: state.aiCaseStudy.pdbId,
           targetMetal: state.aiCaseStudy.targetMetal,
           workflowPhase: state.aiCaseStudy.workflowPhase,
+          activePipelineId: state.aiCaseStudy.activePipelineId,
           userPreferences: state.aiCaseStudy.userPreferences,
           pendingJobId: state.aiCaseStudy.pendingJobId,
           evaluationResult: state.aiCaseStudy.evaluationResult,
+          nlQuery: state.aiCaseStudy.nlQuery,
           // NOT persisted: isProcessing, jobProgress, currentStage, currentStep
           // NOT persisted: pdbContent, analysisResult, recommendation (too large)
         },

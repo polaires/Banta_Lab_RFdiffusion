@@ -815,8 +815,18 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
           console.log(`[ProteinViewer] Detected format: ${format}`);
 
+          // Sanitize CIF entry ID — RF3/atomworks produces entry IDs with spaces
+          // and special characters that break Molstar's mmCIF parser.
+          let contentToLoad = pdbContent;
+          if (isCif) {
+            contentToLoad = pdbContent.replace(
+              /^(data_)\S*.*$/m,
+              '$1structure'
+            );
+          }
+
           const data = await plugin.builders.data.rawData(
-            { data: pdbContent, label: `structure.${extension}` },
+            { data: contentToLoad, label: `structure.${extension}` },
             { state: { isGhost: true } }
           );
 

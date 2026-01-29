@@ -1,0 +1,329 @@
+'use client';
+
+import { useEffect, useCallback, useRef, useState, Component, type ReactNode } from 'react';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+// ScrollArea removed — parent panel handles scrolling
+import { XCircle, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { usePipeline, type PipelineCallbacks } from '@/hooks/usePipeline';
+import { useStore } from '@/lib/store';
+import type { PipelineDefinition, StepResult } from '@/lib/pipeline-types';
+import { PipelineStepper } from './PipelineStepper';
+import { StepCard } from './StepCard';
+
+// ---- Error Boundary (FIX #8) ----
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback: (error: Error, reset: () => void) => ReactNode;
+}
+
+interface ErrorBoundaryState {
+  error: Error | null;
+}
+
+class PipelineErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { error };
+  }
+
+  reset = () => this.setState({ error: null });
+
+  render() {
+    if (this.state.error) {
+      return this.props.fallback(this.state.error, this.reset);
+    }
+    return this.props.children;
+  }
+}
+
+// ---- Cancel Confirmation Dialog (FIX #16) ----
+
+function CancelConfirmation({ onConfirm, onDismiss }: { onConfirm: () => void; onDismiss: () => void }) {
+  return (
+    <div className="flex items-center gap-2 p-2 bg-destructive/5 border border-destructive/20 rounded-md">
+      <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0" />
+      <span className="text-xs text-destructive">Cancel pipeline? Running jobs will continue on the server but results will be lost.</span>
+      <div className="flex gap-1 shrink-0 ml-auto">
+        <Button variant="destructive" size="sm" className="h-6 px-2 text-xs" onClick={onConfirm}>
+          Cancel Pipeline
+        </Button>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onDismiss}>
+          Keep Running
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ---- Main Component ----
+
+interface PipelineRunnerProps {
+  definition: PipelineDefinition;
+  initialParams: Record<string, unknown>;
+  onStepComplete?: (stepId: string, result: StepResult) => void;
+  onPipelineComplete?: (results: Record<string, StepResult>) => void;
+  onPipelineFailed?: (stepId: string, error: string) => void;
+  onDesignSelected?: (pdbContent: string) => void;
+  onCancel?: () => void;
+}
+
+function PipelineRunnerInner({
+  definition,
+  initialParams,
+  onStepComplete,
+  onPipelineComplete,
+  onPipelineFailed,
+  onDesignSelected,
+  onCancel,
+}: PipelineRunnerProps) {
+  const { setSelectedPdb, addJob } = useStore();
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  // FIX #12: Pass store callbacks via the decoupled interface
+  const pipelineCallbacks: PipelineCallbacks = {
+    onPdbUpdate: (pdb) => setSelectedPdb(pdb),
+    onJobCreated: (job) => addJob(job as any),
+  };
+
+  const pipeline = usePipeline(pipelineCallbacks);
+
+  // FIX #6: Track which step completions have already been notified
+  const notifiedStepsRef = useRef<Set<string>>(new Set());
+  const notifiedCompleteRef = useRef(false);
+  const notifiedFailedRef = useRef(false);
+
+  // FIX #14: Try to restore saved state, otherwise initialize fresh
+  useEffect(() => {
+    const restored = pipeline.restore(definition);
+    if (!restored) {
+      pipeline.initialize(definition, initialParams);
+      notifiedStepsRef.current = new Set();
+    } else {
+      // Pre-populate notified sets so restored steps don't fire duplicate messages
+      const alreadyNotified = new Set<string>();
+      for (const s of pipeline.runtime.steps) {
+        if (s.result && (s.status === 'completed' || s.status === 'paused')) {
+          alreadyNotified.add(s.stepId);
+        }
+      }
+      notifiedStepsRef.current = alreadyNotified;
+    }
+    notifiedCompleteRef.current = false;
+    notifiedFailedRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [definition.id]);
+
+  // FIX #7: Cancel on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      pipeline.cancel();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-run the first step after initialization
+  useEffect(() => {
+    if (pipeline.runtime.status === 'idle' && pipeline.runtime.steps.length > 0) {
+      pipeline.runNextStep();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline.runtime.status, pipeline.runtime.steps.length]);
+
+  // Auto-run next step after confirm (when status transitions from paused to running)
+  useEffect(() => {
+    if (pipeline.runtime.status === 'running') {
+      const activeState = pipeline.runtime.steps[pipeline.runtime.activeStepIndex];
+      if (activeState && activeState.status === 'pending') {
+        pipeline.runNextStep();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline.runtime.status, pipeline.runtime.activeStepIndex]);
+
+  // FIX #6: Notify on step completion — only once per step
+  useEffect(() => {
+    for (const stepState of pipeline.runtime.steps) {
+      if (stepState.status === 'paused' && stepState.result && !notifiedStepsRef.current.has(stepState.stepId)) {
+        notifiedStepsRef.current.add(stepState.stepId);
+        onStepComplete?.(stepState.stepId, stepState.result);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline.runtime.steps]);
+
+  // Notify on pipeline completion — only once
+  useEffect(() => {
+    if (pipeline.runtime.status === 'completed' && !notifiedCompleteRef.current) {
+      notifiedCompleteRef.current = true;
+      const results: Record<string, StepResult> = {};
+      for (const stepState of pipeline.runtime.steps) {
+        if (stepState.result) {
+          results[stepState.stepId] = stepState.result;
+        }
+      }
+      onPipelineComplete?.(results);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline.runtime.status]);
+
+  // Notify on failure — only once
+  useEffect(() => {
+    if (pipeline.runtime.status === 'failed' && !notifiedFailedRef.current) {
+      notifiedFailedRef.current = true;
+      const failedStep = pipeline.runtime.steps.find(s => s.status === 'failed');
+      if (failedStep) {
+        onPipelineFailed?.(failedStep.stepId, failedStep.error ?? 'Unknown error');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline.runtime.status]);
+
+  // FIX #16: Cancel with confirmation
+  const handleCancelClick = useCallback(() => {
+    setShowCancelConfirm(true);
+  }, []);
+
+  const handleCancelConfirm = useCallback(() => {
+    setShowCancelConfirm(false);
+    pipeline.cancel();
+    onCancel?.();
+  }, [pipeline, onCancel]);
+
+  const handleCancelDismiss = useCallback(() => {
+    setShowCancelConfirm(false);
+  }, []);
+
+  const Icon = definition.icon;
+  const isTerminal = pipeline.runtime.status === 'completed' || pipeline.runtime.status === 'cancelled' || pipeline.runtime.status === 'failed';
+
+  return (
+    <Card className="border-border">
+      <CardHeader className="px-4 py-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10">
+              <Icon className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-foreground">{definition.name}</h3>
+              <p className="text-[10px] text-muted-foreground">{definition.description}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {pipeline.runtime.status === 'completed' && (
+              <Badge variant="secondary" className="text-xs">Complete</Badge>
+            )}
+            {pipeline.runtime.status === 'failed' && (
+              <Badge variant="destructive" className="text-xs">Failed</Badge>
+            )}
+            {pipeline.runtime.status === 'cancelled' && (
+              <Badge variant="secondary" className="text-xs">Cancelled</Badge>
+            )}
+            {!isTerminal && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCancelClick}
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+              >
+                <XCircle className="h-3.5 w-3.5 mr-1" />
+                Cancel
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {showCancelConfirm && (
+          <CancelConfirmation onConfirm={handleCancelConfirm} onDismiss={handleCancelDismiss} />
+        )}
+
+        <PipelineStepper
+          steps={definition.steps}
+          stepStates={pipeline.runtime.steps}
+          activeStepIndex={pipeline.runtime.activeStepIndex}
+        />
+      </CardHeader>
+
+      <Separator />
+
+      <CardContent className="p-3">
+          <div className="space-y-2">
+            {definition.steps.map((step, index) => {
+              const state = pipeline.runtime.steps[index];
+              if (!state) return null;
+
+              const isActive = index === pipeline.runtime.activeStepIndex;
+              const nextStep = definition.steps[index + 1];
+              const nextState = pipeline.runtime.steps[index + 1];
+
+              return (
+                <StepCard
+                  key={step.id}
+                  step={step}
+                  state={state}
+                  isActive={isActive}
+                  // FIX #18: Allow viewing completed step results
+                  allowExpand={state.status === 'completed' && !!state.result}
+                  nextStepSchema={
+                    isActive && state.status === 'paused' && nextStep
+                      ? nextStep.parameterSchema
+                      : undefined
+                  }
+                  nextStepParams={nextState?.params}
+                  onNextStepParamsChange={
+                    nextStep
+                      ? (params) => pipeline.updateStepParams(nextStep.id, params)
+                      : undefined
+                  }
+                  onConfirm={() => pipeline.confirmAndContinue()}
+                  onRetry={() => pipeline.retryStep()}
+                  onSkip={() => pipeline.skipStep()}
+                  onSelectionChange={(ids) => pipeline.setSelectedOutputs(step.id, ids)}
+                  onViewDesign={onDesignSelected}
+                />
+              );
+            })}
+          </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Wrap in error boundary
+export function PipelineRunner(props: PipelineRunnerProps) {
+  return (
+    <PipelineErrorBoundary
+      fallback={(error, reset) => (
+        <Card className="border-destructive/30">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-destructive">Pipeline Error</p>
+                <p className="text-xs text-muted-foreground">{error.message}</p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={reset}>
+                    Try Again
+                  </Button>
+                  {props.onCancel && (
+                    <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={props.onCancel}>
+                      Cancel
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    >
+      <PipelineRunnerInner {...props} />
+    </PipelineErrorBoundary>
+  );
+}

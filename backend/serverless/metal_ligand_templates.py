@@ -395,7 +395,7 @@ def _generate_calculated_template(
 def generate_complex_pdb(
     template_name: str,
     metal: Optional[str] = None,
-    center: Tuple[float, float, float] = (50.0, 50.0, 50.0),
+    center: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     include_hydrogens: bool = False,
 ) -> Optional[str]:
     """

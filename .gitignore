@@ -79,3 +79,6 @@ backend/serverless/sweep_config_*.json
 frontend/.next/
 frontend/tsconfig.tsbuildinfo
 .worktrees/
+
+# Continuous learning observations (local session data)
+.claude/homunculus/

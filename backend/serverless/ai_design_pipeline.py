@@ -1,6 +1,19 @@
 """
-AI-Powered Protein Design Pipeline
+DEPRECATED — AI-Powered Protein Design Pipeline
 
+This monolithic orchestrator has been superseded by the frontend modular pipeline
+(natural-language.ts → PipelineRunner) + the 'ai_parse' backend task.
+
+Kept as reference for future modular step implementations:
+- Scout mode (backbone filtering before full MPNN)
+- Dual validation (ESMFold + RF3)
+- Design history persistence
+- Lesson detection
+- Enzyme activity preservation
+
+The NL parsing (nl_design_parser.py) is still actively used via the 'ai_parse' task.
+
+Original description:
 Orchestrates the full design pipeline from natural language input to final report:
 1. NL Parse → DesignIntent
 2. Ligand Resolve → ResolvedLigand
@@ -64,6 +77,15 @@ except ImportError:
     SCAFFOLDING_AVAILABLE = False
     ScaffoldingWorkflow = None
     ScaffoldResult = None
+
+# Import scaffold search for auto-discovery
+try:
+    from scaffold_search import search_scaffold_candidates, SCAFFOLD_SEARCH_THRESHOLD
+    SCAFFOLD_SEARCH_AVAILABLE = True
+except ImportError:
+    SCAFFOLD_SEARCH_AVAILABLE = False
+    search_scaffold_candidates = None
+    SCAFFOLD_SEARCH_THRESHOLD = 50.0
 
 # Import ESMFold validation
 try:
@@ -173,6 +195,9 @@ class PipelineResult:
 
     # Analysis
     analysis_results: Dict[str, Any] = field(default_factory=dict)
+
+    # Scaffold search results
+    scaffold_search: Optional[Dict[str, Any]] = None
 
     # Report
     report: str = ""
@@ -383,8 +408,24 @@ class AIDesignPipeline:
                 result.error = f"Low confidence parsing: {intent.warnings}"
                 logger.warning(f"Low confidence parsing: {intent.confidence}")
 
+            # Stage 2: Resolve ligand (moved before router for scaffold search)
+            stage_start = time.time()
+            ligand = self._resolve_ligand(intent)
+            result.resolved_ligand = ligand
+            result.timings["resolve"] = time.time() - stage_start
+
+            if not ligand.resolved:
+                result.error = f"Could not resolve ligand: {ligand.warnings}"
+                logger.error(f"Ligand resolution failed: {ligand.warnings}")
+                return self._finalize_result(result, start_time)
+
+            # Stage 2b: Auto-scaffold search (de novo with metal+ligand only)
+            if not intent.is_scaffolding:
+                self._auto_scaffold_search(intent, ligand, result)
+
             # === DESIGN MODE ROUTER ===
             # Route to scaffolding workflow if PDB ID and scaffolding intent detected
+            # (now also catches auto-discovered scaffolds from Stage 2b)
             if intent.is_scaffolding and self.scaffolding_workflow:
                 logger.info(f"Routing to scaffolding workflow: PDB={intent.source_pdb_id}")
                 return self._run_scaffolding_pipeline(
@@ -397,17 +438,6 @@ class AIDesignPipeline:
                     scout_mode=scout_mode,
                 )
             # Otherwise continue with de novo design workflow
-
-            # Stage 2: Resolve ligand
-            stage_start = time.time()
-            ligand = self._resolve_ligand(intent)
-            result.resolved_ligand = ligand
-            result.timings["resolve"] = time.time() - stage_start
-
-            if not ligand.resolved:
-                result.error = f"Could not resolve ligand: {ligand.warnings}"
-                logger.error(f"Ligand resolution failed: {ligand.warnings}")
-                return self._finalize_result(result, start_time)
 
             # Stage 3: Generate configurations
             stage_start = time.time()
@@ -536,6 +566,59 @@ class AIDesignPipeline:
             intent.ligand_name or "",
             intent.metal_type,
         )
+
+    def _auto_scaffold_search(
+        self,
+        intent: DesignIntent,
+        ligand: ResolvedLigand,
+        result: 'PipelineResult',
+    ) -> None:
+        """Search PDB for scaffold candidates. Mutates intent if found. Non-fatal on error.
+
+        Only runs for de novo queries with both metal and ligand specified.
+        If a scaffold with score >= threshold is found, sets intent.design_mode
+        to 'scaffold' and intent.source_pdb_id to the best PDB ID.
+        """
+        if not SCAFFOLD_SEARCH_AVAILABLE:
+            return
+
+        metal = getattr(intent, 'metal_type', None)
+        ligand_name = getattr(intent, 'ligand_name', None)
+
+        if not metal or not ligand_name:
+            return
+
+        logger.info(f"Auto-scaffold search: {metal}+{ligand_name}")
+        stage_start = time.time()
+
+        try:
+            ligand_code = getattr(ligand, 'ligand_code', None) if ligand and ligand.resolved else None
+            ligand_smiles = getattr(ligand, 'smiles', None) if ligand and ligand.resolved else None
+
+            search_result = search_scaffold_candidates(
+                metal=metal,
+                ligand_name=ligand_name,
+                ligand_code=ligand_code,
+                ligand_smiles=ligand_smiles,
+            )
+
+            result.scaffold_search = search_result.to_dict()
+            result.timings["scaffold_search"] = time.time() - stage_start
+
+            best = search_result.best_candidate
+            if best is not None and best.total_score >= SCAFFOLD_SEARCH_THRESHOLD:
+                logger.info(
+                    f"Auto-scaffold: rerouting to scaffold mode "
+                    f"(PDB={best.pdb_id}, score={best.total_score:.0f})"
+                )
+                intent.design_mode = "scaffold"
+                intent.source_pdb_id = best.pdb_id
+            else:
+                logger.info(f"Auto-scaffold: staying de novo ({search_result.reason})")
+
+        except Exception as e:
+            logger.warning(f"Auto-scaffold search failed (non-fatal): {e}")
+            result.timings["scaffold_search"] = time.time() - stage_start
 
     def _generate_rfd3_config(
         self,

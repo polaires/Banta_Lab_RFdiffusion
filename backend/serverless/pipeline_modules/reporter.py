@@ -23,7 +23,7 @@ class Reporter:
     input_keys = []
     output_keys = ["report"]
     optional_keys = ["analysis", "predictions", "sequences", "design_intent",
-                     "backbone_pdbs", "scaffold_result"]
+                     "backbone_pdbs", "scaffold_result", "scaffold_search_result"]
 
     def __init__(self, **kwargs):
         self.overrides = kwargs
@@ -39,6 +39,9 @@ class Reporter:
 
         # Design intent summary
         self._add_intent_section(sections, context)
+
+        # Scaffold search results
+        self._add_scaffold_search_section(sections, context)
 
         # Scaffold info
         self._add_scaffold_section(sections, context)
@@ -80,6 +83,32 @@ class Reporter:
         if goal:
             sections.append(f"  Goal: {goal}")
         sections.append(f"  Mode: {mode}")
+
+    def _add_scaffold_search_section(self, sections: List[str], context: StepContext) -> None:
+        search = context.scaffold_search_result
+        if not search or not isinstance(search, dict):
+            return
+        if not search.get("searched"):
+            return
+        sections.append("")
+        sections.append("## Scaffold Search")
+        sections.append(f"  Query: {search.get('query_metal', '?')} + {search.get('query_ligand', '?')}")
+        sections.append(f"  Ligand code: {search.get('ligand_code', '?')}")
+        sections.append(f"  PDB hits: {search.get('num_pdb_hits', 0)}")
+        sections.append(f"  Validated: {search.get('num_validated', 0)}")
+
+        best = search.get("best_candidate")
+        if best:
+            sub_info = " (metal substitution)" if best.get("needs_substitution") else ""
+            sections.append(f"  Best: {best.get('pdb_id', '?')} "
+                          f"(score {best.get('total_score', 0):.0f}/100{sub_info})")
+
+        action = search.get("recommended_action", "de_novo")
+        reason = search.get("reason", "")
+        if action == "scaffold":
+            sections.append(f"  Decision: AUTO-SCAFFOLD -> {reason}")
+        else:
+            sections.append(f"  Decision: de novo -> {reason}")
 
     def _add_scaffold_section(self, sections: List[str], context: StepContext) -> None:
         scaffold = context.scaffold_result

@@ -150,8 +150,8 @@ def _build_metal_search_query(
                     "type": "terminal",
                     "service": "text",
                     "parameters": {
-                        "attribute": "rcsb_nonpolymer_entity.pdbx_description",
-                        "operator": "contains_words",
+                        "attribute": "rcsb_nonpolymer_entity_container_identifiers.nonpolymer_comp_id",
+                        "operator": "exact_match",
                         "value": metal.upper(),
                     },
                 },
@@ -210,8 +210,8 @@ def _build_metal_ligand_search_query(
                     "type": "terminal",
                     "service": "text",
                     "parameters": {
-                        "attribute": "rcsb_nonpolymer_entity.pdbx_description",
-                        "operator": "contains_words",
+                        "attribute": "rcsb_nonpolymer_entity_container_identifiers.nonpolymer_comp_id",
+                        "operator": "exact_match",
                         "value": metal.upper(),
                     },
                 },

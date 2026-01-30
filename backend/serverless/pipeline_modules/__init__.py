@@ -22,6 +22,7 @@ from pipeline_modules.structure_predictor import StructurePredictor
 from pipeline_modules.intent_parser import IntentParser
 from pipeline_modules.design_configurator import DesignConfigurator
 from pipeline_modules.scaffolder import Scaffolder
+from pipeline_modules.scaffold_searcher import ScaffoldSearcher
 from pipeline_modules.analyzer import Analyzer
 from pipeline_modules.reporter import Reporter
 
@@ -29,6 +30,7 @@ MODULE_REGISTRY = {
     "intent_parser": IntentParser,
     "design_configurator": DesignConfigurator,
     "scaffolder": Scaffolder,
+    "scaffold_searcher": ScaffoldSearcher,
     "backbone_generator": BackboneGenerator,
     "sequence_designer": SequenceDesigner,
     "structure_predictor": StructurePredictor,
@@ -45,5 +47,6 @@ __all__ = [
     "StructurePredictor",
     "Analyzer",
     "Reporter",
+    "ScaffoldSearcher",
     "MODULE_REGISTRY",
 ]

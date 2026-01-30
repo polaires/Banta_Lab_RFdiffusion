@@ -107,6 +107,7 @@ class StepContext:
 
     # Scaffold data
     scaffold_result: Optional[Dict[str, Any]] = None
+    scaffold_search_result: Optional[Dict[str, Any]] = None
 
     # Backbone PDB strings from RFD3
     backbone_pdbs: List[str] = field(default_factory=list)
@@ -158,6 +159,8 @@ class StepContext:
         # Include scaffold result
         if self.scaffold_result:
             result["scaffold_result"] = self.scaffold_result
+        if self.scaffold_search_result:
+            result["scaffold_search_result"] = self.scaffold_search_result
 
         # Backbone PDbs — include count, truncate if large
         if self.backbone_pdbs:

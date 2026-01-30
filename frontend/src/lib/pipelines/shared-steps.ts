@@ -216,8 +216,31 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
     async execute(ctx: StepExecutionContext): Promise<StepResult> {
       const { previousResults, selectedItems, params, initialParams } = ctx;
 
-      // Find PDB outputs from previous steps
-      const pdbOutputs = findPdbOutputs(previousResults, selectedItems);
+      // Sweep pass-through: if a prior step ran metal binding sweep (session_id),
+      // sequences are already designed — return them directly without re-running MPNN.
+      const sweepResult = Object.values(previousResults).find(
+        r => r.data?.session_id && r.sequences && r.sequences.length > 0
+      );
+      if (sweepResult) {
+        ctx.onProgress(100, 'Sequences already designed by metal binding sweep');
+        return {
+          id: `mpnn-passthrough-${Date.now()}`,
+          summary: `${sweepResult.sequences!.length} sequences from metal binding sweep (already designed)`,
+          sequences: sweepResult.sequences,
+          data: {
+            total_sequences: sweepResult.sequences!.length,
+            passthrough: true,
+            source: 'metal_binding_sweep',
+          },
+        };
+      }
+
+      // Find PDB outputs from previous steps, excluding scaffold search results
+      const pdbOutputs = findPdbOutputsExcluding(
+        previousResults,
+        selectedItems,
+        (_stepId, result) => !!(result.data?.searched),
+      );
       if (pdbOutputs.length === 0) {
         throw new Error('No backbone structures available for sequence design');
       }
@@ -232,7 +255,12 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
         }
       }
       if (!metalConfig.bias_AA && !metalConfig.omit_AA) {
-        const targetMetal = (initialParams.target_metal as string) || (initialParams.targetMetal as string);
+        // Check initialParams first, then fall back to intent result from previous steps
+        let targetMetal = (initialParams.target_metal as string) || (initialParams.targetMetal as string);
+        if (!targetMetal) {
+          const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+          targetMetal = (intentResult?.data?.target_metal as string) || '';
+        }
         if (targetMetal) {
           metalConfig = getMetalMpnnConfig(targetMetal);
         }
@@ -312,6 +340,46 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
 
     async execute(ctx: StepExecutionContext): Promise<StepResult> {
       const { previousResults, selectedItems } = ctx;
+
+      // Sweep pass-through: if a prior step ran metal binding sweep (session_id),
+      // structures are already validated — return them directly without re-running RF3.
+      const sweepResult = Object.values(previousResults).find(
+        r => r.data?.session_id && (r.pdbOutputs?.length ?? 0) > 0
+      );
+      if (sweepResult && sweepResult.pdbOutputs) {
+        ctx.onProgress(100, 'Structures already validated by metal binding sweep');
+        return {
+          id: `rf3-passthrough-${Date.now()}`,
+          summary: `${sweepResult.pdbOutputs.length} structures validated by sweep`,
+          pdbOutputs: sweepResult.pdbOutputs,
+          data: {
+            total_validated: sweepResult.pdbOutputs.length,
+            total_attempted: sweepResult.pdbOutputs.length,
+            success_rate: '100.0%',
+            passthrough: true,
+            source: 'metal_binding_sweep',
+          },
+        };
+      }
+      // Also handle sweep with session_id but only sequences (no PDB content embedded)
+      const sweepSeqOnly = Object.values(previousResults).find(
+        r => r.data?.session_id && r.sequences && r.sequences.length > 0 && !(r.pdbOutputs?.length)
+      );
+      if (sweepSeqOnly) {
+        ctx.onProgress(100, 'Sweep completed validation internally — skipping redundant RF3');
+        return {
+          id: `rf3-passthrough-${Date.now()}`,
+          summary: `${sweepSeqOnly.sequences!.length} sequences validated by sweep (no PDB re-prediction needed)`,
+          sequences: sweepSeqOnly.sequences,
+          data: {
+            total_validated: sweepSeqOnly.sequences!.length,
+            total_attempted: sweepSeqOnly.sequences!.length,
+            success_rate: '100.0%',
+            passthrough: true,
+            source: 'metal_binding_sweep',
+          },
+        };
+      }
 
       // Find sequences from previous MPNN step
       const sequences = findSequenceOutputs(previousResults, selectedItems);
@@ -735,12 +803,21 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
       ctx.onProgress(5, `Scout filtering ${pdbOutputs.length} backbones...`);
       checkAborted(ctx.abortSignal);
 
+      // Extract metal/ligand from intent result (NL pipeline) or initialParams (direct pipeline)
+      const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+      const scoutTargetMetal = (intentResult?.data?.target_metal as string)
+        || (initialParams.target_metal as string)
+        || '';
+      const scoutLigandSmiles = (intentResult?.data?.ligand_smiles as string)
+        || (initialParams.ligand_smiles as string)
+        || '';
+
       const result = await api.scoutFilter({
         backbone_pdbs: pdbOutputs.map(p => p.pdbContent),
         ptm_threshold: (params.ptm_threshold as number) ?? 0.6,
         plddt_threshold: (params.plddt_threshold as number) ?? 0.65,
-        target_metal: initialParams.target_metal as string,
-        ligand_smiles: initialParams.ligand_smiles as string,
+        target_metal: scoutTargetMetal,
+        ligand_smiles: scoutLigandSmiles,
       });
 
       checkAborted(ctx.abortSignal);
@@ -827,12 +904,18 @@ export function createSaveHistoryStep(overrides?: Partial<PipelineStepDefinition
         if (r.sequences) totalSequences += r.sequences.length;
       }
 
+      // Prefer contig from configure step (actual RFD3 config), fall back to intent
+      const configureResult = previousResults['configure'];
+      const contig = (configureResult?.data?.contig as string)
+        || (intentResult?.data?.contig as string)
+        || '';
+
       const designParams: Record<string, unknown> = {
         design_type: designType,
         target_metal: targetMetal,
         ligand_name: ligandName,
         user_prompt: initialParams.user_prompt,
-        contig: intentResult?.data?.contig,
+        contig,
       };
 
       const designOutputs: Record<string, unknown> = {
@@ -978,6 +1061,31 @@ function findPdbOutputs(
 
   // Iterate in insertion order (which matches step order)
   for (const result of Object.values(previousResults)) {
+    if (result.pdbOutputs) {
+      allPdbs.push(...result.pdbOutputs);
+    }
+  }
+
+  if (selectedItems.length > 0) {
+    return allPdbs.filter(p => selectedItems.includes(p.id));
+  }
+
+  return allPdbs;
+}
+
+/**
+ * Find PDB outputs from previous results, excluding steps whose data
+ * matches a predicate (e.g. scaffold search results that aren't designed backbones).
+ */
+function findPdbOutputsExcluding(
+  previousResults: Record<string, StepResult>,
+  selectedItems: string[],
+  excludeStepPredicate: (stepId: string, result: StepResult) => boolean,
+): PdbOutput[] {
+  const allPdbs: PdbOutput[] = [];
+
+  for (const [stepId, result] of Object.entries(previousResults)) {
+    if (excludeStepPredicate(stepId, result)) continue;
     if (result.pdbOutputs) {
       allPdbs.push(...result.pdbOutputs);
     }

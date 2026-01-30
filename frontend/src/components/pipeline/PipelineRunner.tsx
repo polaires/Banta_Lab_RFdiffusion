@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 // ScrollArea removed — parent panel handles scrolling
-import { XCircle, AlertTriangle } from 'lucide-react';
+import { XCircle, AlertTriangle, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePipeline, type PipelineCallbacks } from '@/hooks/usePipeline';
 import { useStore } from '@/lib/store';
@@ -85,6 +85,7 @@ function PipelineRunnerInner({
   const { setSelectedPdb, addJob } = useStore();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
+  const [autoRun, setAutoRun] = useState(false);
 
   // FIX #12: Pass store callbacks via the decoupled interface
   const pipelineCallbacks: PipelineCallbacks = {
@@ -146,6 +147,14 @@ function PipelineRunnerInner({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeline.runtime.status, pipeline.runtime.activeStepIndex]);
+
+  // Auto-confirm paused steps when Quick Run is active
+  useEffect(() => {
+    if (autoRun && pipeline.runtime.status === 'paused') {
+      pipeline.confirmAndContinue();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, pipeline.runtime.status]);
 
   // FIX #6: Notify on step completion — only once per step
   useEffect(() => {
@@ -239,15 +248,32 @@ function PipelineRunnerInner({
               <Badge variant="secondary" className="text-xs">Cancelled</Badge>
             )}
             {!isTerminal && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancelClick}
-                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
-              >
-                <XCircle className="h-3.5 w-3.5 mr-1" />
-                Cancel
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant={autoRun ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setAutoRun(prev => !prev)}
+                  className={cn(
+                    'h-7 px-2 text-xs',
+                    autoRun
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                      : 'text-muted-foreground hover:text-amber-600',
+                  )}
+                  title={autoRun ? 'Auto-proceeding through all steps' : 'Run all steps without pausing for review'}
+                >
+                  <Zap className="h-3.5 w-3.5 mr-1" />
+                  {autoRun ? 'Quick Run On' : 'Quick Run'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancelClick}
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive"
+                >
+                  <XCircle className="h-3.5 w-3.5 mr-1" />
+                  Cancel
+                </Button>
+              </div>
             )}
           </div>
         </div>

@@ -1904,6 +1904,10 @@ class FoundryAPI {
         pae: number;
         tier: string;
         status: string;
+        pdb_content?: string;
+        seed?: number;
+        coordination_number?: number;
+        geometry_rmsd?: number;
       }>;
     };
   }> {

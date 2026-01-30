@@ -309,6 +309,7 @@ export function MetalBindingForm({ health }: MetalBindingFormProps) {
               motif_pdb: pdbInput,
               metal,
               ligand,
+              sweep_configs: backendConfigs,
               designs_per_config: designsPerConfig,
               filters: pipelineState.filters,
             },
@@ -316,6 +317,16 @@ export function MetalBindingForm({ health }: MetalBindingFormProps) {
         });
 
         const data = await result.json();
+        if (!result.ok) {
+          const errMsg = data.error || `Backend returned ${result.status}`;
+          console.error('Pipeline API error:', errMsg);
+          throw new Error(errMsg);
+        }
+        if (data.output?.status === 'failed') {
+          const errMsg = data.output.error || 'Backend returned failure';
+          console.error('Pipeline execution error:', errMsg);
+          throw new Error(errMsg);
+        }
         if (data.output?.status === 'completed') {
           const pipelineResult = data.output.result;
 

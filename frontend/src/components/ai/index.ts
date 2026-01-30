@@ -44,5 +44,4 @@ export type { DesignResult } from './DesignGallery';
 export { AIDesignPipelineWorkflow, AIDesignPipelineStatus } from './AIDesignPipelineWorkflow';
 export type { AIDesignStage } from './AIDesignPipelineWorkflow';
 
-// AI Design Panel (complete UI for natural language design)
-export { AIDesignPanel } from './AIDesignPanel';
+// AIDesignPanel removed — replaced by AIDesignAssistantPanel + PipelineRunner

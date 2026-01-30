@@ -13,4 +13,4 @@ export {
   type UseDesignJobReturn,
 } from './useDesignJob';
 
-export { useAIDesign } from './useAIDesign';
+// useAIDesign removed — replaced by modular PipelineRunner + ai_parse backend task

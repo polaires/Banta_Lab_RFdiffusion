@@ -51,8 +51,13 @@ All endpoints via `POST http://localhost:8000/runsync` (local) or RunPod API:
 | `rf3` | RoseTTAFold3 structure prediction |
 | `mpnn` | Sequence design |
 | `validate_design` | Full validation pipeline (MPNN + ESMFold + RF3) |
-| `ai_design` | NL-driven end-to-end design pipeline |
+| `ai_parse` | NL intent parsing (Claude API + keyword fallback) |
+| `scaffold_search` | RCSB PDB scaffold discovery (metal+ligand) |
+| `scout_filter` | Scout: 1 seq/backbone → RF3 → filter weak backbones |
+| `save_design_history` | Persist pipeline run to design history |
+| `check_lessons` | Detect failure patterns, breakthroughs, improvements |
 | `workflow_run` | Modular pipeline via JSON workflow spec |
+| `metal_binding_design` | Metal binding sweep/production (round 7b) |
 | `interface_ligand_design` | Ligand-binding dimer |
 | `interface_metal_design` | Metal-coordinated dimer |
 | `binding_eval` | GNINA scoring |
@@ -62,16 +67,19 @@ All endpoints via `POST http://localhost:8000/runsync` (local) or RunPod API:
 
 ```
 backend/serverless/               # Main API handler (RunPod serverless)
-  handler.py                      #   API router (all tasks incl. workflow_run)
+  handler.py                      #   API router (all tasks incl. scout_filter, save_design_history, check_lessons)
   inference_utils.py              #   RFD3, RF3, MPNN inference engines
   esmfold_utils.py                #   ESMFold + RF3 structure validation (Kabsch RMSD)
-  ai_design_pipeline.py           #   NL → backbone → sequence → validation pipeline
+  ai_design_pipeline.py           #   DEPRECATED — monolithic NL pipeline (kept as reference)
   design_validation_pipeline.py   #   Post-design validation (MPNN + ESMFold + RF3)
   scaffolding_workflow.py         #   Motif-based scaffold design from PDB
+  scaffold_search.py              #   RCSB PDB scaffold discovery (metal+ligand)
   nl_design_parser.py             #   Natural language → DesignIntent
   ligand_resolver.py              #   Ligand name → SMILES/SDF resolution
   rfd3_config_generator.py        #   Intent → RFD3 config + scaffold_to_rfd3_params()
   design_rules.py                 #   Decision engine (stability profiles, bias)
+  design_history.py               #   DesignHistoryManager — persistent run storage
+  lesson_detector.py              #   LessonDetector — failure/breakthrough/improvement detection
   filter_evaluator.py             #   FILTER_PRESETS + FilterEvaluator class
   unified_analyzer.py             #   Comprehensive design analysis (geometry, contacts, etc.)
   pipeline_types.py               #   StepContext, PipelineStep protocol, result dataclasses
@@ -79,23 +87,29 @@ backend/serverless/               # Main API handler (RunPod serverless)
   workflow_runner.py              #   WorkflowRunner + run_workflow_spec()
   iteration_strategies.py         #   ScoutStrategy, SweepStrategy
   pipeline_modules/               #   Composable pipeline step modules
-    __init__.py                   #     MODULE_REGISTRY (all 8 modules)
+    __init__.py                   #     MODULE_REGISTRY (all 9 modules)
     intent_parser.py              #     M1: NL parse + ligand resolve
     design_configurator.py        #     M2: Intent → RFD3/MPNN configs
     scaffolder.py                 #     M3: PDB motif extraction
-    backbone_generator.py         #     M4: RFD3 backbone generation
-    sequence_designer.py          #     M5: MPNN sequence design
-    structure_predictor.py        #     M6: RF3/ESMFold prediction
-    analyzer.py                   #     M7: Analysis + filtering
-    reporter.py                   #     M8: Report generation
+    scaffold_searcher.py          #     M4: RCSB PDB scaffold search
+    backbone_generator.py         #     M5: RFD3 backbone generation
+    sequence_designer.py          #     M6: MPNN sequence design
+    structure_predictor.py        #     M7: RF3/ESMFold prediction
+    analyzer.py                   #     M8: Analysis + filtering
+    reporter.py                   #     M9: Report generation
   shared/                         #   Shared utilities (interaction_analysis, etc.)
   run_50_designs.py               #   CLI: batch design + RF3 validation script
   check_rmsd_rf3.py               #   CLI: RF3 RMSD validation script
 frontend/src/                     # React components (Next.js)
-  components/ai/                  #   AI design panel + pipeline workflow
-  components/pipeline/            #   PipelineRunner, WorkflowProgressCard
-  hooks/                          #   useAIDesign hook
-  lib/workflow-types.ts           #   WorkflowSpec, WorkflowProgress TS interfaces
+  components/ai/                  #   AI assistant panel + pipeline workflow
+  components/pipeline/            #   PipelineRunner, StepCard, preview components
+  hooks/                          #   useDesignJob hook
+  lib/api.ts                      #   FoundryAPI client (all backend tasks)
+  lib/pipeline-types.ts           #   PipelineStepDefinition, StepResult TS interfaces
+  lib/pipelines/                  #   Pipeline definitions
+    natural-language.ts           #     NL pipeline (10 steps, see below)
+    shared-steps.ts               #     Reusable step factories
+    metal-mpnn-bias.ts            #     Metal-aware MPNN bias config
 docs/                             # All documentation
   getting-started/                #   Setup guides
   archive/                        #   Old/superseded docs
@@ -177,12 +191,63 @@ for step in [BackboneGenerator(), SequenceDesigner(), StructurePredictor(), Anal
 - `FILTER_PRESETS` uses `{"min": X}` for quality scores, `{"max": X}` for error metrics
 - Frontend uses `'workflow'` job type with `WorkflowProgressCard` for step-by-step display
 
+## Frontend Natural Language Pipeline
+
+The primary user-facing pipeline is defined in `frontend/src/lib/pipelines/natural-language.ts`. It uses the `PipelineRunner` component which provides step-by-step execution with review gates, abort support, and design selection between steps.
+
+### Pipeline Flow (10 steps)
+
+```
+parse_intent → resolve_structure → scaffold_search → configure
+  → rfd3_nl (backbone generation)
+  → scout_filter (optional, general RFD3 path only)
+  → mpnn_nl (sequence design)
+  → rf3_nl (validation)
+  → analysis
+  → save_history (automatic)
+  → check_lessons (automatic)
+```
+
+### Step Details
+
+| Step | Factory | Key | Behavior |
+|------|---------|-----|----------|
+| Parse Intent | inline | `parse_intent` | AI parser (Claude API) or keyword fallback |
+| Resolve Structure | inline | `resolve_structure` | Fetch PDB from RCSB or accept upload |
+| Scaffold Search | `createScaffoldSearchStep` | `scaffold_search_nl` | Auto-discover PDB templates with metal+ligand |
+| Configure | inline | `configure` | Merge intent + scaffold + params → RFD3 config |
+| Structure Gen | inline | `rfd3_nl` | Metal path: sweep (RFD3+MPNN+RF3 in one). General: raw RFD3 |
+| Scout Filter | `createScoutFilterStep` | `scout_filter_nl` | 1 seq/backbone → RF3 → filter. Skips for metal sweep or ≤1 backbone |
+| MPNN | `createMpnnStep` | `mpnn_nl` | LigandMPNN sequence design with metal bias |
+| RF3 Validation | `createRf3Step` | `rf3_nl` | RoseTTAFold3 structure prediction per sequence |
+| Analysis | inline | `analysis` | Score, rank, optional metal evaluation |
+| Save History | `createSaveHistoryStep` | `save_history_nl` | Persist to backend design_history (non-fatal) |
+| Check Lessons | `createCheckLessonsStep` | `check_lessons_nl` | Detect failure patterns/breakthroughs (non-fatal) |
+
+### Preview Components
+
+| Component | Used By | Shows |
+|-----------|---------|-------|
+| `IntentResultPreview` | parse_intent | Parsed design type, metal, ligand, confidence |
+| `ScaffoldSearchResultPreview` | scaffold_search | Candidates table with scores, PDB links |
+| `ScoutResultPreview` | scout_filter | Pass/fail bar, per-backbone pTM/pLDDT table |
+| `LessonResultPreview` | check_lessons | Colored trigger banners (red/green/blue) |
+
+### Key Design Decisions
+
+- **Scout only on general RFD3 path**: Metal binding sweep already validates internally. Scout is auto-skipped when `session_id` is present (indicating sweep was used).
+- **History/lessons are automatic and non-fatal**: Save history and check lessons run silently. Errors don't block the pipeline.
+- **All new steps are optional**: Users can skip scout (proceed with all backbones), history, and lessons.
+- **Shared step factories** in `shared-steps.ts` are reused across pipelines via `createXxxStep({ id: 'custom_id' })`.
+
 ## Current Focus
 
+- **Frontend modular pipeline** as primary design interface (NL → PipelineRunner)
+- Scout mode for backbone pre-filtering before full MPNN
+- Design history persistence and lesson detection for iterative improvement
+- Scaffold search for auto-discovering PDB templates with metal+ligand
 - Motif scaffolding for metalloenzymes (PQQ-Ca, Dy-TriNOx)
 - Dual-method structure validation (ESMFold + RF3 best-of)
-- AI design pipeline with NL input → validated sequences
-- Enzyme activity preservation during redesign
 
 ## Documentation
 
@@ -258,21 +323,19 @@ Both `validate_design` and `ai_design` pipelines run dual-method validation:
 
 ## Design History & Lessons
 
-Local design experiments are tracked in `experiments/design_history/`.
+Design history is now integrated into the frontend pipeline as automatic steps (`save_history_nl` → `check_lessons_nl`). The backend tasks (`save_design_history`, `check_lessons`) use `DesignHistoryManager` and `LessonDetector` classes.
+
+Local design experiments are also tracked in `experiments/design_history/`.
 
 **Current lessons learned:** See `experiments/design_history/lessons/current_summary.md`
 
-### Auto-Analysis Workflow
+### Pipeline Integration (Automatic)
 
-**IMPORTANT:** After receiving design results from Docker API, always run analysis:
+The NL pipeline automatically saves results and checks for lesson triggers after analysis:
+- `save_history_nl`: Persists params, outputs, metrics via `DesignHistoryManager`
+- `check_lessons_nl`: Detects failure patterns (3+ similar), breakthroughs, improvements via `LessonDetector`
 
-1. Extract PDB content from API response
-2. Run `UnifiedDesignAnalyzer` on each design
-3. Evaluate against filter presets
-4. Save to design history
-5. Check for lesson triggers
-
-Use the `analyze-design` skill for detailed instructions.
+Both steps are non-fatal — errors don't block the pipeline.
 
 ### Manual Analysis
 
@@ -281,10 +344,13 @@ When running local design tests:
 2. Results auto-save to design_history with full provenance
 3. Lessons auto-update when significant patterns detected
 
+Use the `analyze-design` skill for detailed instructions.
+
 **Quick reference:**
 - Recent runs: `experiments/design_history/index.json`
 - Filter presets: `experiments/design_history/filter_presets/`
 - Lesson triggers: failure patterns (3+ similar), breakthroughs, significant improvements
+- Backend classes: `design_history.py` (DesignHistoryManager), `lesson_detector.py` (LessonDetector)
 
 **CLI usage:**
 ```bash

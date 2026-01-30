@@ -29,12 +29,24 @@ async function getCurrentUserId(): Promise<string | null> {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Check if serverless mode is available
+// Detect whether to use serverless mode.
+// Vercel deployments always use RunPod serverless; local dev uses traditional (localhost backend).
 const isServerlessAvailable = () => {
-  return !!(
-    process.env.NEXT_PUBLIC_RUNPOD_SERVERLESS === 'true' ||
-    (typeof window !== 'undefined' && (window as any).__RUNPOD_SERVERLESS__)
-  );
+  // Explicit env override takes priority
+  if (process.env.NEXT_PUBLIC_RUNPOD_SERVERLESS === 'true') return true;
+  if (process.env.NEXT_PUBLIC_RUNPOD_SERVERLESS === 'false') return false;
+  // Runtime override
+  if (typeof window !== 'undefined' && (window as any).__RUNPOD_SERVERLESS__) return true;
+  // Auto-detect: if running in browser and NOT on localhost, use serverless
+  // (Vercel, preview deploys, custom domains all need serverless — only localhost has a backend)
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1') return true;
+  }
+  // Server-side: Vercel sets VERCEL=1 automatically
+  if (process.env.VERCEL === '1') return true;
+  // Default: local development → traditional mode
+  return false;
 };
 
 export type ApiMode = 'traditional' | 'serverless';

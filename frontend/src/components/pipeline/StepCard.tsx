@@ -113,7 +113,8 @@ export function StepCard({
   // FIX #18: Allow toggling completed steps to review results
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
   const isExpandedByState = isActive && (isRunning || isPaused || isFailed);
-  const isExpanded = manualOpen !== null ? manualOpen : isExpandedByState;
+  // When allowExpand is set, default to expanded (icon-toggled view)
+  const isExpanded = manualOpen !== null ? manualOpen : (allowExpand || isExpandedByState);
 
   // FIX #17: Debounce action buttons to prevent rapid clicking
   const actionPendingRef = useRef(false);

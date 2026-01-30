@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   MessageSquare,
   FlaskConical,
   Building2,
   Type,
   ShieldCheck,
-  FileText,
   CheckCircle,
   AlertCircle,
   Check,
@@ -15,7 +14,6 @@ import {
   Loader2,
   Beaker,
   Atom,
-  ArrowRight,
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
@@ -125,6 +123,7 @@ export function AIDesignPipelineWorkflow({
 }: AIDesignPipelineWorkflowProps) {
   const [expanded, setExpanded] = useState(true);
   const [animatedStage, setAnimatedStage] = useState<string | null>(null);
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
 
   // Get current stage index
   const currentIndex = PIPELINE_STAGES.findIndex(s => s.id === currentStage);
@@ -270,54 +269,77 @@ export function AIDesignPipelineWorkflow({
               const styles = getStageStyles(status);
               const isAnimating = animatedStage === stage.id;
               const StageIcon = stage.Icon;
+              const isSelected = selectedStage === stage.id;
+              const hasDetails = status !== 'pending' && showDetails;
 
               return (
                 <div key={stage.id} className="flex flex-col items-center">
-                  {/* Icon Circle */}
-                  <div
+                  {/* Icon Circle — clickable to toggle details */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (hasDetails) {
+                        setSelectedStage(prev => prev === stage.id ? null : stage.id);
+                      }
+                    }}
                     className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300",
+                      "w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300",
                       styles.icon,
-                      isAnimating && "animate-pulse"
+                      isAnimating && "animate-pulse",
+                      hasDetails && "cursor-pointer hover:scale-110 hover:shadow-md",
+                      isSelected && "ring-2 ring-offset-2 ring-blue-500 dark:ring-blue-400",
+                      !hasDetails && "cursor-default"
                     )}
+                    title={hasDetails ? `Click for ${stage.name} details` : stage.description}
+                    disabled={!hasDetails}
                   >
                     {status === 'complete' ? (
-                      <Check className="w-4 h-4" />
+                      <Check className="w-6 h-6" />
                     ) : status === 'error' && index === currentIndex ? (
-                      <X className="w-4 h-4" />
+                      <X className="w-6 h-6" />
                     ) : isAnimating ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <Loader2 className="w-6 h-6 animate-spin" />
                     ) : (
-                      <StageIcon className="w-4 h-4" />
+                      <StageIcon className="w-6 h-6" />
                     )}
-                  </div>
+                  </button>
 
                   {/* Stage Name */}
-                  <span className={cn("mt-1 text-xs text-center", styles.text)}>
+                  <span className={cn("mt-1.5 text-xs text-center", styles.text)}>
                     {stage.name}
                   </span>
-
-                  {/* Arrow connector (except last) */}
-                  {index < PIPELINE_STAGES.length - 1 && (
-                    <ArrowRight
-                      className={cn(
-                        "absolute w-3 h-3 -right-2.5 top-3",
-                        index < currentIndex ? "text-emerald-500" : "text-muted-foreground/30"
-                      )}
-                      style={{ display: 'none' }} // Hidden for grid layout
-                    />
-                  )}
                 </div>
               );
             })}
           </div>
 
-          {/* Stage Details */}
-          {showDetails && stageInfo && (
-            <div className="mt-4 pt-4 border-t border-border space-y-2">
-              {/* Parsed Intent */}
-              {(stageInfo.metal || stageInfo.ligand) && (
-                <div className="flex items-center gap-4 text-sm">
+          {/* Toggled Stage Details — shown when an icon is clicked */}
+          {selectedStage && stageInfo && (() => {
+            const stage = PIPELINE_STAGES.find(s => s.id === selectedStage);
+            if (!stage) return null;
+            const stageIndex = PIPELINE_STAGES.findIndex(s => s.id === selectedStage);
+            const status = getStageStatus(stage.id, stageIndex);
+            const styles = getStageStyles(status);
+            const StageIcon = stage.Icon;
+
+            // Build detail items for the selected stage
+            const detailItems: React.ReactNode[] = [];
+
+            // Stage description
+            detailItems.push(
+              <div key="desc" className="flex items-center gap-2 text-sm">
+                <StageIcon className={cn("w-4 h-4", styles.desc)} />
+                <span className={cn("font-medium", styles.text)}>{stage.name}</span>
+                <span className="text-muted-foreground">— {stage.description}</span>
+              </div>
+            );
+
+            // Parsed Intent (relevant for parsing/resolving stages)
+            if ((selectedStage === 'parsing' || selectedStage === 'resolving' || selectedStage === 'configuring') &&
+                (stageInfo.metal || stageInfo.ligand)) {
+              detailItems.push(
+                <div key="intent" className="flex items-center gap-3 text-sm">
                   <span className="text-muted-foreground">Detected:</span>
                   {stageInfo.metal && (
                     <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 text-xs font-medium">
@@ -330,57 +352,60 @@ export function AIDesignPipelineWorkflow({
                     </span>
                   )}
                 </div>
-              )}
+              );
+            }
 
-              {/* Design Counts */}
-              {(stageInfo.numDesigns || stageInfo.numSequences) && (
-                <div className="flex items-center gap-4 text-sm">
+            // Design counts (relevant for backbone/sequence stages)
+            if ((selectedStage === 'backbone' || selectedStage === 'sequence') &&
+                (stageInfo.numDesigns || stageInfo.numSequences)) {
+              detailItems.push(
+                <div key="counts" className="flex items-center gap-3 text-sm">
                   <span className="text-muted-foreground">Generated:</span>
-                  {stageInfo.numDesigns && (
-                    <span className="text-foreground">
-                      {stageInfo.numDesigns} backbones
-                    </span>
+                  {stageInfo.numDesigns != null && (
+                    <span className="text-foreground">{stageInfo.numDesigns} backbones</span>
                   )}
-                  {stageInfo.numSequences && (
-                    <span className="text-foreground">
-                      {stageInfo.numSequences} sequences
-                    </span>
+                  {stageInfo.numSequences != null && (
+                    <span className="text-foreground">{stageInfo.numSequences} sequences</span>
                   )}
                 </div>
-              )}
+              );
+            }
 
-              {/* Validation Results */}
-              {stageInfo.passRate !== undefined && (
-                <div className="flex items-center gap-4 text-sm">
+            // Validation results (relevant for validation/analysis stages)
+            if ((selectedStage === 'validation' || selectedStage === 'analysis') &&
+                stageInfo.passRate !== undefined) {
+              detailItems.push(
+                <div key="validation" className="flex items-center gap-3 text-sm flex-wrap">
                   <span className="text-muted-foreground">Validation:</span>
-                  <span className={cn(
-                    "font-medium",
-                    stageInfo.passRate >= 0.2 ? "text-emerald-600" : "text-amber-600"
-                  )}>
+                  <span className={cn("font-medium", stageInfo.passRate >= 0.2 ? "text-emerald-600" : "text-amber-600")}>
                     {(stageInfo.passRate * 100).toFixed(0)}% pass rate
                   </span>
-                  {stageInfo.bestRmsd && (
-                    <span className="text-foreground">
-                      Best RMSD: {stageInfo.bestRmsd.toFixed(2)}Å
-                    </span>
+                  {stageInfo.bestRmsd != null && (
+                    <span className="text-foreground">Best RMSD: {stageInfo.bestRmsd.toFixed(2)}Å</span>
                   )}
-                  {stageInfo.bestPlddt && (
-                    <span className="text-foreground">
-                      pLDDT: {stageInfo.bestPlddt.toFixed(2)}
-                    </span>
+                  {stageInfo.bestPlddt != null && (
+                    <span className="text-foreground">pLDDT: {stageInfo.bestPlddt.toFixed(2)}</span>
                   )}
                 </div>
-              )}
+              );
+            }
 
-              {/* Current Status Message */}
-              {stageInfo.message && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            // Status message (for active stage)
+            if (stageInfo.message && selectedStage === currentStage) {
+              detailItems.push(
+                <div key="message" className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   {stageInfo.message}
                 </div>
-              )}
-            </div>
-          )}
+              );
+            }
+
+            return (
+              <div className="mt-4 pt-4 border-t border-border space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                {detailItems}
+              </div>
+            );
+          })()}
 
           {/* Error Message */}
           {isError && error && (

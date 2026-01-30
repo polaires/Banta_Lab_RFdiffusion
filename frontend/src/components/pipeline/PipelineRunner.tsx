@@ -84,6 +84,7 @@ function PipelineRunnerInner({
 }: PipelineRunnerProps) {
   const { setSelectedPdb, addJob } = useStore();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
 
   // FIX #12: Pass store callbacks via the decoupled interface
   const pipelineCallbacks: PipelineCallbacks = {
@@ -184,6 +185,18 @@ function PipelineRunnerInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeline.runtime.status]);
 
+  // Auto-select the active step when it changes (running/paused/failed)
+  useEffect(() => {
+    const activeState = pipeline.runtime.steps[pipeline.runtime.activeStepIndex];
+    if (activeState && (activeState.status === 'running' || activeState.status === 'paused' || activeState.status === 'failed')) {
+      setSelectedStepIndex(pipeline.runtime.activeStepIndex);
+    }
+  }, [pipeline.runtime.activeStepIndex, pipeline.runtime.steps]);
+
+  const handleStepClick = useCallback((index: number) => {
+    setSelectedStepIndex(prev => prev === index ? null : index);
+  }, []);
+
   // FIX #16: Cancel with confirmation
   const handleCancelClick = useCallback(() => {
     setShowCancelConfirm(true);
@@ -247,49 +260,54 @@ function PipelineRunnerInner({
           steps={definition.steps}
           stepStates={pipeline.runtime.steps}
           activeStepIndex={pipeline.runtime.activeStepIndex}
+          selectedStepIndex={selectedStepIndex}
+          onStepClick={handleStepClick}
         />
       </CardHeader>
 
       <Separator />
 
       <CardContent className="p-3">
-          <div className="space-y-2">
-            {definition.steps.map((step, index) => {
-              const state = pipeline.runtime.steps[index];
-              if (!state) return null;
+          {selectedStepIndex !== null && (() => {
+            const step = definition.steps[selectedStepIndex];
+            const state = pipeline.runtime.steps[selectedStepIndex];
+            if (!step || !state) return null;
 
-              const isActive = index === pipeline.runtime.activeStepIndex;
-              const nextStep = definition.steps[index + 1];
-              const nextState = pipeline.runtime.steps[index + 1];
+            const isActive = selectedStepIndex === pipeline.runtime.activeStepIndex;
+            const nextStep = definition.steps[selectedStepIndex + 1];
+            const nextState = pipeline.runtime.steps[selectedStepIndex + 1];
 
-              return (
-                <StepCard
-                  key={step.id}
-                  step={step}
-                  state={state}
-                  isActive={isActive}
-                  // FIX #18: Allow viewing completed step results
-                  allowExpand={state.status === 'completed' && !!state.result}
-                  nextStepSchema={
-                    isActive && state.status === 'paused' && nextStep
-                      ? nextStep.parameterSchema
-                      : undefined
-                  }
-                  nextStepParams={nextState?.params}
-                  onNextStepParamsChange={
-                    nextStep
-                      ? (params) => pipeline.updateStepParams(nextStep.id, params)
-                      : undefined
-                  }
-                  onConfirm={() => pipeline.confirmAndContinue()}
-                  onRetry={() => pipeline.retryStep()}
-                  onSkip={() => pipeline.skipStep()}
-                  onSelectionChange={(ids) => pipeline.setSelectedOutputs(step.id, ids)}
-                  onViewDesign={onDesignSelected}
-                />
-              );
-            })}
-          </div>
+            return (
+              <StepCard
+                key={step.id}
+                step={step}
+                state={state}
+                isActive={isActive}
+                allowExpand
+                nextStepSchema={
+                  isActive && state.status === 'paused' && nextStep
+                    ? nextStep.parameterSchema
+                    : undefined
+                }
+                nextStepParams={nextState?.params}
+                onNextStepParamsChange={
+                  nextStep
+                    ? (params) => pipeline.updateStepParams(nextStep.id, params)
+                    : undefined
+                }
+                onConfirm={() => pipeline.confirmAndContinue()}
+                onRetry={() => pipeline.retryStep()}
+                onSkip={() => pipeline.skipStep()}
+                onSelectionChange={(ids) => pipeline.setSelectedOutputs(step.id, ids)}
+                onViewDesign={onDesignSelected}
+              />
+            );
+          })()}
+          {selectedStepIndex === null && (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Click a step icon above to view its details
+            </p>
+          )}
       </CardContent>
     </Card>
   );

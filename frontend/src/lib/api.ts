@@ -619,6 +619,14 @@ class FoundryAPI {
     return `/api/traditional/${cleanPath}?url=${encodeURIComponent(this.baseUrl)}`;
   }
 
+  // Get the runsync endpoint URL based on current mode
+  private getRunsyncEndpoint(): string {
+    if (this.mode === 'serverless') {
+      return '/api/runpod/runsync';
+    }
+    return `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+  }
+
   // Health check
   async checkHealth(): Promise<HealthResponse> {
     if (this.mode === 'serverless') {
@@ -682,7 +690,7 @@ class FoundryAPI {
     } else {
       // Traditional mode uses Next.js proxy to avoid CORS issues
       // runsync is SYNCHRONOUS - result comes back in same request
-      const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+      const proxyUrl = this.getRunsyncEndpoint();
       console.log('[API] Submitting RFD3 design via traditional mode:', proxyUrl);
 
       let response: Response;
@@ -765,7 +773,7 @@ class FoundryAPI {
     }
 
     // Traditional mode uses Next.js proxy to avoid CORS issues
-    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const proxyUrl = this.getRunsyncEndpoint();
     const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -830,7 +838,7 @@ class FoundryAPI {
     }
 
     // Traditional mode uses Next.js proxy to avoid CORS issues
-    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const proxyUrl = this.getRunsyncEndpoint();
     const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -866,7 +874,7 @@ class FoundryAPI {
     const jobId = `workflow-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Traditional mode: synchronous call through RunPod
-    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const proxyUrl = this.getRunsyncEndpoint();
     const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -920,7 +928,7 @@ class FoundryAPI {
     }
 
     // Traditional mode uses Next.js proxy to avoid CORS issues
-    const proxyUrl = `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
+    const proxyUrl = this.getRunsyncEndpoint();
     const response = await fetch(proxyUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -951,7 +959,7 @@ class FoundryAPI {
     }
 
     // Traditional mode uses Next.js proxy
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1105,7 +1113,7 @@ class FoundryAPI {
       throw new Error('Metal binding analysis not available in serverless mode');
     }
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1134,7 +1142,7 @@ class FoundryAPI {
       throw new Error('Parameter recommendation not available in serverless mode');
     }
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1163,7 +1171,7 @@ class FoundryAPI {
       throw new Error('Design evaluation not available in serverless mode');
     }
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1196,7 +1204,7 @@ class FoundryAPI {
     console.log('[API] Detecting hotspots for target chain:', request.target_chain || 'A');
 
     // Traditional mode uses Next.js proxy
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1228,7 +1236,7 @@ class FoundryAPI {
   async analyzeConservation(request: { pdb_content: string; chain?: string }): Promise<ConservationAnalysisResponse> {
     console.log('[API] Analyzing conservation for chain:', request.chain || 'A');
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1411,7 +1419,7 @@ class FoundryAPI {
     }
 
     // Traditional mode
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1451,7 +1459,7 @@ class FoundryAPI {
     }
 
     // Traditional mode
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1492,7 +1500,7 @@ class FoundryAPI {
     }
 
     // Traditional mode
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1634,7 +1642,7 @@ class FoundryAPI {
   }> {
     console.log('[API] Starting pipeline:', request.mode);
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1690,7 +1698,7 @@ class FoundryAPI {
       pass_rate: number;
     };
   }> {
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1752,7 +1760,7 @@ class FoundryAPI {
   async cancelPipeline(sessionId: string): Promise<{ status: string; session_id: string }> {
     console.log(`[API] Cancelling pipeline ${sessionId}`);
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1777,7 +1785,7 @@ class FoundryAPI {
   ): Promise<{ status: string; filename: string; content: string; num_sequences: number }> {
     console.log(`[API] Exporting pipeline ${sessionId} to FASTA`);
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1824,7 +1832,7 @@ class FoundryAPI {
   }> {
     console.log('[API] Analyzing metal binding site');
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1905,7 +1913,7 @@ class FoundryAPI {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15 * 60 * 1000);
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1976,7 +1984,7 @@ class FoundryAPI {
   }> {
     console.log('[API] Searching for scaffold candidates:', request.metal, request.ligand_name || request.ligand_code);
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2029,7 +2037,7 @@ class FoundryAPI {
   }> {
     console.log('[API] Parsing intent with AI:', query.substring(0, 80));
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2074,7 +2082,7 @@ class FoundryAPI {
   }> {
     console.log('[API] Starting metal binding production');
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2126,7 +2134,7 @@ class FoundryAPI {
   }> {
     console.log('[API] Running scout filter on', request.backbone_pdbs.length, 'backbones');
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2157,7 +2165,7 @@ class FoundryAPI {
   }): Promise<{ run_id: string; session_id: string }> {
     console.log('[API] Saving design history:', request.session_name);
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2194,7 +2202,7 @@ class FoundryAPI {
   }> {
     console.log('[API] Checking for lesson triggers');
 
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2236,7 +2244,7 @@ class FoundryAPI {
       config_rankings: Array<{ rank: number; config_name: string; pass_rate: number }>;
     };
   }> {
-    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+    const response = await fetch(this.getRunsyncEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

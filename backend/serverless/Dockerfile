@@ -207,6 +207,7 @@ COPY metal_binding_pipeline.py /app/
 COPY ligand_resolver.py /app/
 COPY rfd3_config_generator.py /app/
 COPY scaffolding_workflow.py /app/
+COPY scaffold_search.py /app/
 
 # Copy utils package (SASA calculator, DSSP for secondary structure)
 COPY utils/ /app/utils/

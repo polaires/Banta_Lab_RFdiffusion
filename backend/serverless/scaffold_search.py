@@ -53,8 +53,8 @@ class ScaffoldCandidate:
     # Component scores (0-max for each dimension)
     score_cn: float = 0.0         # CN match (max 25)
     score_hsab: float = 0.0       # HSAB donor compat (max 20)
-    score_lig_donors: float = 0.0  # Ligand donor count (max 15)
-    score_prot_donors: float = 0.0  # Protein donor count (max 15)
+    score_lig_donors: float = 0.0  # Ligand donor count (max 20)
+    score_prot_donors: float = 0.0  # Protein donor count (max 10)
     score_distance: float = 0.0   # Bond distance quality (max 15)
     score_resolution: float = 0.0  # Resolution (max 10)
 
@@ -254,9 +254,13 @@ def _search_pdb_hits(
     Two-phase PDB search: exact metal+ligand, then compatible metal+ligand.
 
     Phase 1: Search for structures with the exact target metal + ligand.
-    Phase 2: Search for structures with HSAB-compatible metals + ligand.
+    Phase 2: Search for structures with ALL HSAB-compatible metals + ligand.
 
-    Returns combined, deduplicated list of hits.
+    Collects hits from all compatible metals before applying the limit,
+    so high-quality hits from less-common metals aren't crowded out by
+    abundant hits from the first compatible metal queried.
+
+    Returns combined, deduplicated list of hits (up to limit).
     """
     seen_pdb_ids = set()
     all_hits = []
@@ -274,28 +278,29 @@ def _search_pdb_hits(
             seen_pdb_ids.add(pdb_id)
             all_hits.append(hit)
 
-    # Phase 2: Compatible metals (only if we haven't filled the limit)
-    if len(all_hits) < limit:
-        compatible_metals = _get_hsab_compatible_metals(target_metal)
-        remaining = limit - len(all_hits)
+    # Phase 2: Query ALL compatible metals (don't stop early at limit)
+    # Each metal gets a per-metal cap to avoid one metal dominating,
+    # but we collect from all metals before applying the final limit.
+    compatible_metals = _get_hsab_compatible_metals(target_metal)
+    per_metal_cap = max(limit * 3, 30)  # Cast wide net; scoring picks the best
 
-        for compat_metal in compatible_metals:
-            if len(all_hits) >= limit:
-                break
-            compat_hits = query_metal_ligand_sites(
-                metal=compat_metal,
-                ligand=ligand_code,
-                resolution_max=resolution_max,
-                limit=remaining,
-            )
-            for hit in compat_hits:
-                pdb_id = hit["pdb_id"]
-                if pdb_id not in seen_pdb_ids:
-                    seen_pdb_ids.add(pdb_id)
-                    all_hits.append(hit)
-                    if len(all_hits) >= limit:
-                        break
+    for compat_metal in compatible_metals:
+        compat_hits = query_metal_ligand_sites(
+            metal=compat_metal,
+            ligand=ligand_code,
+            resolution_max=resolution_max,
+            limit=per_metal_cap,
+        )
+        for hit in compat_hits:
+            pdb_id = hit["pdb_id"]
+            if pdb_id not in seen_pdb_ids:
+                seen_pdb_ids.add(pdb_id)
+                all_hits.append(hit)
 
+    # Apply final limit — exact metal hits come first (already at front),
+    # then compatible metal hits in query order
+    # Don't truncate here — let validation + scoring filter down to the best.
+    # The caller applies its own limit after ranking.
     return all_hits
 
 
@@ -345,8 +350,8 @@ def _score_candidate(
 
     1. CN match to target (25 pts) -- actual CN vs expected range
     2. HSAB donor compatibility (20 pts) -- validate_coordination_chemistry()
-    3. Ligand donor count (15 pts) -- more ligand donors = better template
-    4. Protein donor count (15 pts) -- more protein donors = richer environment
+    3. Ligand donor count (20 pts) -- more ligand donors = deeper chelation
+    4. Protein donor count (10 pts) -- protein coordination environment
     5. Bond distance quality (15 pts) -- avg distance vs optimal range
     6. Resolution (10 pts) -- lower resolution = better structure
     """
@@ -396,27 +401,34 @@ def _score_candidate(
     except Exception:
         candidate.score_hsab = 5.0
 
-    # --- 3. Ligand donor count (15 pts) -- max at 3+ ---
+    # --- 3. Ligand donor count (20 pts) -- rewards richer ligand coordination ---
+    # More ligand donors = ligand is deeply chelating the metal (better template).
+    # Scaled: 1->4, 2->8, 3->12, 4->15, 5->17, 6+->20
     n_lig = len(candidate.ligand_donors)
-    if n_lig >= 3:
+    if n_lig >= 6:
+        candidate.score_lig_donors = 20.0
+    elif n_lig >= 4:
         candidate.score_lig_donors = 15.0
+    elif n_lig == 3:
+        candidate.score_lig_donors = 12.0
     elif n_lig == 2:
-        candidate.score_lig_donors = 10.0
+        candidate.score_lig_donors = 8.0
     elif n_lig == 1:
-        candidate.score_lig_donors = 5.0
+        candidate.score_lig_donors = 4.0
     else:
         candidate.score_lig_donors = 0.0
 
-    # --- 4. Protein donor count (15 pts) -- max at 4+ ---
+    # --- 4. Protein donor count (10 pts) -- max at 4+ ---
+    # Protein donors matter but less than ligand coordination for metal-ligand scaffolds.
     n_prot = len(candidate.protein_donors)
     if n_prot >= 4:
-        candidate.score_prot_donors = 15.0
+        candidate.score_prot_donors = 10.0
     elif n_prot == 3:
-        candidate.score_prot_donors = 11.0
+        candidate.score_prot_donors = 8.0
     elif n_prot == 2:
-        candidate.score_prot_donors = 7.0
+        candidate.score_prot_donors = 5.0
     elif n_prot == 1:
-        candidate.score_prot_donors = 3.0
+        candidate.score_prot_donors = 2.0
     else:
         candidate.score_prot_donors = 0.0
 

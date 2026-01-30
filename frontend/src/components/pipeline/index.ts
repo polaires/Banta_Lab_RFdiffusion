@@ -4,3 +4,7 @@ export { StepCard } from './StepCard';
 export { StepResultPreview } from './StepResultPreview';
 export { StepParameterEditor } from './StepParameterEditor';
 export { DesignSelector } from './DesignSelector';
+export { ScaffoldSearchResultPreview } from './ScaffoldSearchResultPreview';
+export { ScoutResultPreview } from './ScoutResultPreview';
+export { LessonResultPreview } from './LessonResultPreview';
+export { IntentResultPreview } from './IntentResultPreview';

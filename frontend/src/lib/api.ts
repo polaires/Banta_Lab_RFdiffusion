@@ -1921,6 +1921,126 @@ class FoundryAPI {
   }
 
   /**
+   * Search RCSB PDB for scaffold candidates containing a metal-ligand complex.
+   * Reusable across any pipeline that needs to find existing structures.
+   */
+  async searchScaffold(request: {
+    metal: string;
+    ligand_name?: string;
+    ligand_code?: string;
+    ligand_smiles?: string;
+    resolution_max?: number;
+    limit?: number;
+    fetch_pdb?: boolean;
+  }): Promise<{
+    searched: boolean;
+    query_metal: string;
+    query_ligand: string;
+    ligand_code: string;
+    num_pdb_hits: number;
+    num_validated: number;
+    candidates: Array<{
+      pdb_id: string;
+      source_metal: string;
+      target_metal: string;
+      ligand_code: string;
+      needs_substitution: boolean;
+      coordination_number: number;
+      total_score: number;
+    }>;
+    best_candidate: {
+      pdb_id: string;
+      source_metal: string;
+      target_metal: string;
+      ligand_code: string;
+      needs_substitution: boolean;
+      coordination_number: number;
+      total_score: number;
+    } | null;
+    recommended_action: 'scaffold' | 'de_novo';
+    reason: string;
+    best_pdb_content?: string;
+    candidate_pdbs?: Record<string, string | null>;
+  }> {
+    console.log('[API] Searching for scaffold candidates:', request.metal, request.ligand_name || request.ligand_code);
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'scaffold_search',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Scaffold search failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Scaffold search failed');
+    }
+
+    return result.output?.result || result.result;
+  }
+
+  /**
+   * Parse a natural language design query using the backend AI parser (Claude API).
+   * Falls back to keyword-based parsing if no API key is configured.
+   */
+  async parseIntent(query: string): Promise<{
+    metal_type?: string;
+    ligand_name?: string;
+    design_goal: string;
+    target_topology: string;
+    chain_length_min: number;
+    chain_length_max: number;
+    design_mode: string;
+    source_pdb_id?: string;
+    pocket_description?: string;
+    include_all_contacts: boolean;
+    stability_focus: boolean;
+    enzyme_class?: string;
+    enzyme_class_confidence: number;
+    preserve_function: boolean;
+    confidence: number;
+    raw_query: string;
+    corrected_query: string;
+    warnings: string[];
+    suggestions: string[];
+    parsed_entities: Record<string, unknown>;
+    typo_corrections: string[];
+    parser_type: 'ai' | 'fallback';
+  }> {
+    console.log('[API] Parsing intent with AI:', query.substring(0, 80));
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'ai_parse',
+          query,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI parse failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'AI parse failed');
+    }
+
+    return result.output?.result || result.result;
+  }
+
+  /**
    * Run production mode for metal binding design with best or specified config.
    */
   async startMetalBindingProduction(request: {
@@ -1964,6 +2084,122 @@ class FoundryAPI {
     }
 
     return result.output || result;
+  }
+
+  // ============== Scout Filter, Design History, Lesson Detection ==============
+
+  /**
+   * Filter backbones by generating 1 scout sequence each and validating.
+   * Returns only passing backbones with scout metrics.
+   */
+  async scoutFilter(request: {
+    backbone_pdbs: string[];
+    ptm_threshold?: number;
+    plddt_threshold?: number;
+    target_metal?: string;
+    ligand_smiles?: string;
+  }): Promise<{
+    filtered_pdbs: string[];
+    original_count: number;
+    passing_count: number;
+    scout_results: Array<{
+      backbone_index: number;
+      ptm: number;
+      plddt: number;
+      passed: boolean;
+      sequence: string;
+    }>;
+    ptm_threshold: number;
+    plddt_threshold: number;
+  }> {
+    console.log('[API] Running scout filter on', request.backbone_pdbs.length, 'backbones');
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'scout_filter', ...request },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Scout filter failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Scout filter failed');
+    }
+
+    return result.output?.result || result.result;
+  }
+
+  /**
+   * Save a completed pipeline run to persistent design history.
+   */
+  async saveDesignHistory(request: {
+    session_name: string;
+    design_params: Record<string, unknown>;
+    design_outputs: Record<string, unknown>;
+    design_metrics: Record<string, unknown>;
+  }): Promise<{ run_id: string; session_id: string }> {
+    console.log('[API] Saving design history:', request.session_name);
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'save_design_history', ...request },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Save design history failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Save design history failed');
+    }
+
+    return result.output?.result || result.result;
+  }
+
+  /**
+   * Check if this design run triggers any lesson patterns.
+   */
+  async checkLessons(request: {
+    result: Record<string, unknown>;
+  }): Promise<{
+    trigger_detected: boolean;
+    trigger?: {
+      type: 'failure_pattern' | 'breakthrough' | 'improvement';
+      description: string;
+      relevant_designs: string[];
+      metrics_involved: string[];
+    };
+    history_count: number;
+  }> {
+    console.log('[API] Checking for lesson triggers');
+
+    const response = await fetch(`/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { task: 'check_lessons', ...request },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Check lessons failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Check lessons failed');
+    }
+
+    return result.output?.result || result.result;
   }
 
   /**

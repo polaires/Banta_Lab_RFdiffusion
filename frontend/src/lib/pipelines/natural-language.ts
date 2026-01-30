@@ -1,6 +1,6 @@
 /**
  * Natural Language Pipeline
- * Steps: parse_intent → resolve_structure → configure → rfd3_design → mpnn_sequence → validation → analysis
+ * Steps: parse_intent → resolve_structure → scaffold_search → configure → structure_gen → mpnn_sequence → validation → analysis
  *
  * This pipeline handles free-form natural language requests by parsing user intent,
  * resolving the target structure, and configuring the appropriate design parameters.
@@ -10,7 +10,168 @@ import { MessageSquare, Search, Settings, Building2, Shield, Dna, BarChart3 } fr
 import api from '@/lib/api';
 import { extractPdbContent } from '@/lib/workflowHandlers';
 import type { PipelineDefinition, PdbOutput, SequenceOutput } from '@/lib/pipeline-types';
-import { createMpnnStep, createRf3Step } from './shared-steps';
+import {
+  createMpnnStep,
+  createRf3Step,
+  createScaffoldSearchStep,
+  createScoutFilterStep,
+  createSaveHistoryStep,
+  createCheckLessonsStep,
+} from './shared-steps';
+import { IntentResultPreview } from '@/components/pipeline/IntentResultPreview';
+
+// ============================================================================
+// AI Parse Helpers
+// ============================================================================
+
+/** SMILES lookup table for known ligands */
+const LIGAND_SMILES: Record<string, string> = {
+  citrate: 'OC(=O)CC(O)(CC(O)=O)C(O)=O',
+  atp: 'c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N',
+  glucose: 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O',
+  azobenzene: 'c1ccc(/N=N/c2ccccc2)cc1',
+};
+
+/** Map AI DesignIntent fields to the pipeline's design_type enum */
+function mapDesignType(ai: { metal_type?: string; design_mode?: string; target_topology?: string; design_goal?: string }): string {
+  if (ai.metal_type) return 'metal';
+  if (ai.design_mode === 'scaffold') return 'scaffold';
+  if (ai.target_topology?.includes('dimer')) return 'ligand';
+  if (ai.design_goal === 'binding') return 'binder';
+  return 'general';
+}
+
+/** Lookup SMILES for a ligand name */
+function lookupSmiles(name?: string): string {
+  if (!name) return '';
+  return LIGAND_SMILES[name.toLowerCase()] || '';
+}
+
+/** Build a human-readable description from AI parsed intent */
+function buildDescription(ai: { metal_type?: string; ligand_name?: string; design_goal?: string; enzyme_class?: string; design_mode?: string }): string {
+  const parts: string[] = [];
+  if (ai.enzyme_class) {
+    parts.push(`${ai.enzyme_class} design`);
+  } else if (ai.design_goal && ai.design_goal !== 'binding') {
+    parts.push(`${ai.design_goal} design`);
+  }
+  if (ai.metal_type && ai.ligand_name) {
+    parts.push(`Metal-ligand binding: ${ai.metal_type} + ${ai.ligand_name}`);
+  } else if (ai.metal_type) {
+    parts.push(`Metal binding: ${ai.metal_type}`);
+  } else if (ai.ligand_name) {
+    parts.push(`Ligand binding: ${ai.ligand_name}`);
+  }
+  if (ai.design_mode === 'scaffold') {
+    parts.push('(scaffold mode)');
+  }
+  return parts.length > 0 ? parts.join(' — ') : 'General protein design';
+}
+
+/** Keyword-based fallback parser (original logic, used when backend AI is unavailable) */
+function keywordFallbackParse(prompt: string, pdbId?: string): Record<string, unknown> {
+  const promptLower = prompt.toLowerCase();
+  let designType = 'general';
+  let targetMetal = '';
+  let ligandName = '';
+  let ligandSmiles = '';
+  let description = 'General protein design';
+
+  // 1) Detect metals
+  const metalNameMap: Record<string, string> = {
+    zinc: 'ZN', iron: 'FE', copper: 'CU', manganese: 'MN',
+    calcium: 'CA', magnesium: 'MG', cobalt: 'CO', nickel: 'NI',
+    terbium: 'TB', lanthanide: 'TB', cadmium: 'CD', lead: 'PB',
+    chromium: 'CR', molybdenum: 'MO', vanadium: 'V',
+    europium: 'EU', gadolinium: 'GD', lanthanum: 'LA', cerium: 'CE',
+    neodymium: 'ND',
+  };
+  const metalSymbolMap: Record<string, string> = {
+    zn: 'ZN', fe: 'FE', cu: 'CU', mn: 'MN', ca: 'CA', mg: 'MG',
+    co: 'CO', ni: 'NI', tb: 'TB', cd: 'CD', pb: 'PB', cr: 'CR',
+    mo: 'MO', eu: 'EU', gd: 'GD', la: 'LA', ce: 'CE', nd: 'ND',
+    v: 'V',
+  };
+
+  for (const [keyword, symbol] of Object.entries(metalNameMap)) {
+    if (promptLower.includes(keyword)) {
+      designType = 'metal';
+      targetMetal = symbol;
+      description = `Metal binding design targeting ${keyword}`;
+      break;
+    }
+  }
+  if (!targetMetal) {
+    for (const [sym, symbol] of Object.entries(metalSymbolMap)) {
+      const regex = new RegExp(`\\b${sym}\\b`, 'i');
+      if (regex.test(promptLower)) {
+        designType = 'metal';
+        targetMetal = symbol;
+        description = `Metal binding design targeting ${symbol}`;
+        break;
+      }
+    }
+  }
+  if (!targetMetal && promptLower.includes('metal')) {
+    designType = 'metal';
+    targetMetal = 'ZN';
+    description = 'Metal binding design (default: zinc)';
+  }
+
+  // 2) Detect ligands
+  const ligandMap: Record<string, { name: string; smiles: string }> = {
+    citrate:  { name: 'citrate',  smiles: 'OC(=O)CC(O)(CC(O)=O)C(O)=O' },
+    citric:   { name: 'citrate',  smiles: 'OC(=O)CC(O)(CC(O)=O)C(O)=O' },
+    atp:      { name: 'ATP',      smiles: 'c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N' },
+    nad:      { name: 'NAD+',     smiles: '' },
+    glucose:  { name: 'glucose',  smiles: 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O' },
+    azobenzene: { name: 'azobenzene', smiles: 'c1ccc(/N=N/c2ccccc2)cc1' },
+    heme:     { name: 'heme',     smiles: '' },
+  };
+
+  for (const [keyword, info] of Object.entries(ligandMap)) {
+    if (promptLower.includes(keyword)) {
+      ligandName = info.name;
+      ligandSmiles = info.smiles;
+      break;
+    }
+  }
+
+  if (targetMetal && ligandName) {
+    description = `Metal-ligand binding design: ${targetMetal} + ${ligandName}`;
+  }
+
+  // 3) Detect binder requests
+  if (designType === 'general' && (promptLower.includes('bind') || promptLower.includes('binder'))) {
+    designType = 'binder';
+    description = ligandName ? `Protein binder design for ${ligandName}` : 'Protein binder design';
+  }
+
+  // 4) Detect ligand-dimer/interface requests
+  if (promptLower.includes('dimer') || promptLower.includes('interface')) {
+    designType = 'ligand';
+    description = 'Ligand-mediated dimer design';
+  }
+
+  // 5) Detect scaffold requests
+  if (promptLower.includes('scaffold') || promptLower.includes('sweep')) {
+    designType = 'scaffold';
+    description = 'Scaffold sweep design';
+  }
+
+  return {
+    design_type: designType,
+    target_metal: targetMetal,
+    ligand_name: ligandName,
+    ligand_smiles: ligandSmiles,
+    pdb_id: pdbId || 'Not specified',
+    user_prompt: prompt,
+    parsed_description: description,
+    ai_parsed: false,
+  };
+}
+
+// ============================================================================
 
 export const naturalLanguagePipeline: PipelineDefinition = {
   id: 'natural-language',
@@ -42,102 +203,59 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       optional: false,
       defaultParams: {},
       parameterSchema: [],
+      ResultPreview: IntentResultPreview,
 
       async execute(ctx) {
         const { initialParams } = ctx;
         const prompt = initialParams.user_prompt as string || '';
         const pdbId = initialParams.pdb_id as string;
 
-        ctx.onProgress(20, 'Parsing design request...');
+        ctx.onProgress(10, 'Analyzing design request with AI...');
 
-        // Intent parsing from prompt keywords
-        const promptLower = prompt.toLowerCase();
-        let designType = 'general';
-        let targetMetal = '';
-        let ligandName = '';
-        let ligandSmiles = '';
-        let description = 'General protein design';
+        let intentData: Record<string, unknown>;
+        let usedAI = false;
 
-        // 1) Detect metals FIRST (highest priority — overrides binder detection)
-        const metalMap: Record<string, string> = {
-          zinc: 'ZN', iron: 'FE', copper: 'CU', manganese: 'MN',
-          calcium: 'CA', magnesium: 'MG', cobalt: 'CO', nickel: 'NI',
-          terbium: 'TB', lanthanide: 'TB', cadmium: 'CD', lead: 'PB',
-          chromium: 'CR', molybdenum: 'MO', vanadium: 'V',
-        };
-
-        for (const [keyword, symbol] of Object.entries(metalMap)) {
-          if (promptLower.includes(keyword)) {
-            designType = 'metal';
-            targetMetal = symbol;
-            description = `Metal binding design targeting ${keyword}`;
-            break;
-          }
-        }
-        if (!targetMetal && promptLower.includes('metal')) {
-          designType = 'metal';
-          targetMetal = 'ZN';
-          description = 'Metal binding design (default: zinc)';
-        }
-
-        // 2) Detect common ligands / small molecules
-        const ligandMap: Record<string, { name: string; smiles: string }> = {
-          citrate:  { name: 'citrate',  smiles: 'OC(=O)CC(O)(CC(O)=O)C(O)=O' },
-          citric:   { name: 'citrate',  smiles: 'OC(=O)CC(O)(CC(O)=O)C(O)=O' },
-          atp:      { name: 'ATP',      smiles: 'c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N' },
-          nad:      { name: 'NAD+',     smiles: '' },
-          glucose:  { name: 'glucose',  smiles: 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O' },
-          azobenzene: { name: 'azobenzene', smiles: 'c1ccc(/N=N/c2ccccc2)cc1' },
-          heme:     { name: 'heme',     smiles: '' },
-        };
-
-        for (const [keyword, info] of Object.entries(ligandMap)) {
-          if (promptLower.includes(keyword)) {
-            ligandName = info.name;
-            ligandSmiles = info.smiles;
-            break;
-          }
+        try {
+          // Try backend AI parser (Claude API or keyword fallback on server)
+          const ai = await api.parseIntent(prompt);
+          usedAI = true;
+          intentData = {
+            design_type: mapDesignType(ai),
+            target_metal: ai.metal_type || '',
+            ligand_name: ai.ligand_name || '',
+            ligand_smiles: lookupSmiles(ai.ligand_name),
+            pdb_id: ai.source_pdb_id || pdbId || 'Not specified',
+            user_prompt: prompt,
+            parsed_description: buildDescription(ai),
+            // AI-specific fields
+            design_goal: ai.design_goal,
+            target_topology: ai.target_topology,
+            chain_length_min: ai.chain_length_min,
+            chain_length_max: ai.chain_length_max,
+            design_mode: ai.design_mode,
+            enzyme_class: ai.enzyme_class,
+            enzyme_class_confidence: ai.enzyme_class_confidence,
+            preserve_function: ai.preserve_function,
+            confidence: ai.confidence,
+            warnings: ai.warnings,
+            suggestions: ai.suggestions,
+            parsed_entities: ai.parsed_entities,
+            typo_corrections: ai.typo_corrections,
+            parser_type: ai.parser_type,
+            ai_parsed: true,
+          };
+        } catch (err) {
+          // Fallback: local keyword-based parsing (works without backend)
+          console.warn('[parse_intent] AI parse unavailable, using keyword fallback:', err);
+          intentData = keywordFallbackParse(prompt, pdbId);
         }
 
-        // If both metal and ligand detected, it's a metal+ligand binding design
-        if (targetMetal && ligandName) {
-          description = `Metal-ligand binding design: ${targetMetal} + ${ligandName}`;
-        }
-
-        // 3) Detect binder requests — only if NO metal was detected
-        if (designType === 'general' && (promptLower.includes('bind') || promptLower.includes('binder'))) {
-          designType = 'binder';
-          description = ligandName
-            ? `Protein binder design for ${ligandName}`
-            : 'Protein binder design';
-        }
-
-        // 4) Detect ligand-dimer/interface requests
-        if (promptLower.includes('dimer') || promptLower.includes('interface')) {
-          designType = 'ligand';
-          description = 'Ligand-mediated dimer design';
-        }
-
-        // 5) Detect scaffold requests
-        if (promptLower.includes('scaffold') || promptLower.includes('sweep')) {
-          designType = 'scaffold';
-          description = 'Scaffold sweep design';
-        }
-
-        ctx.onProgress(100, 'Intent parsed');
+        ctx.onProgress(100, usedAI ? 'AI parsing complete' : 'Intent parsed (fallback)');
 
         return {
           id: `intent-${Date.now()}`,
-          summary: description,
-          data: {
-            design_type: designType,
-            target_metal: targetMetal,
-            ligand_name: ligandName,
-            ligand_smiles: ligandSmiles,
-            pdb_id: pdbId || 'Not specified',
-            user_prompt: prompt,
-            parsed_description: description,
-          },
+          summary: intentData.parsed_description as string,
+          data: intentData,
         };
       },
     },
@@ -209,7 +327,13 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 3: Configure design parameters
+    // Step 3: Scaffold search — auto-discover PDB scaffolds for metal+ligand
+    createScaffoldSearchStep({
+      id: 'scaffold_search_nl',
+      description: 'Search RCSB PDB for structures with the target metal-ligand complex (auto-skipped if not applicable)',
+    }),
+
+    // Step 4: Configure design parameters
     {
       id: 'configure',
       name: 'Configure Parameters',
@@ -282,8 +406,12 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           configData.de_novo = true;
 
           if (!configData.contig) {
-            // Choose contig based on design type and complexity
-            if (designType === 'metal' && ligandName) {
+            // Use AI-recommended chain lengths if available
+            if (intentResult?.data?.ai_parsed && intentResult.data.chain_length_min && intentResult.data.chain_length_max) {
+              const min = intentResult.data.chain_length_min as number;
+              const max = intentResult.data.chain_length_max as number;
+              configData.contig = `${min}-${max}`;
+            } else if (designType === 'metal' && ligandName) {
               // Metal + ligand binding pocket: ~80 residues, enough for a 4-helix bundle with binding site
               configData.contig = '70-100';
             } else if (designType === 'metal') {
@@ -317,11 +445,11 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 4: Structure design — uses metal_binding_design sweep for metal+ligand, raw rfd3 otherwise
+    // Step 5: Structure design — uses metal_binding_design sweep for metal+ligand, raw rfd3 otherwise
     {
       id: 'rfd3_nl',
-      name: 'Structure Generation',
-      description: 'Generate backbone structures with RFD3 (uses round7b workflow for metal+ligand)',
+      name: 'Structure & Sequence Generation',
+      description: 'Generate structures with RFD3. For metal+ligand: runs full sweep (backbone → MPNN → RF3 validation)',
       icon: Building2,
       requiresReview: true,
       supportsSelection: true,
@@ -357,7 +485,18 @@ export const naturalLanguagePipeline: PipelineDefinition = {
 
         // --- Metal + Ligand: use the round7b metal_binding_design sweep endpoint ---
         if (designType === 'metal' && targetMetal) {
-          ctx.onProgress(5, `Starting metal binding design (${targetMetal}${ligandName ? ` + ${ligandName}` : ''})...`);
+          // Check if scaffold search found a PDB to use as motif
+          const scaffoldResult = Object.values(previousResults).find(
+            r => r.data?.searched && r.data?.recommended_action === 'scaffold'
+          );
+          const scaffoldPdb = scaffoldResult?.pdbOutputs?.[0]?.pdbContent;
+          const scaffoldId = scaffoldResult?.data?.scaffold_pdb_id as string;
+
+          if (scaffoldPdb && scaffoldId) {
+            ctx.onProgress(5, `Using scaffold ${scaffoldId} for ${targetMetal}${ligandName ? ` + ${ligandName}` : ''} design...`);
+          } else {
+            ctx.onProgress(5, `Starting metal binding design (${targetMetal}${ligandName ? ` + ${ligandName}` : ''})...`);
+          }
 
           // Map ligand_name to backend ligand code
           const ligandCodeMap: Record<string, string> = {
@@ -365,15 +504,18 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           };
           const ligandCode = ligandCodeMap[ligandName.toLowerCase()] || undefined;
 
-          // Use 2 configs × 1 design each for NL pipeline (~3 min total)
+          // Use scaffold PDB as motif if available, otherwise backend uses template
+          const motifPdb = scaffoldPdb || pdbContent || '';
+
+          // Use 2 configs × 1 design each for NL pipeline
           // Full sweeps with more configs can be done via Metal Scaffold pipeline
           const sweepResult = await api.startMetalBindingSweep({
-            motif_pdb: pdbContent || '',  // Backend generates from template if empty
+            motif_pdb: motifPdb,
             metal: targetMetal,
             ligand: ligandCode,
             sizes: ['small', 'medium'],
             cfg_scales: [2.0],
-            designs_per_config: Number(params.num_designs) || 1,
+            designs_per_config: 1,  // NL pipeline: 1 design per config for quick iteration
           });
 
           ctx.onProgress(90, 'Processing sweep results...');
@@ -511,13 +653,16 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 5: MPNN sequence design
+    // Step 5.5: Scout filter (optional — validates 1 seq per backbone and filters)
+    createScoutFilterStep({ id: 'scout_filter_nl' }),
+
+    // Step 6: MPNN sequence design
     createMpnnStep({ id: 'mpnn_nl' }),
 
-    // Step 6: RF3 validation
+    // Step 7: RF3 validation
     createRf3Step({ id: 'rf3_nl' }),
 
-    // Step 7: Final analysis
+    // Step 8: Final analysis
     {
       id: 'analysis',
       name: 'Final Analysis',
@@ -593,5 +738,11 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         };
       },
     },
+
+    // Step 9: Save to design history (automatic, no user interaction)
+    createSaveHistoryStep({ id: 'save_history_nl' }),
+
+    // Step 10: Check for lesson triggers (shows results if detected)
+    createCheckLessonsStep({ id: 'check_lessons_nl' }),
   ],
 };

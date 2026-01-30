@@ -4,7 +4,7 @@
  * that calls the backend API.
  */
 
-import { Dna, Shield, BarChart3, Search } from 'lucide-react';
+import { Dna, Shield, BarChart3, Search, Database, History, Lightbulb } from 'lucide-react';
 import api from '@/lib/api';
 import { extractPdbContent } from '@/lib/workflowHandlers';
 import { getMetalMpnnConfig } from './metal-mpnn-bias';
@@ -17,6 +17,9 @@ import type {
   PdbOutput,
   SequenceOutput,
 } from '@/lib/pipeline-types';
+import { ScaffoldSearchResultPreview } from '@/components/pipeline/ScaffoldSearchResultPreview';
+import { ScoutResultPreview } from '@/components/pipeline/ScoutResultPreview';
+import { LessonResultPreview } from '@/components/pipeline/LessonResultPreview';
 
 // ---- Helpers ----
 
@@ -507,6 +510,457 @@ export function createAnalyzeStep(overrides?: Partial<PipelineStepDefinition>): 
           ligands: analysis.ligands?.map(l => l.name).join(', ') || 'None',
         },
       };
+    },
+
+    ...overrides,
+  };
+}
+
+/**
+ * Create a scaffold search step that queries RCSB PDB for existing structures
+ * containing a target metal-ligand complex. If a good scaffold is found,
+ * its PDB content is passed forward for downstream steps to use.
+ *
+ * Reusable across any pipeline that designs around metal-ligand binding sites.
+ */
+export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
+  return {
+    id: 'scaffold_search',
+    name: 'Scaffold Search',
+    description: 'Search RCSB PDB for existing structures with the target metal-ligand complex',
+    icon: Database,
+    requiresReview: true,
+    supportsSelection: false,
+    optional: true,
+    defaultParams: {
+      resolution_max: 3.0,
+      limit: 10,
+    },
+    parameterSchema: [
+      { id: 'resolution_max', label: 'Max Resolution (\u00C5)', type: 'slider', required: false, defaultValue: 3.0, range: { min: 1.0, max: 5.0, step: 0.5 }, helpText: 'Maximum crystallographic resolution for PDB search' },
+      { id: 'limit', label: 'Max Candidates', type: 'slider', required: false, defaultValue: 10, range: { min: 1, max: 25, step: 1 }, helpText: 'Maximum number of PDB hits to validate' },
+    ],
+
+    async execute(ctx: StepExecutionContext): Promise<StepResult> {
+      const { previousResults, params, initialParams } = ctx;
+
+      // Extract metal and ligand from previous parse step or initial params
+      const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+      const targetMetal = (intentResult?.data?.target_metal as string) || (initialParams.target_metal as string) || '';
+      const ligandName = (intentResult?.data?.ligand_name as string) || (initialParams.ligand_name as string) || '';
+      const ligandSmiles = (intentResult?.data?.ligand_smiles as string) || (initialParams.ligand_smiles as string) || '';
+
+      // Guard: skip if no metal+ligand or already have a PDB
+      if (!targetMetal || !ligandName) {
+        return {
+          id: `scaffold-skip-${Date.now()}`,
+          summary: 'Skipped: metal and ligand required for scaffold search',
+          data: { skipped: true, reason: 'No metal or ligand specified' },
+        };
+      }
+
+      const structureResult = Object.values(previousResults).find(r => r.pdbOutputs && r.pdbOutputs.length > 0);
+      if (structureResult) {
+        return {
+          id: `scaffold-skip-${Date.now()}`,
+          summary: 'Skipped: input structure already provided',
+          data: { skipped: true, reason: 'PDB structure already available from previous step' },
+        };
+      }
+
+      ctx.onProgress(10, `Searching RCSB for ${targetMetal} + ${ligandName} structures...`);
+
+      checkAborted(ctx.abortSignal);
+
+      try {
+        const searchResult = await api.searchScaffold({
+          metal: targetMetal,
+          ligand_name: ligandName,
+          ligand_smiles: ligandSmiles || undefined,
+          resolution_max: (params.resolution_max as number) ?? 3.0,
+          limit: (params.limit as number) ?? 10,
+          fetch_pdb: true,
+        });
+
+        checkAborted(ctx.abortSignal);
+
+        ctx.onProgress(80, 'Processing search results...');
+
+        const pdbOutputs: PdbOutput[] = [];
+        const candidatePdbs = searchResult.candidate_pdbs || {};
+
+        // Create PDB outputs for ALL candidates with fetched content
+        if (searchResult.candidates) {
+          for (const candidate of searchResult.candidates) {
+            const pdbContent = candidatePdbs[candidate.pdb_id];
+            if (pdbContent) {
+              pdbOutputs.push({
+                id: `scaffold-${candidate.pdb_id}`,
+                label: `${candidate.pdb_id} (score: ${candidate.total_score})`,
+                pdbContent,
+                metrics: {
+                  score: candidate.total_score,
+                  coordination: candidate.coordination_number,
+                  source_metal: candidate.source_metal,
+                  needs_substitution: candidate.needs_substitution ? 'Yes' : 'No',
+                },
+              });
+            }
+          }
+        }
+        // Fallback: use best_pdb_content if candidate_pdbs wasn't populated
+        if (pdbOutputs.length === 0 && searchResult.best_pdb_content && searchResult.best_candidate) {
+          const best = searchResult.best_candidate;
+          pdbOutputs.push({
+            id: `scaffold-${best.pdb_id}`,
+            label: `${best.pdb_id} (score: ${best.total_score})`,
+            pdbContent: searchResult.best_pdb_content,
+            metrics: {
+              score: best.total_score,
+              coordination: best.coordination_number,
+              source_metal: best.source_metal,
+              needs_substitution: best.needs_substitution ? 'Yes' : 'No',
+            },
+          });
+        }
+
+        ctx.onProgress(100, searchResult.recommended_action === 'scaffold'
+          ? `Found scaffold: ${searchResult.best_candidate?.pdb_id}`
+          : 'No suitable scaffold found — using de novo');
+
+        return {
+          id: `scaffold-${Date.now()}`,
+          summary: searchResult.recommended_action === 'scaffold'
+            ? `Found ${searchResult.best_candidate!.pdb_id} (score: ${searchResult.best_candidate!.total_score}, ${searchResult.num_pdb_hits} hits, ${searchResult.num_validated} validated)`
+            : `No scaffold found (${searchResult.num_pdb_hits} hits, ${searchResult.num_validated} validated). ${searchResult.reason}`,
+          pdbOutputs,
+          data: {
+            searched: true,
+            recommended_action: searchResult.recommended_action,
+            query_metal: searchResult.query_metal,
+            query_ligand: searchResult.query_ligand,
+            ligand_code: searchResult.ligand_code,
+            num_pdb_hits: searchResult.num_pdb_hits,
+            num_validated: searchResult.num_validated,
+            candidates: searchResult.candidates,
+            best_candidate: searchResult.best_candidate,
+            reason: searchResult.reason,
+            // Pass scaffold PDB ID forward for downstream steps
+            scaffold_pdb_id: searchResult.best_candidate?.pdb_id,
+          },
+        };
+      } catch (err) {
+        // Non-fatal: scaffold search failure should not block the pipeline
+        const message = err instanceof Error ? err.message : String(err);
+        ctx.onProgress(100, `Scaffold search failed (non-fatal): ${message}`);
+
+        return {
+          id: `scaffold-fail-${Date.now()}`,
+          summary: `Scaffold search failed: ${message}. Continuing with de novo.`,
+          data: { searched: false, search_error: message, recommended_action: 'de_novo' },
+        };
+      }
+    },
+
+    ResultPreview: ScaffoldSearchResultPreview,
+
+    ...overrides,
+  };
+}
+
+/**
+ * Create a scout filter step that validates 1 sequence per backbone
+ * and removes backbones that fail pTM/pLDDT thresholds.
+ *
+ * Applies only to the general RFD3 path. Skips automatically when:
+ * - Previous step was metal binding sweep (already validated)
+ * - No pdbOutputs from previous step
+ * - Only 1 backbone (not worth filtering)
+ */
+export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
+  return {
+    id: 'scout_filter',
+    name: 'Scout Filter',
+    description: 'Validate 1 sequence per backbone and filter out weak backbones',
+    icon: Shield,
+    requiresReview: true,
+    supportsSelection: false,
+    optional: true,
+    defaultParams: {
+      ptm_threshold: 0.6,
+      plddt_threshold: 0.65,
+    },
+    parameterSchema: [
+      { id: 'ptm_threshold', label: 'pTM Threshold', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Minimum pTM to pass scout validation' },
+      { id: 'plddt_threshold', label: 'pLDDT Threshold', type: 'slider', required: false, defaultValue: 0.65, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Minimum pLDDT to pass scout validation' },
+    ],
+
+    ResultPreview: ScoutResultPreview,
+
+    async execute(ctx: StepExecutionContext): Promise<StepResult> {
+      const { previousResults, selectedItems, params, initialParams } = ctx;
+
+      // Guard: skip if metal sweep (already validated internally)
+      const rfd3Result = previousResults['rfd3_nl'];
+      if (rfd3Result?.data?.session_id) {
+        return {
+          id: `scout-skip-${Date.now()}`,
+          summary: 'Skipped: metal sweep already validated',
+          data: { skipped: true, reason: 'Metal binding sweep performs internal validation' },
+        };
+      }
+
+      // Gather PDB outputs from previous steps
+      const pdbOutputs = findPdbOutputs(previousResults, selectedItems);
+
+      // Guard: skip if no backbones
+      if (pdbOutputs.length === 0) {
+        return {
+          id: `scout-skip-${Date.now()}`,
+          summary: 'Skipped: no backbone structures',
+          data: { skipped: true, reason: 'No backbone PDB outputs from previous step' },
+        };
+      }
+
+      // Guard: skip if only 1 backbone (not worth filtering)
+      if (pdbOutputs.length <= 1) {
+        return {
+          id: `scout-skip-${Date.now()}`,
+          summary: 'Skipped: single backbone',
+          pdbOutputs,
+          data: { skipped: true, reason: 'Only 1 backbone — scout filtering not needed' },
+        };
+      }
+
+      ctx.onProgress(5, `Scout filtering ${pdbOutputs.length} backbones...`);
+      checkAborted(ctx.abortSignal);
+
+      const result = await api.scoutFilter({
+        backbone_pdbs: pdbOutputs.map(p => p.pdbContent),
+        ptm_threshold: (params.ptm_threshold as number) ?? 0.6,
+        plddt_threshold: (params.plddt_threshold as number) ?? 0.65,
+        target_metal: initialParams.target_metal as string,
+        ligand_smiles: initialParams.ligand_smiles as string,
+      });
+
+      checkAborted(ctx.abortSignal);
+
+      ctx.onProgress(90, 'Processing scout results...');
+
+      // Build filtered PDB outputs — only passing backbones
+      const filteredOutputs: PdbOutput[] = [];
+      for (const sr of result.scout_results) {
+        if (sr.passed) {
+          const originalPdb = pdbOutputs[sr.backbone_index];
+          if (originalPdb) {
+            filteredOutputs.push({
+              id: `scout-pass-${sr.backbone_index}`,
+              label: `${originalPdb.label} (scout: pTM=${sr.ptm.toFixed(2)}, pLDDT=${sr.plddt.toFixed(2)})`,
+              pdbContent: originalPdb.pdbContent,
+              metrics: {
+                ...originalPdb.metrics,
+                scout_ptm: sr.ptm,
+                scout_plddt: sr.plddt,
+              },
+            });
+          }
+        }
+      }
+
+      ctx.onProgress(100, `Scout: ${result.passing_count}/${result.original_count} passed`);
+
+      return {
+        id: `scout-${Date.now()}`,
+        summary: `Scout filter: ${result.passing_count}/${result.original_count} backbones passed`,
+        pdbOutputs: filteredOutputs,
+        data: {
+          original_count: result.original_count,
+          passing_count: result.passing_count,
+          scout_results: result.scout_results,
+          ptm_threshold: result.ptm_threshold,
+          plddt_threshold: result.plddt_threshold,
+        },
+      };
+    },
+
+    ...overrides,
+  };
+}
+
+/**
+ * Create a save history step that persists pipeline results to the backend
+ * design history store. Runs automatically, no user interaction needed.
+ */
+export function createSaveHistoryStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
+  return {
+    id: 'save_history',
+    name: 'Save History',
+    description: 'Save design results to persistent history for pattern tracking',
+    icon: History,
+    requiresReview: false,
+    supportsSelection: false,
+    optional: true,
+    defaultParams: {},
+    parameterSchema: [],
+
+    async execute(ctx: StepExecutionContext): Promise<StepResult> {
+      const { previousResults, initialParams } = ctx;
+
+      ctx.onProgress(10, 'Gathering pipeline results...');
+
+      // Gather intent/config data from earlier steps
+      const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+      const designType = intentResult?.data?.design_type as string || 'general';
+      const targetMetal = intentResult?.data?.target_metal as string || '';
+      const ligandName = intentResult?.data?.ligand_name as string || '';
+
+      // Gather analysis metrics from latest analysis step
+      const analysisResult = previousResults['analysis'];
+      const totalAnalyzed = analysisResult?.data?.total_analyzed as number || 0;
+      const topScore = analysisResult?.data?.top_score as number || 0;
+
+      // Count all PDBs and sequences across the pipeline
+      let totalPdbs = 0;
+      let totalSequences = 0;
+      for (const r of Object.values(previousResults)) {
+        if (r.pdbOutputs) totalPdbs += r.pdbOutputs.length;
+        if (r.sequences) totalSequences += r.sequences.length;
+      }
+
+      const designParams: Record<string, unknown> = {
+        design_type: designType,
+        target_metal: targetMetal,
+        ligand_name: ligandName,
+        user_prompt: initialParams.user_prompt,
+        contig: intentResult?.data?.contig,
+      };
+
+      const designOutputs: Record<string, unknown> = {
+        backbone_count: totalPdbs,
+        sequence_count: totalSequences,
+      };
+
+      const designMetrics: Record<string, unknown> = {
+        design_type: designType,
+        total_analyzed: totalAnalyzed,
+        top_plddt: topScore,
+      };
+
+      ctx.onProgress(50, 'Saving to design history...');
+
+      try {
+        const saved = await api.saveDesignHistory({
+          session_name: `nl_${designType}`,
+          design_params: designParams,
+          design_outputs: designOutputs,
+          design_metrics: designMetrics,
+        });
+
+        ctx.onProgress(100, 'History saved');
+
+        return {
+          id: `history-${Date.now()}`,
+          summary: `Saved to history (run: ${saved.run_id})`,
+          data: {
+            run_id: saved.run_id,
+            session_id: saved.session_id,
+          },
+        };
+      } catch (err) {
+        // Non-fatal — don't block the pipeline
+        const message = err instanceof Error ? err.message : String(err);
+        ctx.onProgress(100, `History save failed (non-fatal): ${message}`);
+
+        return {
+          id: `history-fail-${Date.now()}`,
+          summary: `History save failed: ${message}`,
+          data: { save_error: message },
+        };
+      }
+    },
+
+    ...overrides,
+  };
+}
+
+/**
+ * Create a check lessons step that detects failure patterns,
+ * breakthroughs, and improvements in the design history.
+ */
+export function createCheckLessonsStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
+  return {
+    id: 'check_lessons',
+    name: 'Check Lessons',
+    description: 'Detect failure patterns, breakthroughs, or improvements in design history',
+    icon: Lightbulb,
+    requiresReview: true,
+    supportsSelection: false,
+    optional: true,
+    defaultParams: {},
+    parameterSchema: [],
+
+    ResultPreview: LessonResultPreview,
+
+    async execute(ctx: StepExecutionContext): Promise<StepResult> {
+      const { previousResults } = ctx;
+
+      ctx.onProgress(10, 'Gathering metrics for lesson detection...');
+
+      // Build a result summary from analysis step
+      const analysisResult = previousResults['analysis'];
+      const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+
+      const metricsResult: Record<string, unknown> = {
+        design_type: intentResult?.data?.design_type || 'general',
+        total_analyzed: analysisResult?.data?.total_analyzed || 0,
+        top_plddt: analysisResult?.data?.top_score || 0,
+      };
+
+      // Determine outcome (pass/failure) from analysis
+      const topScore = analysisResult?.data?.top_score as number || 0;
+      if (topScore < 0.5) {
+        metricsResult.outcome = 'failure';
+      }
+
+      // Include metrics from analysis PDB outputs
+      if (analysisResult?.pdbOutputs?.length) {
+        const best = analysisResult.pdbOutputs[0];
+        if (best.metrics) {
+          metricsResult.metrics = best.metrics;
+        }
+      }
+
+      ctx.onProgress(50, 'Checking for lesson triggers...');
+
+      try {
+        const lessons = await api.checkLessons({ result: metricsResult });
+
+        ctx.onProgress(100, lessons.trigger_detected
+          ? `Lesson detected: ${lessons.trigger?.type}`
+          : 'No patterns detected');
+
+        return {
+          id: `lessons-${Date.now()}`,
+          summary: lessons.trigger_detected
+            ? `Lesson: ${lessons.trigger?.type} — ${lessons.trigger?.description}`
+            : `No significant patterns (${lessons.history_count} designs in history)`,
+          data: {
+            trigger_detected: lessons.trigger_detected,
+            trigger: lessons.trigger,
+            history_count: lessons.history_count,
+          },
+        };
+      } catch (err) {
+        // Non-fatal
+        const message = err instanceof Error ? err.message : String(err);
+        ctx.onProgress(100, `Lesson check failed (non-fatal): ${message}`);
+
+        return {
+          id: `lessons-fail-${Date.now()}`,
+          summary: `Lesson check failed: ${message}`,
+          data: { check_error: message },
+        };
+      }
     },
 
     ...overrides,

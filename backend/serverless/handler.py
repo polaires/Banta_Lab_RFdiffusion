@@ -290,20 +290,11 @@ except ImportError as e:
     METAL_BINDING_PIPELINE_AVAILABLE = False
     print(f"[Handler] Warning: metal_binding_pipeline not available: {e}")
 
-# Import AI design pipeline for natural language driven design
-try:
-    from ai_design_pipeline import (
-        AIDesignPipeline,
-        PipelineResult,
-        handle_ai_design,
-        handle_ai_design_export,
-    )
-    AI_DESIGN_PIPELINE_AVAILABLE = True
-except ImportError as e:
-    AI_DESIGN_PIPELINE_AVAILABLE = False
-    handle_ai_design = None
-    handle_ai_design_export = None
-    print(f"[Handler] Warning: ai_design_pipeline not available: {e}")
+# NOTE: ai_design_pipeline.py is DEPRECATED — its NL parsing is now exposed
+# via the 'ai_parse' task, and its monolithic orchestration is replaced by
+# the frontend modular pipeline (natural-language.ts → PipelineRunner).
+# The file is kept as reference for future features (scout mode, design history).
+AI_DESIGN_PIPELINE_AVAILABLE = False
 
 # ============== Ligand H-bond Presets ==============
 
@@ -525,16 +516,21 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Design validation pipeline (MPNN + ESMFold)
         elif task == "validate_design":
             return handle_validate_design(job_input)
-        # AI design pipeline (natural language driven)
-        elif task == "ai_design":
-            if not AI_DESIGN_PIPELINE_AVAILABLE:
-                return {"status": "failed", "error": "AI design pipeline not available"}
-            return handle_ai_design(job_input)
-        # AI design export (FASTA, CSV, summary from design history)
-        elif task == "ai_design_export":
-            if not AI_DESIGN_PIPELINE_AVAILABLE:
-                return {"status": "failed", "error": "AI design pipeline not available"}
-            return handle_ai_design_export(job_input)
+        # Scaffold search (reusable across pipelines)
+        elif task == "scaffold_search":
+            return handle_scaffold_search(job_input)
+        # AI-powered natural language intent parsing
+        elif task == "ai_parse":
+            return handle_ai_parse(job_input)
+        # Scout filter (validate 1 seq per backbone, filter bad backbones)
+        elif task == "scout_filter":
+            return handle_scout_filter(job_input)
+        # Save design history (persist pipeline run results)
+        elif task == "save_design_history":
+            return handle_save_design_history(job_input)
+        # Check lesson triggers (detect failure patterns, breakthroughs)
+        elif task == "check_lessons":
+            return handle_check_lessons(job_input)
         # Modular workflow execution via JSON spec
         elif task == "workflow_run":
             from workflow_runner import WorkflowRunner
@@ -551,7 +547,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, ai_design, ai_design_export, workflow_run, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, scaffold_search, ai_parse, scout_filter, save_design_history, check_lessons, workflow_run, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -10375,6 +10371,144 @@ def _generate_mock_metal_ligand_design(
     return "\n".join(lines)
 
 
+# ============== AI Parse Handler ==============
+
+def handle_ai_parse(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Parse a natural language design query into structured DesignIntent using Claude AI.
+
+    Falls back to keyword-based parsing if no Claude API key is available.
+
+    Input:
+        query: str - Natural language design request (e.g., "design a protein to bind citrate and terbium")
+        claude_api_key: str - Optional Claude API key (falls back to env vars)
+
+    Returns:
+        {
+            "status": "completed",
+            "result": { ...DesignIntent fields... }
+        }
+    """
+    query = job_input.get("query", "")
+    if not query:
+        return {"status": "failed", "error": "Must provide 'query' parameter"}
+
+    api_key = (
+        job_input.get("claude_api_key")
+        or os.environ.get("CLAUDE_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+    )
+
+    try:
+        from nl_design_parser import create_parser
+        parser = create_parser(api_key=api_key, use_fallback=True)
+        intent = parser.parse(query)
+        result = intent.to_dict()
+        result["parser_type"] = "ai" if api_key else "fallback"
+        return {"status": "completed", "result": result}
+    except Exception as e:
+        print(f"[AI Parse] Error: {e}")
+        traceback.print_exc()
+        return {"status": "failed", "error": f"Parse error: {str(e)}"}
+
+
+# ============== Scaffold Search Handler ==============
+
+def handle_scaffold_search(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Search RCSB PDB for scaffold candidates containing a metal-ligand complex.
+
+    Reusable across any pipeline — not specific to metal binding sweeps.
+
+    Input:
+        metal: str - Metal symbol (e.g., "TB", "ZN", "CA")
+        ligand_name: str - Human-readable ligand name (e.g., "citrate")
+        ligand_code: str - Optional PDB 3-letter code (e.g., "CIT")
+        ligand_smiles: str - Optional SMILES for scoring
+        resolution_max: float - Max resolution filter (default 3.0)
+        limit: int - Max PDB hits to validate (default 10)
+        fetch_pdb: bool - If true, fetch PDB content for best candidate (default true)
+
+    Returns:
+        {
+            "status": "completed",
+            "result": {
+                "searched": true,
+                "query_metal": "TB",
+                "query_ligand": "citrate",
+                "ligand_code": "CIT",
+                "num_pdb_hits": 5,
+                "num_validated": 2,
+                "candidates": [...],
+                "best_candidate": {...},
+                "recommended_action": "scaffold" | "de_novo",
+                "reason": "...",
+                "best_pdb_content": "ATOM ..."  (if fetch_pdb=true and scaffold found)
+            }
+        }
+    """
+    try:
+        from scaffold_search import search_scaffold_candidates, SCAFFOLD_SEARCH_THRESHOLD
+    except ImportError as e:
+        return {"status": "failed", "error": f"Scaffold search not available: {e}"}
+
+    metal = job_input.get("metal")
+    ligand_name = job_input.get("ligand_name", "")
+    ligand_code = job_input.get("ligand_code")
+    ligand_smiles = job_input.get("ligand_smiles")
+    resolution_max = job_input.get("resolution_max", 3.0)
+    limit = job_input.get("limit", 10)
+    fetch_pdb = job_input.get("fetch_pdb", True)
+
+    if not metal:
+        return {"status": "failed", "error": "Must provide metal symbol (e.g., TB, ZN, CA)"}
+    if not ligand_name and not ligand_code:
+        return {"status": "failed", "error": "Must provide ligand_name or ligand_code"}
+
+    print(f"[ScaffoldSearch] Searching for {metal} + {ligand_name or ligand_code}...")
+
+    try:
+        search_result = search_scaffold_candidates(
+            metal=metal,
+            ligand_name=ligand_name,
+            ligand_code=ligand_code,
+            ligand_smiles=ligand_smiles,
+            resolution_max=resolution_max,
+            limit=limit,
+        )
+    except Exception as e:
+        print(f"[ScaffoldSearch] Search failed: {e}")
+        return {"status": "failed", "error": f"Scaffold search error: {e}"}
+
+    result_dict = search_result.to_dict()
+
+    # Optionally fetch PDB content for candidates so they can be visualized
+    if fetch_pdb and search_result.candidates:
+        import requests as _req
+        candidate_pdbs = {}  # pdb_id -> pdb_content
+        for candidate in search_result.candidates:
+            pdb_id = candidate.pdb_id
+            try:
+                pdb_url = f"https://files.rcsb.org/download/{pdb_id.upper()}.pdb"
+                resp = _req.get(pdb_url, timeout=30)
+                resp.raise_for_status()
+                candidate_pdbs[pdb_id] = resp.text
+                print(f"[ScaffoldSearch] Fetched PDB {pdb_id} ({len(resp.text)} bytes)")
+            except Exception as e:
+                print(f"[ScaffoldSearch] Failed to fetch PDB {pdb_id}: {e}")
+                candidate_pdbs[pdb_id] = None
+        result_dict["candidate_pdbs"] = candidate_pdbs
+        # Also set best_pdb_content for backwards compatibility
+        if search_result.best_candidate:
+            result_dict["best_pdb_content"] = candidate_pdbs.get(search_result.best_candidate.pdb_id)
+
+    print(f"[ScaffoldSearch] Done: {search_result.num_pdb_hits} hits, "
+          f"{search_result.num_validated} validated, "
+          f"action={search_result.recommended_action}")
+
+    return {"status": "completed", "result": result_dict}
+
+
 # ============== Metal Binding Design Handler (Round 7b Style) ==============
 
 def handle_metal_binding_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -10572,7 +10706,8 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
         elif not motif_pdb:
             return {"status": "failed", "error": f"Failed to generate template for {metal}-{ligand}"}
     elif not motif_pdb:
-        return {"status": "failed", "error": "Must provide motif_pdb or valid metal-ligand combination"}
+        return {"status": "failed", "error": "Must provide motif_pdb or valid metal-ligand combination. "
+                "Use the scaffold_search task first to find a PDB scaffold from RCSB."}
 
     # Parse sweep configuration
     sizes = job_input.get("sizes", ["small", "medium", "large"])
@@ -11118,6 +11253,213 @@ def handle_delete_file(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "status": "failed",
             "error": f"Failed to delete {filepath}: {str(e)}"
+        }
+
+
+# ============== Scout Filter, Design History, Lesson Detection ==============
+
+
+def handle_scout_filter(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Filter backbones by generating 1 scout sequence each and validating.
+
+    For each backbone PDB: run MPNN (1 seq) → RF3 → check pTM/pLDDT thresholds.
+    Returns only passing backbones with scout metrics.
+    """
+    backbone_pdbs = job_input.get("backbone_pdbs", [])
+    if not backbone_pdbs:
+        return {
+            "status": "completed",
+            "result": {
+                "filtered_pdbs": [],
+                "original_count": 0,
+                "passing_count": 0,
+                "scout_results": [],
+                "ptm_threshold": job_input.get("ptm_threshold", 0.6),
+                "plddt_threshold": job_input.get("plddt_threshold", 0.65),
+            },
+        }
+
+    ptm_threshold = job_input.get("ptm_threshold", 0.6)
+    plddt_threshold = job_input.get("plddt_threshold", 0.65)
+    target_metal = job_input.get("target_metal")
+    ligand_smiles = job_input.get("ligand_smiles")
+
+    filtered_pdbs = []
+    scout_results = []
+
+    for i, backbone_pdb in enumerate(backbone_pdbs):
+        scout_entry = {
+            "backbone_index": i,
+            "ptm": 0.0,
+            "plddt": 0.0,
+            "passed": False,
+            "sequence": "",
+        }
+
+        try:
+            # 1. Generate 1 scout sequence via MPNN
+            mpnn_params = {
+                "pdb_content": backbone_pdb,
+                "num_sequences": 1,
+                "temperature": 0.1,
+                "model_type": "ligand_mpnn",
+            }
+            mpnn_result = run_mpnn_inference(mpnn_params)
+            sequences = mpnn_result.get("sequences", [])
+
+            # Parse sequence from FASTA if needed
+            sequence = ""
+            if sequences:
+                first = sequences[0]
+                content = first.get("content", first.get("sequence", "")) if isinstance(first, dict) else str(first)
+                if content.startswith(">"):
+                    for line in content.splitlines():
+                        if not line.startswith(">") and line.strip():
+                            sequence = line.strip()
+                            break
+                else:
+                    sequence = content.strip()
+
+            if not sequence:
+                print(f"[Scout] Backbone {i}: no sequence generated, skipping")
+                scout_results.append(scout_entry)
+                continue
+
+            scout_entry["sequence"] = sequence
+
+            # 2. Validate with RF3
+            rf3_params: Dict[str, Any] = {"sequence": sequence, "name": f"scout_{i:03d}"}
+            if ligand_smiles:
+                rf3_params["ligand_smiles"] = ligand_smiles
+
+            rf3_result = run_rf3_inference(rf3_params)
+            predictions = rf3_result.get("predictions", [{}])
+            pred = predictions[0] if predictions else rf3_result
+            confidences = pred.get("confidences", rf3_result.get("confidences", {}))
+            summary = confidences.get("summary_confidences", confidences) if isinstance(confidences, dict) else {}
+
+            ptm = float(summary.get("ptm", pred.get("ptm", 0.0)))
+            plddt = float(summary.get("overall_plddt", pred.get("mean_plddt", 0.0)))
+
+            scout_entry["ptm"] = ptm
+            scout_entry["plddt"] = plddt
+
+            # 3. Check thresholds
+            if ptm >= ptm_threshold and plddt >= plddt_threshold:
+                scout_entry["passed"] = True
+                filtered_pdbs.append(backbone_pdb)
+                print(f"[Scout] Backbone {i}: PASSED (ptm={ptm:.3f}, plddt={plddt:.3f})")
+            else:
+                print(f"[Scout] Backbone {i}: FAILED (ptm={ptm:.3f}, plddt={plddt:.3f})")
+
+        except Exception as e:
+            print(f"[Scout] Backbone {i}: error — {e}")
+
+        scout_results.append(scout_entry)
+
+    print(f"[Scout] Complete: {len(filtered_pdbs)}/{len(backbone_pdbs)} backbones passed")
+
+    return {
+        "status": "completed",
+        "result": {
+            "filtered_pdbs": filtered_pdbs,
+            "original_count": len(backbone_pdbs),
+            "passing_count": len(filtered_pdbs),
+            "scout_results": scout_results,
+            "ptm_threshold": ptm_threshold,
+            "plddt_threshold": plddt_threshold,
+        },
+    }
+
+
+def handle_save_design_history(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Save a completed pipeline run to persistent design history."""
+    try:
+        from design_history import DesignHistoryManager
+
+        history_dir = job_input.get("history_dir", "/app/design_history")
+        session_name = job_input.get("session_name", "nl_pipeline")
+
+        manager = DesignHistoryManager(history_dir)
+        session = manager.start_session(session_name)
+
+        run_id = manager.save_run(
+            session=session,
+            params=job_input.get("design_params", {}),
+            outputs=job_input.get("design_outputs", {}),
+            metrics=job_input.get("design_metrics", {}),
+        )
+
+        return {
+            "status": "completed",
+            "result": {
+                "run_id": run_id,
+                "session_id": session.session_id,
+                "history_dir": history_dir,
+            },
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "error": f"Failed to save design history: {str(e)}",
+        }
+
+
+def handle_check_lessons(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Check if this design run triggers any lesson patterns."""
+    try:
+        from lesson_detector import LessonDetector
+        from design_history import DesignHistoryManager
+
+        history_dir = job_input.get("history_dir", "/app/design_history")
+        new_result = job_input.get("result", {})
+
+        # Load recent history
+        manager = DesignHistoryManager(history_dir)
+        index = manager.load_index()
+        history: List[Dict[str, Any]] = []
+
+        # Load metrics from recent runs
+        import os, json
+        recent_designs = index.get("designs", [])[-20:]
+        for design_entry in recent_designs:
+            run_id = design_entry.get("run_id", "")
+            metrics_path = os.path.join(
+                history_dir, "runs", run_id, "analysis", "metrics.json"
+            )
+            if os.path.exists(metrics_path):
+                try:
+                    with open(metrics_path, "r") as f:
+                        metrics = json.load(f)
+                    history.append(metrics)
+                except (json.JSONDecodeError, IOError):
+                    pass
+
+        detector = LessonDetector(
+            failure_threshold=job_input.get("failure_threshold", 3),
+            improvement_threshold=job_input.get("improvement_threshold", 0.15),
+        )
+
+        trigger = detector.check_triggers(new_result, history)
+
+        return {
+            "status": "completed",
+            "result": {
+                "trigger_detected": trigger is not None,
+                "trigger": {
+                    "type": trigger.trigger_type,
+                    "description": trigger.description,
+                    "relevant_designs": trigger.relevant_designs,
+                    "metrics_involved": trigger.metrics_involved,
+                } if trigger else None,
+                "history_count": len(history),
+            },
+        }
+    except Exception as e:
+        return {
+            "status": "failed",
+            "error": f"Failed to check lessons: {str(e)}",
         }
 
 

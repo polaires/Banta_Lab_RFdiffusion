@@ -1982,9 +1982,10 @@ class FoundryAPI {
     best_pdb_content?: string;
     candidate_pdbs?: Record<string, string | null>;
   }> {
-    console.log('[API] Searching for scaffold candidates:', request.metal, request.ligand_name || request.ligand_code);
+    const endpoint = this.getRunsyncEndpoint();
+    console.log('[API] Searching for scaffold candidates:', request.metal, request.ligand_name || request.ligand_code, '| mode:', this.mode, '| endpoint:', endpoint);
 
-    const response = await fetch(this.getRunsyncEndpoint(), {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1996,12 +1997,23 @@ class FoundryAPI {
     });
 
     if (!response.ok) {
-      throw new Error(`Scaffold search failed: ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '');
+      console.error('[API] Scaffold search HTTP error:', response.status, response.statusText, errorBody);
+      throw new Error(`Scaffold search failed (${response.status}): ${errorBody || response.statusText}`);
     }
 
     const result = await response.json();
+    console.log('[API] Scaffold search response:', JSON.stringify(result).substring(0, 500));
+
     if (result.output?.status === 'failed') {
+      console.error('[API] Scaffold search backend error:', result.output.error);
       throw new Error(result.output.error || 'Scaffold search failed');
+    }
+
+    // Handle RunPod timeout (runsync returned before completion)
+    if (result.status === 'IN_QUEUE' || result.status === 'IN_PROGRESS') {
+      console.warn('[API] Scaffold search timed out on RunPod runsync, job:', result.id);
+      throw new Error(`Scaffold search timed out (job ${result.id}). RunPod runsync limit exceeded.`);
     }
 
     return result.output?.result || result.result;
@@ -2035,9 +2047,10 @@ class FoundryAPI {
     typo_corrections: string[];
     parser_type: 'ai' | 'fallback';
   }> {
-    console.log('[API] Parsing intent with AI:', query.substring(0, 80));
+    const endpoint = this.getRunsyncEndpoint();
+    console.log('[API] Parsing intent with AI:', query.substring(0, 80), '| mode:', this.mode, '| endpoint:', endpoint);
 
-    const response = await fetch(this.getRunsyncEndpoint(), {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2049,7 +2062,9 @@ class FoundryAPI {
     });
 
     if (!response.ok) {
-      throw new Error(`AI parse failed: ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '');
+      console.error('[API] AI parse HTTP error:', response.status, response.statusText, errorBody);
+      throw new Error(`AI parse failed (${response.status}): ${errorBody || response.statusText}`);
     }
 
     const result = await response.json();

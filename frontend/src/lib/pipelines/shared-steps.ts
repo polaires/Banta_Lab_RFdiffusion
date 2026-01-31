@@ -276,12 +276,31 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
         const progressBase = (i / totalDesigns) * 90;
         ctx.onProgress(progressBase + 5, `Designing sequences for ${pdb.label} (${i + 1}/${totalDesigns})...`);
 
+        // For metal-containing backbones, fix residues that coordinate the metal
+        // so MPNN doesn't redesign the binding site.
+        let perBackboneFixed: string[] | undefined;
+        if (metalConfig.omit_AA || metalConfig.bias_AA) {
+          const coordResidues = findMetalCoordinatingResidues(pdb.pdbContent);
+          if (coordResidues) {
+            // Format: ["A1", "A2", ...] — chain A + residue numbers
+            perBackboneFixed = coordResidues.split(',').map(r => `A${r}`);
+            console.log(`[MPNN] Design ${i + 1}: fixing ${perBackboneFixed.length} metal-coordinating residues: ${coordResidues}`);
+          }
+        }
+
         const response = await api.submitMPNNDesign({
           pdb_content: pdb.pdbContent,
           temperature: (params.temperature as number) ?? 0.1,
           num_sequences: (params.num_sequences as number) ?? 4,
           model_type: (params.model_type as 'ligand_mpnn' | 'protein_mpnn') ?? 'ligand_mpnn',
           ...metalConfig,
+          // Merge per-backbone fixed positions with any from metalConfig
+          ...(perBackboneFixed ? {
+            fixed_positions: [
+              ...(metalConfig.fixed_positions || []),
+              ...perBackboneFixed,
+            ],
+          } : {}),
         });
 
         checkAborted(ctx.abortSignal);
@@ -1288,4 +1307,59 @@ function extractConfidences(result: Record<string, unknown>): {
     ptm,
     overall_pae: (src.overall_pae as number | undefined),
   };
+}
+
+/**
+ * Find protein residues that coordinate a metal ion in a PDB.
+ * Returns a comma-separated string of residue numbers (chain A)
+ * that have any heavy atom within `cutoff` Å of a HETATM metal atom.
+ *
+ * These residues should be fixed during MPNN to preserve the binding site.
+ */
+function findMetalCoordinatingResidues(pdbContent: string, cutoff = 3.5): string {
+  // Parse HETATM positions (metals are single-atom HETATM with element like TB, MG, etc.)
+  const metalAtoms: Array<[number, number, number]> = [];
+  const lines = pdbContent.split('\n');
+
+  for (const line of lines) {
+    if (!line.startsWith('HETATM')) continue;
+    const resName = line.substring(17, 20).trim();
+    // Metal residues are typically 1-3 letter elements (TB, MG, CA, ZN, FE, etc.)
+    // Skip known ligands (CIT, ATP, NAD, HEM, PQQ, etc.)
+    if (resName.length > 3 || resName.length === 0) continue;
+    // If residue name is all uppercase letters and ≤2 chars, likely a metal
+    if (!/^[A-Z]{1,2}$/.test(resName)) continue;
+
+    const x = parseFloat(line.substring(30, 38));
+    const y = parseFloat(line.substring(38, 46));
+    const z = parseFloat(line.substring(46, 54));
+    if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+      metalAtoms.push([x, y, z]);
+    }
+  }
+
+  if (metalAtoms.length === 0) return '';
+
+  // Find ATOM residues near metals
+  const coordResidues = new Set<number>();
+  const cutoffSq = cutoff * cutoff;
+
+  for (const line of lines) {
+    if (!line.startsWith('ATOM')) continue;
+    const x = parseFloat(line.substring(30, 38));
+    const y = parseFloat(line.substring(38, 46));
+    const z = parseFloat(line.substring(46, 54));
+    if (isNaN(x) || isNaN(y) || isNaN(z)) continue;
+
+    for (const [mx, my, mz] of metalAtoms) {
+      const dx = x - mx, dy = y - my, dz = z - mz;
+      if (dx * dx + dy * dy + dz * dz <= cutoffSq) {
+        const resNum = parseInt(line.substring(22, 26).trim(), 10);
+        if (!isNaN(resNum)) coordResidues.add(resNum);
+        break;
+      }
+    }
+  }
+
+  return [...coordResidues].sort((a, b) => a - b).join(',');
 }

@@ -316,9 +316,10 @@ function PipelineRunnerInner({
                 isActive={isActive}
                 allowExpand
                 nextStepSchema={
-                  isActive && state.status === 'paused' && nextStep && !nextStep.optional
-                    ? nextStep.parameterSchema
-                    : undefined
+                  // Disabled: each step manages its own parameters when active.
+                  // Showing next-step params during review was confusing (e.g. configure
+                  // params appearing in scaffold search, scout params in backbone gen).
+                  undefined
                 }
                 nextStepParams={nextState?.params}
                 onNextStepParamsChange={

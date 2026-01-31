@@ -316,10 +316,12 @@ function PipelineRunnerInner({
                 isActive={isActive}
                 allowExpand
                 nextStepSchema={
-                  // Disabled: each step manages its own parameters when active.
-                  // Showing next-step params during review was confusing (e.g. configure
-                  // params appearing in scaffold search, scout params in backbone gen).
-                  undefined
+                  // Show next step's params for review — but skip optional steps
+                  // (e.g. scout filter thresholds shouldn't appear in backbone gen
+                  // since scout is auto-skipped for metal designs).
+                  isActive && state.status === 'paused' && nextStep && !nextStep.optional
+                    ? nextStep.parameterSchema
+                    : undefined
                 }
                 nextStepParams={nextState?.params}
                 onNextStepParamsChange={

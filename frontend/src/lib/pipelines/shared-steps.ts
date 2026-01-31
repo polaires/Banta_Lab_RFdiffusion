@@ -455,14 +455,26 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
 
       ctx.onProgress(100, 'Validation complete');
 
+      // Compute average quality metrics for summary
+      const ptmValues = pdbOutputs.map(p => p.metrics?.pTM as number).filter(v => typeof v === 'number');
+      const plddtValues = pdbOutputs.map(p => p.metrics?.pLDDT as number).filter(v => typeof v === 'number');
+      const avgPtm = ptmValues.length > 0 ? ptmValues.reduce((a, b) => a + b, 0) / ptmValues.length : undefined;
+      const avgPlddt = plddtValues.length > 0 ? plddtValues.reduce((a, b) => a + b, 0) / plddtValues.length : undefined;
+
+      const qualitySuffix = avgPtm !== undefined
+        ? ` (avg pTM: ${avgPtm.toFixed(3)}, pLDDT: ${(avgPlddt ?? 0).toFixed(3)})`
+        : '';
+
       return {
         id: `rf3-${Date.now()}`,
-        summary: `Validated ${pdbOutputs.length}/${totalSeqs} sequences successfully`,
+        summary: `Validated ${pdbOutputs.length}/${totalSeqs} sequences${qualitySuffix}`,
         pdbOutputs,
         data: {
           total_validated: pdbOutputs.length,
           total_attempted: totalSeqs,
           success_rate: totalSeqs > 0 ? ((pdbOutputs.length / totalSeqs) * 100).toFixed(1) + '%' : 'N/A',
+          ...(avgPtm !== undefined ? { avg_pTM: avgPtm } : {}),
+          ...(avgPlddt !== undefined ? { avg_pLDDT: avgPlddt } : {}),
         },
       };
     },
@@ -1237,21 +1249,43 @@ function extractRf3PdbContent(result: Record<string, unknown>): string | undefin
   return extractPdbContent(result);
 }
 
-/** Extract confidence metrics from RF3 result. */
+/** Extract confidence metrics from RF3 result.
+ *
+ * RF3 returns confidences in varying formats:
+ * - Direct: { confidences: { overall_plddt, chain_ptm, overall_pae } }
+ * - Nested: { confidences: { summary_confidences: { ptm, overall_plddt } } }
+ * - Per-prediction: { predictions: [{ confidences: { ... } }] }
+ */
 function extractConfidences(result: Record<string, unknown>): {
   overall_plddt?: number;
   ptm?: number;
   overall_pae?: number;
 } | undefined {
-  const confidences = result.confidences as Record<string, unknown> | undefined;
+  // Try per-prediction confidences first
+  const predictions = result.predictions as Array<Record<string, unknown>> | undefined;
+  const predConf = predictions?.[0]?.confidences as Record<string, unknown> | undefined;
+
+  // Then top-level confidences
+  const topConf = result.confidences as Record<string, unknown> | undefined;
+  const confidences = predConf || topConf;
   if (!confidences) return undefined;
 
+  // Try summary_confidences (nested format), then fall back to direct fields
   const summary = confidences.summary_confidences as Record<string, unknown> | undefined;
-  if (!summary) return undefined;
+  const src = summary || confidences;
+
+  // pTM: try ptm, then chain_ptm[0]
+  let ptm = src.ptm as number | undefined;
+  if (ptm === undefined) {
+    const chainPtm = (confidences.chain_ptm || src.chain_ptm) as number[] | undefined;
+    if (Array.isArray(chainPtm) && chainPtm.length > 0) {
+      ptm = chainPtm[0];
+    }
+  }
 
   return {
-    overall_plddt: summary.overall_plddt as number | undefined,
-    ptm: summary.ptm as number | undefined,
-    overall_pae: summary.overall_pae as number | undefined,
+    overall_plddt: (src.overall_plddt as number | undefined) ?? (src.mean_plddt as number | undefined),
+    ptm,
+    overall_pae: (src.overall_pae as number | undefined),
   };
 }

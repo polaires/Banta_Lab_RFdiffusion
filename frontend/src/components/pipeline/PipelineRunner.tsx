@@ -316,7 +316,7 @@ function PipelineRunnerInner({
                 isActive={isActive}
                 allowExpand
                 nextStepSchema={
-                  isActive && state.status === 'paused' && nextStep
+                  isActive && state.status === 'paused' && nextStep && !nextStep.optional
                     ? nextStep.parameterSchema
                     : undefined
                 }

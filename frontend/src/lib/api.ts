@@ -137,6 +137,7 @@ export interface RF3Request {
   name?: string;
   pdb_content?: string;  // For structure-based input
   msa_content?: string;  // MSA file content (.a3m or .fasta format)
+  ligand_smiles?: string; // SMILES string for ligand-aware prediction
   config?: Record<string, unknown>;
 }
 
@@ -1909,6 +1910,7 @@ class FoundryAPI {
         coordination_number?: number;
         geometry_rmsd?: number;
       }>;
+      config_errors?: Record<string, string[]> | null;
     };
   }> {
     console.log('[API] Starting metal binding sweep');
@@ -1939,6 +1941,69 @@ class FoundryAPI {
     const result = await response.json();
     if (result.output?.status === 'failed') {
       throw new Error(result.output.error || 'Sweep failed');
+    }
+
+    return result.output || result;
+  }
+
+  /**
+   * Run single metal binding RFD3 design — backbone only, no MPNN/RF3.
+   * Returns backbone PDBs for downstream MPNN/RF3 steps to process separately.
+   */
+  async submitMetalSingleDesign(request: {
+    motif_pdb: string;
+    metal: string;
+    ligand?: string;
+    contig?: string;
+    cfg_scale?: number;
+    num_designs?: number;
+    num_timesteps?: number;
+    step_scale?: number;
+    gamma_0?: number;
+    bury_ligand?: boolean;
+    seed?: number;
+  }): Promise<{
+    status: string;
+    result: {
+      designs: Array<{
+        content: string;
+        name: string;
+        seed?: number;
+      }>;
+      total_generated: number;
+      total_requested: number;
+      errors?: string[] | null;
+      metal: string;
+      ligand?: string;
+    };
+  }> {
+    console.log('[API] Starting metal single design');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+
+    const response = await fetch(this.getRunsyncEndpoint(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'metal_binding_design',
+          mode: 'single',
+          ...request,
+        }
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`Failed to start metal single design: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Metal single design failed');
     }
 
     return result.output || result;
@@ -2042,6 +2107,7 @@ class FoundryAPI {
     enzyme_class?: string;
     enzyme_class_confidence: number;
     preserve_function: boolean;
+    bury_ligand: boolean;
     confidence: number;
     raw_query: string;
     corrected_query: string;

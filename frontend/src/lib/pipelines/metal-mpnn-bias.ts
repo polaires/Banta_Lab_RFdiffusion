@@ -38,9 +38,9 @@ const HSAB_CLASSIFICATION: Record<string, HsabClass> = {
 /**
  * Per-class bias & omit rules.
  *
- * Values match the backend design_rules.py MPNN_METAL_PROFILES exactly,
- * with the addition of A:-1.5 to penalise alanine over-represented in
- * RFdiffusion backbones.
+ * Hard acids: NO bias — atom context naturally places carboxylates at
+ * coordination sites (ln_citrate experiments: no bias + atom_context = 0.81Å
+ * RMSD vs E:3.0,D:3.0 bias = 21-25Å RMSD / non-foldable).
  *
  * Omit rules are intentionally conservative:
  *  - Hard acids omit only C (thiolate incompatible with hard Lewis acids).
@@ -50,8 +50,8 @@ const HSAB_CLASSIFICATION: Record<string, HsabClass> = {
  */
 const CONFIG_BY_CLASS: Record<HsabClass, Pick<MetalMpnnConfig, 'bias_AA' | 'omit_AA'>> = {
   hard: {
-    // Lanthanide / hard-acid: O-donors (carboxylates, amides)
-    bias_AA: 'E:3.0,D:3.0,N:2.4,Q:2.4,A:-1.5',
+    // Lanthanide / hard-acid: NO bias — atom context handles coordination
+    // Omit C only (thiolate incompatible)
     omit_AA: 'C',
   },
   soft: {

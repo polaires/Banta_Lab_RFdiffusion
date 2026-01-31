@@ -59,6 +59,7 @@ services:
       - ./rfd3_config_generator.py:/app/rfd3_config_generator.py
       - ./ai_design_pipeline.py:/app/ai_design_pipeline.py
       - ./scaffold_search.py:/app/scaffold_search.py
+      - ./scaffolding_workflow.py:/app/scaffolding_workflow.py
       - ./metal_site_fetcher.py:/app/metal_site_fetcher.py
       - ./metal_chemistry.py:/app/metal_chemistry.py
       - ./ligand_donors.py:/app/ligand_donors.py

@@ -232,13 +232,21 @@ export function StepCard({
             {(isPaused || (isDone && isExpanded)) && state.result && (
               <>
                 {step.ResultPreview ? (
-                  <step.ResultPreview result={state.result} onSelectDesign={onViewDesign} />
+                  <step.ResultPreview
+                    result={state.result}
+                    onSelectDesign={onViewDesign}
+                    {...(step.supportsSelection ? {
+                      selectedIds: state.selectedOutputIds,
+                      onSelectionChange,
+                      isPaused,
+                    } : {})}
+                  />
                 ) : (
                   <StepResultPreview result={state.result} onSelectDesign={onViewDesign} />
                 )}
 
-                {/* Selection grid — only on paused (active review) */}
-                {isPaused && step.supportsSelection && (state.result.pdbOutputs || state.result.sequences) && (
+                {/* Selection grid — only on paused (active review), skip when custom ResultPreview handles it */}
+                {isPaused && step.supportsSelection && !step.ResultPreview && (state.result.pdbOutputs || state.result.sequences) && (
                   <>
                     <Separator />
                     <div>
@@ -301,7 +309,8 @@ export function StepCard({
                     Continue
                   </Button>
                 )}
-                {isFailed && (
+                {/* Show Retry on failed OR when paused with all-failed sweep results */}
+                {(isFailed || (isPaused && Boolean(state.result?.data?.sweep_all_failed))) && (
                   <Button
                     variant="outline"
                     size="sm"

@@ -348,6 +348,17 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
 
       if (stepDef.requiresReview) {
         dispatch({ type: 'STEP_PAUSE', stepIndex });
+
+        // Auto-select outputs when supportsSelection is true
+        if (stepDef.supportsSelection && result.pdbOutputs && result.pdbOutputs.length > 0) {
+          // For backbone generation (rfd3_nl): auto-select ALL designs since there's no pre-filtering
+          // For other steps (scaffold search): auto-select only the first (best) candidate
+          const isBackboneStep = stepDef.id === 'rfd3_nl';
+          const autoIds = isBackboneStep
+            ? result.pdbOutputs.map(p => p.id)
+            : [result.pdbOutputs[0].id];
+          dispatch({ type: 'SET_SELECTION', stepId: stepDef.id, outputIds: autoIds });
+        }
       }
     } catch (err) {
       // FIX #12: Handle both abort signal and AbortError from shared-steps

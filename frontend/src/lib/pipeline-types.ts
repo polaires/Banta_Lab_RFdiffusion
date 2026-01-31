@@ -109,6 +109,10 @@ export interface PipelineStepDefinition {
   ResultPreview?: React.ComponentType<{
     result: StepResult;
     onSelectDesign?: (pdbContent: string) => void;
+    /** Selection props passed when supportsSelection is true and step is paused */
+    selectedIds?: string[];
+    onSelectionChange?: (ids: string[]) => void;
+    isPaused?: boolean;
   }>;
 }
 

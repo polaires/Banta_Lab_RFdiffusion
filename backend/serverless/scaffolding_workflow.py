@@ -719,6 +719,225 @@ class ScaffoldingWorkflow:
                 error_message=str(e),
             )
 
+    def extract_metal_motif(
+        self,
+        pdb_content: str,
+        metal: str,
+        ligand: Optional[str] = None,
+        contact_distance: float = 5.0,
+    ) -> Optional[ScaffoldResult]:
+        """
+        Extract metal binding site motif from a full scaffold PDB.
+
+        Used by the metal binding sweep pipeline when a real scaffold PDB
+        (from RCSB via scaffold_search) is available instead of a bare template.
+
+        Steps:
+        1. Scan for metal + ligand HETATM records
+        2. Find protein residues within contact_distance of metal
+        3. Extract those residues + metal + ligand as a theozyme
+        4. Build fixed_atoms and hbond_acceptors for RFD3 conditioning
+
+        Args:
+            pdb_content: Full PDB content with ATOM + HETATM records
+            metal: Metal element symbol (e.g., "CA", "MG", "TB")
+            ligand: Ligand 3-letter code (e.g., "CIT") or None
+            contact_distance: Distance cutoff for finding coordinating residues (Å)
+
+        Returns:
+            ScaffoldResult with motif_pdb, fixed_atoms, hbond_acceptors, or None on failure
+        """
+        from math import sqrt
+
+        metal_upper = metal.upper()
+        ligand_upper = ligand.upper() if ligand else None
+
+        # Step 1: Find metal and ligand atoms
+        metals_found, ligands_found = scan_pdb_hetatm(pdb_content)
+
+        # Check for metal substitution if the exact metal isn't present
+        actual_metal = metal_upper
+        substituted_from = None
+        if metal_upper not in metals_found:
+            # Try HSAB-compatible substitution
+            for found_metal in sorted(metals_found):
+                if is_metal_substitution_compatible(found_metal, metal_upper):
+                    actual_metal = found_metal
+                    substituted_from = found_metal
+                    logger.info(f"extract_metal_motif: using {found_metal} site as template for {metal_upper}")
+                    break
+            else:
+                logger.warning(f"extract_metal_motif: metal {metal_upper} not found and no compatible substitute. Found: {metals_found}")
+                return None
+
+        # Step 2: Parse metal atom coordinates
+        metal_atoms = []
+        for line in pdb_content.split('\n'):
+            if line.startswith('HETATM') and line[17:20].strip() == actual_metal:
+                try:
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                    metal_atoms.append((x, y, z))
+                except (ValueError, IndexError):
+                    continue
+
+        if not metal_atoms:
+            logger.warning(f"extract_metal_motif: no HETATM atoms for {actual_metal}")
+            return None
+
+        # Use first metal atom as center
+        metal_center = metal_atoms[0]
+
+        # Step 3: Find protein residues within contact_distance of metal
+        contact_residues: Dict[Tuple[str, int], Dict] = {}
+        for line in pdb_content.split('\n'):
+            if line.startswith('ATOM'):
+                try:
+                    chain = line[21]
+                    res_name = line[17:20].strip()
+                    res_seq = int(line[22:26].strip())
+                    x = float(line[30:38])
+                    y = float(line[38:46])
+                    z = float(line[46:54])
+                except (ValueError, IndexError):
+                    continue
+
+                dist = sqrt(
+                    (x - metal_center[0])**2 +
+                    (y - metal_center[1])**2 +
+                    (z - metal_center[2])**2
+                )
+                if dist <= contact_distance:
+                    key = (chain, res_seq)
+                    if key not in contact_residues:
+                        contact_residues[key] = {
+                            "chain": chain,
+                            "resnum": res_seq,
+                            "res_name": res_name,
+                            "min_distance": dist,
+                        }
+                    elif dist < contact_residues[key]["min_distance"]:
+                        contact_residues[key]["min_distance"] = dist
+
+        if not contact_residues:
+            logger.warning(f"extract_metal_motif: no protein residues within {contact_distance}A of {actual_metal}")
+            return None
+
+        # Step 3b: Add buffer residues (±3 for secondary structure context)
+        all_protein_residues: Dict[Tuple[str, int], str] = {}
+        for line in pdb_content.split('\n'):
+            if line.startswith('ATOM'):
+                try:
+                    chain = line[21]
+                    res_seq = int(line[22:26].strip())
+                    res_name = line[17:20].strip()
+                    all_protein_residues[(chain, res_seq)] = res_name
+                except (ValueError, IndexError):
+                    continue
+
+        expanded_keys: Set[Tuple[str, int]] = set()
+        for (chain, resnum) in contact_residues:
+            for offset in range(-3, 4):  # -3 to +3
+                candidate = (chain, resnum + offset)
+                if candidate in all_protein_residues:
+                    expanded_keys.add(candidate)
+
+        logger.info(
+            f"extract_metal_motif: {len(contact_residues)} contact residues, "
+            f"{len(expanded_keys)} with buffer (±3)"
+        )
+
+        # Step 4: Build coordinating residue list for _extract_theozyme_pdb
+        unique_residues = []
+        for key in sorted(expanded_keys):
+            unique_residues.append({
+                "chain": key[0],
+                "resnum": key[1],
+                "res_name": all_protein_residues.get(key, "UNK"),
+            })
+
+        # Build active_site dict for _extract_theozyme_pdb
+        active_site = {
+            "metal": actual_metal,
+            "metal_chain": "A",
+            "metal_resnum": 0,
+            "metal_coords": metal_center,
+            "coordinating_atoms": [],
+            "coordination_number": len(contact_residues),
+        }
+
+        # Step 5: Extract theozyme PDB
+        target_metal_for_rewrite = metal_upper if substituted_from else None
+        motif_pdb, scaffold_residue_ids = self._extract_theozyme_pdb(
+            pdb_content,
+            active_site,
+            unique_residues,
+            actual_metal,
+            ligand_upper,
+            all_residue_keys=expanded_keys,
+            target_metal=target_metal_for_rewrite,
+        )
+
+        if not motif_pdb:
+            logger.warning("extract_metal_motif: theozyme extraction produced empty PDB")
+            return None
+
+        # Step 6: Build fixed_atoms
+        # _extract_theozyme_pdb() assigns: metal → chain M (resnum 1), ligand → chain L (resnum 1)
+        # So RFD3 component IDs are "M1" for metal and "L1" for ligand
+        output_metal = metal_upper
+        fixed_atoms: Dict[str, str] = {}
+        fixed_atoms["M1"] = "ALL"  # Metal on chain M, residue 1
+        if ligand_upper:
+            fixed_atoms["L1"] = "ALL"  # Ligand on chain L, residue 1
+
+        # Fix coordinating residue tips (atoms closest to metal)
+        # Map contact residues to their renumbered IDs
+        sorted_expanded = sorted(expanded_keys)
+        for idx, key in enumerate(sorted_expanded, start=1):
+            if key in contact_residues:
+                # Direct coordination — fix functional tip
+                fixed_atoms[f"A{idx}"] = "TIP"
+
+        # Step 7: Build hbond_acceptors from ligand (non-coordinating atoms)
+        hbond_acceptors: Dict[str, str] = {}
+        if ligand_upper:
+            # Import from metal_binding_pipeline to get standard H-bond atoms
+            from metal_binding_pipeline import get_ligand_hbond_atoms
+            hbond = get_ligand_hbond_atoms(ligand_upper, motif_pdb=motif_pdb)
+            if hbond:
+                # Remap L1 -> ligand code key if needed
+                hbond_acceptors = hbond
+
+        # Build unindex string for protein residues
+        unindex = ",".join(scaffold_residue_ids)
+
+        logger.info(
+            f"extract_metal_motif: extracted motif with {len(scaffold_residue_ids)} residues, "
+            f"{len(fixed_atoms)} fixed entries, unindex={unindex}"
+        )
+
+        return ScaffoldResult(
+            motif_pdb=motif_pdb,
+            motif_residues=[],
+            fixed_atoms=fixed_atoms,
+            hbond_acceptors=hbond_acceptors,
+            unindex=unindex,
+            coordinating_residues=unique_residues,
+            source_info={
+                "extraction_method": "extract_metal_motif",
+                "metal": output_metal,
+                "ligand": ligand_upper,
+                "contact_distance": contact_distance,
+                "num_contact_residues": len(contact_residues),
+                "num_total_residues": len(expanded_keys),
+                "metal_substituted": substituted_from is not None,
+                "substituted_from": substituted_from,
+            },
+            success=True,
+        )
+
     def _auto_detect_active_site(
         self,
         pdb_content: str,
@@ -1255,13 +1474,23 @@ class ScaffoldingWorkflow:
         metal_lines = []
         ligand_lines = []
 
+        # First pass: collect all HETATM lines grouped by (chain, resnum)
+        all_metal_groups: Dict[Tuple[str, int], list] = {}
+        all_ligand_groups: Dict[Tuple[str, int], list] = {}
+
         for line in pdb_content.split('\n'):
             if line.startswith('HETATM'):
                 res_name = line[17:20].strip()
+                het_chain = line[21]
+                try:
+                    het_resnum = int(line[22:26].strip())
+                except ValueError:
+                    continue
+                key = (het_chain, het_resnum)
                 if metal_upper and res_name == metal_upper:
-                    metal_lines.append(line)
+                    all_metal_groups.setdefault(key, []).append(line)
                 elif ligand_upper and res_name == ligand_upper:
-                    ligand_lines.append(line)
+                    all_ligand_groups.setdefault(key, []).append(line)
             elif line.startswith('ATOM'):
                 chain = line[21]
                 try:
@@ -1270,6 +1499,55 @@ class ScaffoldingWorkflow:
                     continue
                 if (chain, resnum) in residue_keys_to_keep:
                     atom_lines.append((line, chain, resnum))
+
+        # Pick the metal residue used for centering (first one found, matches
+        # the metal_center computed in extract_metal_motif)
+        if all_metal_groups:
+            first_metal_key = sorted(all_metal_groups.keys())[0]
+            metal_lines = all_metal_groups[first_metal_key]
+        else:
+            metal_lines = []
+
+        # Pick the ligand residue closest to the metal center
+        if all_ligand_groups:
+            from math import sqrt
+            # Compute metal center from the selected metal lines
+            _mc = None
+            for ml in metal_lines:
+                try:
+                    _mc = (float(ml[30:38]), float(ml[38:46]), float(ml[46:54]))
+                    break
+                except ValueError:
+                    pass
+
+            if _mc and len(all_ligand_groups) > 1:
+                # Find closest ligand group by center of mass
+                best_key = None
+                best_dist = float('inf')
+                for key, lines in all_ligand_groups.items():
+                    xs, ys, zs = [], [], []
+                    for l in lines:
+                        try:
+                            xs.append(float(l[30:38]))
+                            ys.append(float(l[38:46]))
+                            zs.append(float(l[46:54]))
+                        except ValueError:
+                            continue
+                    if xs:
+                        cx, cy, cz = sum(xs)/len(xs), sum(ys)/len(ys), sum(zs)/len(zs)
+                        d = sqrt((cx-_mc[0])**2 + (cy-_mc[1])**2 + (cz-_mc[2])**2)
+                        if d < best_dist:
+                            best_dist = d
+                            best_key = key
+                if best_key:
+                    ligand_lines = all_ligand_groups[best_key]
+                    logger.info(f"Selected ligand {best_key} (dist={best_dist:.1f}A) from {len(all_ligand_groups)} candidates")
+                else:
+                    ligand_lines = list(all_ligand_groups.values())[0]
+            else:
+                ligand_lines = list(all_ligand_groups.values())[0]
+        else:
+            ligand_lines = []
 
         # Build old->new residue mapping (sequential numbering from 1)
         old_to_new_resnum = {}
@@ -1323,7 +1601,8 @@ class ScaffoldingWorkflow:
         if output_lines:
             output_lines.append("TER")
 
-        # Metal atoms — rewrite residue name if target_metal substitution is active
+        # Metal atoms → chain M, residue 1
+        # Rewrite residue name if target_metal substitution is active
         for line in metal_lines:
             new_line = line
             if target_metal and target_metal.upper() != metal_upper:
@@ -1339,15 +1618,22 @@ class ScaffoldingWorkflow:
                 if len(new_line) >= 78:
                     new_line = new_line[:76] + f"{tgt:>2s}" + new_line[78:]
                 logger.info(f"Theozyme metal rewritten: {metal_upper} → {tgt}")
+            # Assign chain M, residue 1 so RFD3 component ID is "M1"
+            new_line = new_line[:21] + "M" + "   1" + new_line[26:]
             new_line = renumber_atom_serial(new_line, atom_serial)
             atom_serial += 1
             new_line = center_line(new_line)
             output_lines.append(new_line)
 
-        # Ligand atoms (keep original residue name, e.g., "PQQ")
+        # TER between metal and ligand
+        if metal_lines:
+            output_lines.append("TER")
+
+        # Ligand atoms → chain L, residue 1
+        # Keep original residue name (e.g., "CIT", "PQQ") — RFD3 recognizes it
         for line in ligand_lines:
-            # Keep the ligand residue name - RFD3 recognizes it
-            new_line = renumber_atom_serial(line, atom_serial)
+            new_line = line[:21] + "L" + "   1" + line[26:]
+            new_line = renumber_atom_serial(new_line, atom_serial)
             atom_serial += 1
             new_line = center_line(new_line)
             output_lines.append(new_line)

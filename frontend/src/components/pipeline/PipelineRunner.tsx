@@ -149,8 +149,13 @@ function PipelineRunnerInner({
   }, [pipeline.runtime.status, pipeline.runtime.activeStepIndex]);
 
   // Auto-confirm paused steps when Quick Run is active
+  // Exception: don't auto-confirm when all sweep designs failed — user must review
   useEffect(() => {
     if (autoRun && pipeline.runtime.status === 'paused') {
+      const activeState = pipeline.runtime.steps[pipeline.runtime.activeStepIndex];
+      if (activeState?.result?.data?.sweep_all_failed) {
+        return; // Stop auto-run — user must review failure and decide to retry or continue
+      }
       pipeline.confirmAndContinue();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

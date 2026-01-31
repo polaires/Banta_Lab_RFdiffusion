@@ -387,6 +387,16 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
         throw new Error('No sequences available for validation');
       }
 
+      // Extract ligand SMILES from previous results for ligand-aware RF3 prediction
+      let ligandSmiles: string | undefined;
+      for (const result of Object.values(previousResults)) {
+        const smiles = result.data?.ligand_smiles as string;
+        if (smiles) {
+          ligandSmiles = smiles;
+          break;
+        }
+      }
+
       const pdbOutputs: PdbOutput[] = [];
       const totalSeqs = sequences.length;
 
@@ -400,6 +410,7 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
         const response = await api.submitRF3Prediction({
           sequence: seq.sequence,
           name: seq.label ?? seq.id,
+          ligand_smiles: ligandSmiles,
         });
 
         checkAborted(ctx.abortSignal);
@@ -598,7 +609,7 @@ export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinit
     description: 'Search RCSB PDB for existing structures with the target metal-ligand complex',
     icon: Database,
     requiresReview: true,
-    supportsSelection: false,
+    supportsSelection: true,
     optional: true,
     defaultParams: {
       resolution_max: 3.0,
@@ -775,6 +786,17 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
           id: `scout-skip-${Date.now()}`,
           summary: 'Skipped: metal sweep already validated',
           data: { skipped: true, reason: 'Metal binding sweep performs internal validation' },
+        };
+      }
+
+      // Guard: skip for metal single mode — backbones contain HETATM (metal/ligand)
+      // which scout's simple RF3 call can't handle. MPNN/RF3 steps will validate properly.
+      if (rfd3Result?.data?.metal_single_mode) {
+        return {
+          id: `scout-skip-${Date.now()}`,
+          summary: 'Skipped: metal binding backbones (validated in MPNN/RF3 steps)',
+          pdbOutputs: rfd3Result.pdbOutputs,
+          data: { skipped: true, reason: 'Metal binding single mode — scout not applicable' },
         };
       }
 

@@ -196,7 +196,7 @@ export function StepCard({
 
         <CollapsibleContent>
           <Separator />
-          <CardContent className="p-3 space-y-3">
+          <CardContent className="p-3 space-y-3 max-h-[70vh] overflow-y-auto">
             {/* Running: progress bar */}
             {isRunning && (
               <div className="space-y-1.5">

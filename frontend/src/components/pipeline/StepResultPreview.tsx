@@ -136,7 +136,7 @@ function StructuresGrid({
 
 function SequencesList({ sequences }: { sequences: StepResult['sequences'] & object }) {
   return (
-    <ScrollArea className="max-h-48">
+    <ScrollArea className="max-h-[40vh]">
       <div className="space-y-1.5">
         {sequences.map(seq => (
           <Card key={seq.id} className="p-2.5">

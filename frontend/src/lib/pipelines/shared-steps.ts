@@ -791,11 +791,12 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
 
       // Guard: skip for metal single mode — backbones contain HETATM (metal/ligand)
       // which scout's simple RF3 call can't handle. MPNN/RF3 steps will validate properly.
+      // NOTE: Don't re-emit pdbOutputs here — MPNN finds them from rfd3_nl directly.
+      // Re-emitting would cause duplicates (MPNN collects from ALL previous steps).
       if (rfd3Result?.data?.metal_single_mode) {
         return {
           id: `scout-skip-${Date.now()}`,
           summary: 'Skipped: metal binding backbones (validated in MPNN/RF3 steps)',
-          pdbOutputs: rfd3Result.pdbOutputs,
           data: { skipped: true, reason: 'Metal binding single mode — scout not applicable' },
         };
       }
@@ -813,11 +814,11 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
       }
 
       // Guard: skip if only 1 backbone (not worth filtering)
+      // NOTE: Don't re-emit pdbOutputs — MPNN finds them from rfd3_nl directly.
       if (pdbOutputs.length <= 1) {
         return {
           id: `scout-skip-${Date.now()}`,
           summary: 'Skipped: single backbone',
-          pdbOutputs,
           data: { skipped: true, reason: 'Only 1 backbone — scout filtering not needed' },
         };
       }

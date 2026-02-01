@@ -16,7 +16,18 @@ interface StepResultPreviewProps {
 export function StepResultPreview({ result, onSelectDesign }: StepResultPreviewProps) {
   const hasStructures = result.pdbOutputs && result.pdbOutputs.length > 0;
   const hasSequences = result.sequences && result.sequences.length > 0;
-  const hasData = result.data && Object.keys(result.data).length > 0;
+
+  // Only show Details tab when data has meaningful content the user cares about.
+  // Hide it when it's just a few scalar metadata fields duplicating the summary.
+  const dataEntries = result.data ? Object.entries(result.data).filter(
+    ([, v]) => typeof v !== 'object' || v === null
+  ) : [];
+  const hasData = dataEntries.length > 0 && (
+    // Always show if it's the only content
+    (!hasStructures && !hasSequences) ||
+    // Show if there are more than 3 meaningful entries (worth a tab)
+    dataEntries.length > 3
+  );
 
   const tabCount = [hasStructures, hasSequences, hasData].filter(Boolean).length;
 
@@ -31,7 +42,7 @@ export function StepResultPreview({ result, onSelectDesign }: StepResultPreviewP
   const defaultTab = hasStructures ? 'structures' : hasSequences ? 'sequences' : 'data';
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-w-0 overflow-hidden">
       <p className="text-xs text-muted-foreground">{result.summary}</p>
 
       {tabCount === 1 && hasStructures && (
@@ -137,14 +148,14 @@ function StructuresGrid({
 function SequencesList({ sequences }: { sequences: StepResult['sequences'] & object }) {
   return (
     <ScrollArea className="max-h-[40vh]">
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 min-w-0">
         {sequences.map(seq => (
-          <Card key={seq.id} className="p-2.5">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-foreground">
+          <Card key={seq.id} className="p-2.5 overflow-hidden">
+            <div className="flex items-center justify-between mb-1 min-w-0">
+              <span className="text-xs font-medium text-foreground truncate min-w-0">
                 {seq.label ?? seq.id}
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 {seq.score !== undefined && (
                   <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
                     {seq.score.toFixed(2)}
@@ -160,7 +171,7 @@ function SequencesList({ sequences }: { sequences: StepResult['sequences'] & obj
                 </Button>
               </div>
             </div>
-            <p className="text-[10px] text-muted-foreground font-mono break-all leading-relaxed">
+            <p className="text-[10px] text-muted-foreground font-mono break-all leading-relaxed overflow-hidden">
               {seq.sequence.length > 120
                 ? `${seq.sequence.slice(0, 120)}...`
                 : seq.sequence

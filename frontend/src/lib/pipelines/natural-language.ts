@@ -648,9 +648,9 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           // --- SINGLE MODE (default): educated RFD3 backbone generation ---
           // Returns backbone PDBs only; MPNN and RF3 run as separate pipeline steps
           if (scaffoldPdb && scaffoldId) {
-            ctx.onProgress(5, `Using scaffold ${scaffoldId} for ${targetMetal}${ligandName ? ` + ${ligandName}` : ''} backbone generation...`);
+            ctx.onProgress(5, `Generating ${numDesigns} backbone(s) from scaffold ${scaffoldId} for ${targetMetal}${ligandName ? ` + ${ligandName}` : ''}...`);
           } else {
-            ctx.onProgress(5, `Generating ${targetMetal}${ligandName ? ` + ${ligandName}` : ''} backbones...`);
+            ctx.onProgress(5, `Generating ${numDesigns} ${targetMetal}${ligandName ? ` + ${ligandName}` : ''} backbone(s)...`);
           }
 
           const contig = mergedConfig.contig as string || '110-130';
@@ -661,6 +661,8 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           console.log(`[rfd3_nl] SINGLE: ${numDesigns} designs, contig=${contig}, cfg=${cfgScale}`);
 
           const buryLigand = mergedConfig.bury_ligand !== false; // default true
+          ctx.onProgress(10, `Running RFdiffusion3: ${numDesigns} design(s), contig=${contig}...`);
+
           const singleResult = await api.submitMetalSingleDesign({
             motif_pdb: motifPdb,
             metal: targetMetal,
@@ -675,7 +677,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             seed: 42,
           });
 
-          ctx.onProgress(90, 'Processing backbone results...');
+          ctx.onProgress(90, `Processing ${numDesigns} backbone result(s)...`);
 
           if (singleResult.status === 'failed' || !singleResult.result) {
             throw new Error((singleResult as any).error || 'Metal backbone generation failed');
@@ -708,11 +710,14 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         }
 
         // --- General RFD3: raw backbone generation ---
-        ctx.onProgress(5, 'Submitting RFD3 design job...');
+        // Priority: mergedConfig (from configure step) → step params → default
+        const numDesigns = (mergedConfig.num_designs ?? params.num_designs ?? 4) as number;
+        const numTimesteps = (mergedConfig.num_timesteps ?? params.num_timesteps ?? 200) as number;
+        ctx.onProgress(5, `Submitting RFD3 job: ${numDesigns} design(s), ${numTimesteps} timesteps...`);
 
         const request: Record<string, unknown> = {
-          num_designs: params.num_designs ?? mergedConfig.num_designs ?? 4,
-          num_timesteps: params.num_timesteps ?? mergedConfig.num_timesteps ?? 200,
+          num_designs: numDesigns,
+          num_timesteps: numTimesteps,
           step_scale: params.step_scale ?? mergedConfig.step_scale ?? 1.5,
           gamma_0: params.gamma_0 ?? mergedConfig.gamma_0 ?? 0.6,
         };
@@ -725,7 +730,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
 
         const response = await api.submitRFD3Design(request as any);
         ctx.onJobCreated?.(response.job_id, 'rfd3');
-        ctx.onProgress(15, 'Generating structures...');
+        ctx.onProgress(15, `Generating ${numDesigns} backbone(s) via RFdiffusion3...`);
 
         let result: Record<string, unknown>;
 
@@ -735,8 +740,14 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           }
           result = response.result as Record<string, unknown>;
         } else {
+          let pollCount = 0;
           const polled = await api.waitForJob(response.job_id, (s) => {
-            if (s.status === 'running') ctx.onProgress(50, 'Generating...');
+            if (s.status === 'running') {
+              pollCount++;
+              // Simulate progress during generation (15% → 90%)
+              const estimatedProgress = Math.min(90, 15 + pollCount * 5);
+              ctx.onProgress(estimatedProgress, `Generating ${numDesigns} backbone(s)... (running)`);
+            }
           });
           if (polled.status !== 'completed') throw new Error(polled.error || 'Design failed');
           result = polled.result as Record<string, unknown>;
@@ -782,11 +793,11 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     // Step 7: RF3 validation
     createRf3Step({ id: 'rf3_nl' }),
 
-    // Step 8: Final analysis
+    // Step 8: Final analysis — UnifiedDesignAnalyzer + FILTER_PRESETS
     {
       id: 'analysis',
       name: 'Final Analysis',
-      description: 'Summarize and rank all results',
+      description: 'Run structural analysis and quality filtering on each design',
       icon: BarChart3,
       requiresReview: true,
       supportsSelection: false,
@@ -795,7 +806,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       parameterSchema: [],
 
       async execute(ctx) {
-        const { previousResults, selectedItems, initialParams } = ctx;
+        const { previousResults, initialParams } = ctx;
 
         const allPdbs: PdbOutput[] = [];
         for (const r of Object.values(previousResults)) {
@@ -805,55 +816,87 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         const validated = allPdbs.filter(p => p.id.startsWith('rf3-') || p.id.startsWith('validated-'));
         const toAnalyze = validated.length > 0 ? validated : allPdbs.slice(-8);
 
-        ctx.onProgress(30, 'Computing final metrics...');
+        ctx.onProgress(10, `Analyzing ${toAnalyze.length} designs with UnifiedDesignAnalyzer...`);
 
-        // Try metal evaluation if applicable
+        // Gather context from previous steps
         const configResult = Object.values(previousResults).find(r => r.data?.design_type);
-        const designType = configResult?.data?.design_type as string;
-        const targetMetal = configResult?.data?.target_metal as string || initialParams.target_metal as string;
+        const designType = configResult?.data?.design_type as string || 'general';
+        const targetMetal = configResult?.data?.target_metal as string || initialParams.target_metal as string || undefined;
+        const ligandName = configResult?.data?.ligand_name as string || undefined;
 
         const analyzed: PdbOutput[] = [];
+        let passCount = 0;
+        let filterPreset = 'scout_relaxed';
 
         for (let i = 0; i < toAnalyze.length; i++) {
           const pdb = toAnalyze[i];
-          ctx.onProgress(30 + (i / toAnalyze.length) * 60, `Analyzing ${pdb.label}...`);
+          const pct = 10 + Math.round((i / toAnalyze.length) * 80);
+          ctx.onProgress(pct, `Analyzing ${pdb.label} (${i + 1}/${toAnalyze.length})...`);
 
           const metrics = { ...pdb.metrics };
 
-          if (designType === 'metal' && targetMetal) {
-            try {
-              const evaluation = await api.evaluateDesign({
-                pdb_content: pdb.pdbContent,
-                target_metal: targetMetal,
-              });
-              metrics.coordination = evaluation.coordination_number;
-              metrics.geometry = evaluation.geometry_type;
-              metrics.pass = evaluation.overall_pass ? 'Yes' : 'No';
-            } catch {
-              // Non-fatal
+          try {
+            const result = await api.analyzeDesign({
+              pdb_content: pdb.pdbContent,
+              metal_type: targetMetal,
+              ligand_name: ligandName,
+              design_type: designType,
+              design_params: {},
+            });
+
+            // Enrich metrics with analyzer output
+            if (result.metrics.plddt !== undefined) metrics.pLDDT_analysis = result.metrics.plddt;
+            if (result.metrics.coordination_number !== undefined) metrics.coordination = result.metrics.coordination_number;
+            if (result.metrics.geometry_rmsd !== undefined) metrics.geometry_rmsd = result.metrics.geometry_rmsd;
+            if (result.metrics.alanine_pct !== undefined) metrics.ala_pct = result.metrics.alanine_pct;
+            if (result.metrics.aromatic_pct !== undefined) metrics.aromatic_pct = result.metrics.aromatic_pct;
+            if (result.metrics.total_residues !== undefined) metrics.residues = result.metrics.total_residues;
+
+            metrics.filter_passed = result.filter_passed ? 'Yes' : 'No';
+            metrics.filter_preset = result.filter_preset;
+            filterPreset = result.filter_preset;
+
+            if (result.filter_passed) passCount++;
+
+            if (result.failed_filters.length > 0) {
+              metrics.failed_filters = result.failed_filters
+                .map(f => `${f.metric}=${typeof f.value === 'number' ? f.value.toFixed(2) : f.value}`)
+                .join(', ');
             }
+          } catch (err) {
+            // Non-fatal: fall back to existing metrics
+            console.warn(`[analysis] analyzeDesign failed for ${pdb.label}:`, err);
+            metrics.filter_passed = 'N/A';
           }
 
           analyzed.push({ ...pdb, metrics });
         }
 
-        // Sort by pLDDT if available
+        // Sort: passing designs first, then by pLDDT descending
         analyzed.sort((a, b) => {
-          const aScore = (a.metrics?.pLDDT as number) ?? 0;
-          const bScore = (b.metrics?.pLDDT as number) ?? 0;
+          const aPass = a.metrics?.filter_passed === 'Yes' ? 1 : 0;
+          const bPass = b.metrics?.filter_passed === 'Yes' ? 1 : 0;
+          if (aPass !== bPass) return bPass - aPass;
+          const aScore = (a.metrics?.pLDDT as number) ?? (a.metrics?.pLDDT_analysis as number) ?? 0;
+          const bScore = (b.metrics?.pLDDT as number) ?? (b.metrics?.pLDDT_analysis as number) ?? 0;
           return bScore - aScore;
         });
 
         ctx.onProgress(100, 'Analysis complete');
 
+        const summary = `${passCount}/${toAnalyze.length} designs passed ${filterPreset} filter`;
+
         return {
           id: `analysis-${Date.now()}`,
-          summary: `Final analysis: ${analyzed.length} designs evaluated`,
+          summary,
           pdbOutputs: analyzed,
           data: {
             total_analyzed: analyzed.length,
+            designs_passed: passCount,
+            designs_failed: analyzed.length - passCount,
+            filter_preset: filterPreset,
             design_type: designType,
-            top_score: analyzed[0]?.metrics?.pLDDT,
+            top_score: analyzed[0]?.metrics?.pLDDT ?? analyzed[0]?.metrics?.pLDDT_analysis,
           },
         };
       },

@@ -406,13 +406,17 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
         throw new Error('No sequences available for validation');
       }
 
-      // Extract ligand SMILES from previous results for ligand-aware RF3 prediction
+      // Extract ligand SMILES and metal type from previous results for RF3 prediction
       let ligandSmiles: string | undefined;
+      let targetMetal: string | undefined;
       for (const result of Object.values(previousResults)) {
-        const smiles = result.data?.ligand_smiles as string;
-        if (smiles) {
-          ligandSmiles = smiles;
-          break;
+        if (!ligandSmiles) {
+          const smiles = result.data?.ligand_smiles as string;
+          if (smiles) ligandSmiles = smiles;
+        }
+        if (!targetMetal) {
+          const metal = result.data?.target_metal as string;
+          if (metal) targetMetal = metal;
         }
       }
 
@@ -430,6 +434,7 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
           sequence: seq.sequence,
           name: seq.label ?? seq.id,
           ligand_smiles: ligandSmiles,
+          metal: targetMetal,
         });
 
         checkAborted(ctx.abortSignal);
@@ -820,15 +825,70 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
         };
       }
 
-      // Guard: skip for metal single mode — backbones contain HETATM (metal/ligand)
-      // which scout's simple RF3 call can't handle. MPNN/RF3 steps will validate properly.
+      // Metal single mode: backbones contain HETATM (metal/ligand) which scout's
+      // simple RF3 call can't handle. But the CPU pre-filter CAN check these backbones
+      // for broken chains, missing metal/ligand, etc. Run pre-filter only (no GPU).
       // NOTE: Don't re-emit pdbOutputs here — MPNN finds them from rfd3_nl directly.
       // Re-emitting would cause duplicates (MPNN collects from ALL previous steps).
       if (rfd3Result?.data?.metal_single_mode) {
+        const metalPdbOutputs = findPdbOutputs(previousResults, selectedItems);
+        if (metalPdbOutputs.length <= 1) {
+          return {
+            id: `scout-skip-${Date.now()}`,
+            summary: 'Skipped: single metal backbone',
+            data: { skipped: true, reason: 'Only 1 backbone — pre-filter not needed' },
+          };
+        }
+
+        ctx.onProgress(5, `Pre-filtering ${metalPdbOutputs.length} metal backbones (CPU only)...`);
+        checkAborted(ctx.abortSignal);
+
+        const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+        const scoutTargetMetal = (intentResult?.data?.target_metal as string)
+          || (rfd3Result?.data?.target_metal as string)
+          || (initialParams.target_metal as string)
+          || '';
+        const scoutLigandName = (intentResult?.data?.ligand_name as string)
+          || (rfd3Result?.data?.ligand_name as string)
+          || (initialParams.ligand_name as string)
+          || '';
+
+        // Call scout filter with pre-filter only flag — backend runs CPU checks, skips MPNN+RF3
+        const pfResult = await api.scoutFilter({
+          backbone_pdbs: metalPdbOutputs.map(p => p.pdbContent),
+          ptm_threshold: (params.ptm_threshold as number) ?? 0.6,
+          plddt_threshold: (params.plddt_threshold as number) ?? 0.65,
+          target_metal: scoutTargetMetal,
+          ligand_name: scoutLigandName || undefined,
+          pre_filter_only: true,
+        });
+
+        checkAborted(ctx.abortSignal);
+
+        const pfPassed = pfResult.pre_filter_passed ?? metalPdbOutputs.length;
+        const pfFailed = pfResult.pre_filter_failed ?? 0;
+
+        ctx.onProgress(100, pfFailed > 0
+          ? `Pre-filter: ${pfFailed} backbone(s) eliminated`
+          : 'Pre-filter: all backbones passed');
+
         return {
-          id: `scout-skip-${Date.now()}`,
-          summary: 'Skipped: metal binding backbones (validated in MPNN/RF3 steps)',
-          data: { skipped: true, reason: 'Metal binding single mode — scout not applicable' },
+          id: `scout-prefilter-${Date.now()}`,
+          summary: pfFailed > 0
+            ? `Pre-filter: ${pfPassed}/${metalPdbOutputs.length} metal backbones passed (${pfFailed} eliminated)`
+            : `Pre-filter: all ${metalPdbOutputs.length} metal backbones passed`,
+          // Don't re-emit pdbOutputs — MPNN step finds them from rfd3_nl
+          data: {
+            metal_pre_filter_only: true,
+            original_count: metalPdbOutputs.length,
+            passing_count: pfPassed,
+            scout_results: pfResult.scout_results,
+            pre_filter_results: pfResult.pre_filter_results,
+            pre_filter_passed: pfPassed,
+            pre_filter_failed: pfFailed,
+            ptm_threshold: pfResult.ptm_threshold,
+            plddt_threshold: pfResult.plddt_threshold,
+          },
         };
       }
 
@@ -854,7 +914,7 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
         };
       }
 
-      ctx.onProgress(5, `Scout filtering ${pdbOutputs.length} backbones...`);
+      ctx.onProgress(5, `Scout filtering ${pdbOutputs.length} backbone(s): 1 seq each → MPNN → RF3...`);
       checkAborted(ctx.abortSignal);
 
       // Extract metal/ligand from intent result (NL pipeline) or initialParams (direct pipeline)
@@ -865,6 +925,11 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
       const scoutLigandSmiles = (intentResult?.data?.ligand_smiles as string)
         || (initialParams.ligand_smiles as string)
         || '';
+      const scoutLigandName = (intentResult?.data?.ligand_name as string)
+        || (initialParams.ligand_name as string)
+        || '';
+
+      ctx.onProgress(10, `Validating ${pdbOutputs.length} backbone(s) (MPNN + RF3 per backbone)...`);
 
       const result = await api.scoutFilter({
         backbone_pdbs: pdbOutputs.map(p => p.pdbContent),
@@ -872,11 +937,22 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
         plddt_threshold: (params.plddt_threshold as number) ?? 0.65,
         target_metal: scoutTargetMetal,
         ligand_smiles: scoutLigandSmiles,
+        ligand_name: scoutLigandName || undefined,
       });
 
       checkAborted(ctx.abortSignal);
 
-      ctx.onProgress(90, 'Processing scout results...');
+      // Debug: log raw scout results to help diagnose display issues
+      console.log('[Scout] Raw API result:', JSON.stringify({
+        passing_count: result.passing_count,
+        original_count: result.original_count,
+        scout_results: result.scout_results?.map((sr: any) => ({
+          idx: sr.backbone_index, passed: sr.passed, ptm: sr.ptm, plddt: sr.plddt,
+          pre_filter_failed: sr.pre_filter_failed,
+        })),
+      }));
+
+      ctx.onProgress(90, `Processing results: ${result.passing_count}/${result.original_count} passed...`);
 
       // Build filtered PDB outputs — only passing backbones
       const filteredOutputs: PdbOutput[] = [];
@@ -910,6 +986,9 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
           scout_results: result.scout_results,
           ptm_threshold: result.ptm_threshold,
           plddt_threshold: result.plddt_threshold,
+          pre_filter_results: result.pre_filter_results,
+          pre_filter_passed: result.pre_filter_passed,
+          pre_filter_failed: result.pre_filter_failed,
         },
       };
     },

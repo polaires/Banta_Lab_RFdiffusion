@@ -138,6 +138,7 @@ export interface RF3Request {
   pdb_content?: string;  // For structure-based input
   msa_content?: string;  // MSA file content (.a3m or .fasta format)
   ligand_smiles?: string; // SMILES string for ligand-aware prediction
+  metal?: string;         // Metal element code (TB, ZN, CA, etc.) for metal-binding validation
   config?: Record<string, unknown>;
 }
 
@@ -1195,6 +1196,50 @@ class FoundryAPI {
     return result.output?.result || result.output;
   }
 
+  // ============== Unified Design Analysis ==============
+
+  /**
+   * Run UnifiedDesignAnalyzer + FILTER_PRESETS on a single design PDB.
+   * Returns flat metrics, filter pass/fail, and full nested analysis data.
+   */
+  async analyzeDesign(request: {
+    pdb_content: string;
+    metal_type?: string;
+    ligand_name?: string;
+    design_type?: string;
+    design_params?: Record<string, unknown>;
+  }): Promise<{
+    design_type: string;
+    metrics: Record<string, number>;
+    filter_preset: string;
+    filter_passed: boolean;
+    failed_filters: Array<{ metric: string; value: number; threshold: Record<string, number> }>;
+    auto_detected: Record<string, unknown>;
+    analyses: Record<string, unknown>;
+  }> {
+    const response = await fetch(this.getRunsyncEndpoint(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'analyze_design',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Design analysis failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Design analysis failed');
+    }
+
+    return result.output?.result || result.result;
+  }
+
   // ============== Hotspot Detection ==============
 
   /**
@@ -2203,6 +2248,8 @@ class FoundryAPI {
     plddt_threshold?: number;
     target_metal?: string;
     ligand_smiles?: string;
+    ligand_name?: string;
+    pre_filter_only?: boolean;
   }): Promise<{
     filtered_pdbs: string[];
     original_count: number;
@@ -2213,9 +2260,27 @@ class FoundryAPI {
       plddt: number;
       passed: boolean;
       sequence: string;
+      pre_filter_failed?: boolean;
     }>;
     ptm_threshold: number;
     plddt_threshold: number;
+    pre_filter_results?: Array<{
+      passed: boolean;
+      checks: Record<string, {
+        passed: boolean;
+        reasons?: string[];
+        chain_breaks?: Array<{ chain: string; res_i: number; res_j: number; distance: number }>;
+        coordination_number?: number;
+        geometry_rmsd?: number;
+        ligand_name?: string;
+        atom_count?: number;
+        error?: string;
+      }>;
+      failed_checks: string[];
+      skipped_checks: string[];
+    }>;
+    pre_filter_passed?: number;
+    pre_filter_failed?: number;
   }> {
     console.log('[API] Running scout filter on', request.backbone_pdbs.length, 'backbones');
 
@@ -2263,11 +2328,16 @@ class FoundryAPI {
     }
 
     const result = await response.json();
-    if (result.output?.status === 'failed') {
-      throw new Error(result.output.error || 'Save design history failed');
+    const output = result.output || {};
+    if (output.status === 'failed') {
+      throw new Error(output.error || 'Save design history failed');
     }
 
-    return result.output?.result || result.result;
+    const inner = output.result || result.result || {};
+    return {
+      run_id: inner.run_id || `local-${Date.now()}`,
+      session_id: inner.session_id || 'unknown',
+    };
   }
 
   /**

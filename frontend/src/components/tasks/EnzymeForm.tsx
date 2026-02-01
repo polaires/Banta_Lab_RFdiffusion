@@ -315,10 +315,11 @@ export function EnzymeForm({ onSubmit, isSubmitting, health }: TaskFormProps) {
     for (const [key, value] of Object.entries(enzymeFixedAtomTypes)) {
       // Check if this residue is excluded (format: "A123")
       if (!excludedCatalyticResidues.has(key)) {
-        // GLY doesn't have sidechain atoms, so 'TIP' is invalid
-        // Convert 'TIP' to 'BKBN' for GLY residues
+        // GLY, ALA, PRO don't have TIP atoms in the Foundry SDK (TIP_BY_RESTYPE=None)
+        // Convert 'TIP' to 'BKBN' for these residues
         const resName = residueNameMap.get(key);
-        if (resName === 'GLY' && value === 'TIP') {
+        const noTipResidues = new Set(['GLY', 'ALA', 'PRO']);
+        if (resName && noTipResidues.has(resName) && value === 'TIP') {
           selectFixedAtoms[key] = 'BKBN';
         } else {
           selectFixedAtoms[key] = value;

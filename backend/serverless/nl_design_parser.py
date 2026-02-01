@@ -679,16 +679,18 @@ class SimpleFallbackParser:
         else:
             intent.design_mode = "de_novo"
 
-        # Extract metal
-        for alias, metal in METAL_ALIASES.items():
-            if alias in query_lower:
+        # Extract metal — use word boundaries to avoid substring matches
+        # (e.g. "ni" inside "designing", "co" inside "complex")
+        # Sort by length descending so longer aliases match first
+        for alias, metal in sorted(METAL_ALIASES.items(), key=lambda x: len(x[0]), reverse=True):
+            if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
                 intent.metal_type = metal
                 intent.parsed_entities["metal_match"] = alias
                 break
 
-        # Extract ligand
-        for alias, ligand in LIGAND_ALIASES.items():
-            if alias in query_lower:
+        # Extract ligand — same word-boundary matching
+        for alias, ligand in sorted(LIGAND_ALIASES.items(), key=lambda x: len(x[0]), reverse=True):
+            if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
                 intent.ligand_name = ligand
                 intent.parsed_entities["ligand_match"] = alias
                 break

@@ -653,8 +653,25 @@ class ScaffoldingWorkflow:
                 logger.info(f"Per-residue fixed atoms from motif selector: {motif_fixed_count} entries")
             elif fixed_atom_type and scaffold_residue_ids:
                 # Legacy: uniform fix type for all catalytic residues
-                for res_id in scaffold_residue_ids:
-                    fixed_atoms[res_id] = fixed_atom_type
+                # For "TIP", check per-residue support (ALA/GLY/PRO lack TIP atoms
+                # in the Foundry SDK) and fall back to BKBN for unsupported types.
+                if fixed_atom_type == "TIP":
+                    from rfd3.constants import TIP_BY_RESTYPE
+                    sorted_keys = sorted(all_residue_keys)
+                    resname_lookup = {r.get("resnum"): r.get("res_name", "UNK")
+                                      for r in unique_residues}
+                    for idx, (orig_chain, orig_resnum) in enumerate(sorted_keys, start=1):
+                        res_id = f"A{idx}"
+                        if res_id in scaffold_residue_ids:
+                            resname = resname_lookup.get(orig_resnum, "UNK")
+                            if TIP_BY_RESTYPE.get(resname) is not None:
+                                fixed_atoms[res_id] = "TIP"
+                            else:
+                                fixed_atoms[res_id] = "BKBN"
+                                logger.info(f"Legacy scaffold: {resname} at {res_id} has no TIP, using BKBN")
+                else:
+                    for res_id in scaffold_residue_ids:
+                        fixed_atoms[res_id] = fixed_atom_type
 
             # RASA targets: bury metal and ligand to create proper pocket
             rasa_targets = self._determine_rasa_targets_renumbered(output_metal, ligand_code)
@@ -790,13 +807,36 @@ class ScaffoldingWorkflow:
         metal_center = metal_atoms[0]
 
         # Step 3: Find protein residues within contact_distance of metal
+        # Distinguish true coordinators (donor atom within bonding distance) from
+        # nearby residues (any atom within contact_distance).
+        # Metal coordination bonds are typically 1.8-2.8 A for the donor atom.
+        COORDINATION_BOND_CUTOFF = 3.0  # Angstroms — generous to catch longer bonds
+        METAL_DONOR_ATOMS = {
+            # Residue -> set of potential metal-donor atom names
+            "ASP": {"OD1", "OD2"},
+            "GLU": {"OE1", "OE2"},
+            "HIS": {"ND1", "NE2"},
+            "CYS": {"SG"},
+            "SER": {"OG"},
+            "THR": {"OG1"},
+            "ASN": {"OD1", "ND2"},
+            "GLN": {"OE1", "NE2"},
+            "MET": {"SD"},
+            "TYR": {"OH"},
+            "LYS": {"NZ"},
+            "ARG": {"NH1", "NH2", "NE"},
+        }
+
         contact_residues: Dict[Tuple[str, int], Dict] = {}
+        coordinating_residues: Set[Tuple[str, int]] = set()  # True coordinators
+
         for line in pdb_content.split('\n'):
             if line.startswith('ATOM'):
                 try:
                     chain = line[21]
                     res_name = line[17:20].strip()
                     res_seq = int(line[22:26].strip())
+                    atom_name = line[12:16].strip()
                     x = float(line[30:38])
                     y = float(line[38:46])
                     z = float(line[46:54])
@@ -820,9 +860,19 @@ class ScaffoldingWorkflow:
                     elif dist < contact_residues[key]["min_distance"]:
                         contact_residues[key]["min_distance"] = dist
 
+                    # Check if this specific atom is a metal donor within bonding distance
+                    donor_atoms = METAL_DONOR_ATOMS.get(res_name, set())
+                    if atom_name in donor_atoms and dist <= COORDINATION_BOND_CUTOFF:
+                        coordinating_residues.add(key)
+
         if not contact_residues:
             logger.warning(f"extract_metal_motif: no protein residues within {contact_distance}A of {actual_metal}")
             return None
+
+        logger.info(
+            f"extract_metal_motif: {len(contact_residues)} nearby residues, "
+            f"{len(coordinating_residues)} true coordinators (donor atom within {COORDINATION_BOND_CUTOFF}A)"
+        )
 
         # Step 3b: Add buffer residues (±3 for secondary structure context)
         all_protein_residues: Dict[Tuple[str, int], str] = {}
@@ -892,13 +942,30 @@ class ScaffoldingWorkflow:
         if ligand_upper:
             fixed_atoms["L1"] = "ALL"  # Ligand on chain L, residue 1
 
-        # Fix coordinating residue tips (atoms closest to metal)
-        # Map contact residues to their renumbered IDs
+        # Fix coordinating residue atoms based on coordination evidence
+        # Only true coordinators (donor atom within bonding distance) get TIP.
+        # Nearby non-coordinating residues (e.g. ALA in the second shell) are
+        # left unfixed — they're included in the motif for structural context
+        # via unindex but don't need atom-level fixing.
+        #
+        # TIP_BY_RESTYPE (from foundry.constants): ALA, GLY, PRO have TIP=None.
+        # For true coordinators that lack TIP, fall back to ALL (fix everything).
+        from rfd3.constants import TIP_BY_RESTYPE
+
         sorted_expanded = sorted(expanded_keys)
         for idx, key in enumerate(sorted_expanded, start=1):
-            if key in contact_residues:
-                # Direct coordination — fix functional tip
-                fixed_atoms[f"A{idx}"] = "TIP"
+            if key in coordinating_residues:
+                res_name = all_protein_residues.get(key, "UNK")
+                if TIP_BY_RESTYPE.get(res_name) is not None:
+                    fixed_atoms[f"A{idx}"] = "TIP"
+                else:
+                    # Residue has no TIP (GLY/ALA/PRO) — shouldn't coordinate
+                    # metals, but if it does (backbone carbonyl O), fix backbone
+                    fixed_atoms[f"A{idx}"] = "BKBN"
+                    logger.info(
+                        f"extract_metal_motif: {res_name} at A{idx} coordinates metal "
+                        f"but has no TIP atoms, using BKBN"
+                    )
 
         # Step 7: Build hbond_acceptors from ligand (non-coordinating atoms)
         hbond_acceptors: Dict[str, str] = {}

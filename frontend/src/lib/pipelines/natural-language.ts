@@ -802,11 +802,27 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       requiresReview: true,
       supportsSelection: false,
       optional: false,
-      defaultParams: {},
-      parameterSchema: [],
+      defaultParams: {
+        filter_tier: 'standard',
+      },
+      parameterSchema: [
+        {
+          id: 'filter_tier',
+          label: 'Filter Strictness',
+          type: 'select' as const,
+          required: false,
+          defaultValue: 'standard',
+          options: [
+            { value: 'relaxed', label: 'Relaxed (exploratory)' },
+            { value: 'standard', label: 'Standard' },
+            { value: 'strict', label: 'Strict (production)' },
+          ],
+          helpText: 'How strict quality thresholds should be. Auto-adapts to metal type.',
+        },
+      ],
 
       async execute(ctx) {
-        const { previousResults, initialParams } = ctx;
+        const { previousResults, initialParams, params } = ctx;
 
         const allPdbs: PdbOutput[] = [];
         for (const r of Object.values(previousResults)) {
@@ -816,7 +832,8 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         const validated = allPdbs.filter(p => p.id.startsWith('rf3-') || p.id.startsWith('validated-'));
         const toAnalyze = validated.length > 0 ? validated : allPdbs.slice(-8);
 
-        ctx.onProgress(10, `Analyzing ${toAnalyze.length} designs with UnifiedDesignAnalyzer...`);
+        const filterTier = (params.filter_tier as string) || 'standard';
+        ctx.onProgress(10, `Analyzing ${toAnalyze.length} designs (${filterTier} tier)...`);
 
         // Gather context from previous steps
         const configResult = Object.values(previousResults).find(r => r.data?.design_type);
@@ -841,6 +858,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
               metal_type: targetMetal,
               ligand_name: ligandName,
               design_type: designType,
+              filter_tier: filterTier,
               design_params: {},
             });
 
@@ -851,6 +869,8 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             if (result.metrics.alanine_pct !== undefined) metrics.ala_pct = result.metrics.alanine_pct;
             if (result.metrics.aromatic_pct !== undefined) metrics.aromatic_pct = result.metrics.aromatic_pct;
             if (result.metrics.total_residues !== undefined) metrics.residues = result.metrics.total_residues;
+            if (result.metrics.ligand_contacts !== undefined) metrics.ligand_contacts = result.metrics.ligand_contacts;
+            if (result.metrics.protein_coordination !== undefined) metrics.protein_coord = result.metrics.protein_coordination;
 
             metrics.filter_passed = result.filter_passed ? 'Yes' : 'No';
             metrics.filter_preset = result.filter_preset;
@@ -895,6 +915,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             designs_passed: passCount,
             designs_failed: analyzed.length - passCount,
             filter_preset: filterPreset,
+            filter_tier: filterTier,
             design_type: designType,
             top_score: analyzed[0]?.metrics?.pLDDT ?? analyzed[0]?.metrics?.pLDDT_analysis,
           },

@@ -11852,6 +11852,9 @@ def _flatten_analysis_metrics(analysis: Dict[str, Any]) -> Dict[str, Any]:
         for key in ["total_contacts", "hydrogen_bonds", "hydrophobic_contacts", "pi_stacking", "salt_bridges"]:
             if key in metrics:
                 flat[key] = metrics[key]
+        # Alias: ligand_contacts = total_contacts (used by chemistry-aware presets)
+        if "total_contacts" in metrics:
+            flat["ligand_contacts"] = metrics["total_contacts"]
 
     # Sequence composition
     seq = analyses.get("sequence_composition", {})
@@ -11884,13 +11887,44 @@ def _flatten_analysis_metrics(analysis: Dict[str, Any]) -> Dict[str, Any]:
     return flat
 
 
-def _pick_filter_preset(design_type: Optional[str]) -> str:
-    """Pick the appropriate FILTER_PRESETS key based on design type."""
+def _pick_filter_preset(
+    design_type: Optional[str],
+    metal: Optional[str] = None,
+    ligand_name: Optional[str] = None,
+    tier: str = "standard",
+) -> Tuple[str, Dict[str, Any]]:
+    """Pick or generate the appropriate filter preset.
+
+    If metal is provided and recognized, generates chemistry-aware thresholds
+    from metal_chemistry.py data (CN ranges, HSAB class). Falls back to
+    hardcoded FILTER_PRESETS otherwise.
+
+    Returns:
+        Tuple of (preset_name, preset_dict).
+    """
+    # Chemistry-aware path: generate thresholds from metal database
+    if metal:
+        try:
+            from filter_evaluator import generate_chemistry_aware_preset
+            name, preset = generate_chemistry_aware_preset(
+                metal=metal,
+                ligand_name=ligand_name,
+                tier=tier,
+                design_type=design_type or "metal_binding",
+            )
+            return name, preset
+        except Exception:
+            pass  # Fall through to hardcoded presets
+
+    # Hardcoded fallback
+    from filter_evaluator import FILTER_PRESETS
     if design_type in ("metal", "metal_ligand", "metal_monomer", "metal_ligand_monomer"):
-        return "metal_binding"
-    if design_type in ("enzyme", "scaffold", "enzyme_scaffold"):
-        return "enzyme_scaffold"
-    return "scout_relaxed"
+        name = "metal_binding"
+    elif design_type in ("enzyme", "scaffold", "enzyme_scaffold"):
+        name = "enzyme_scaffold"
+    else:
+        name = "scout_relaxed"
+    return name, dict(FILTER_PRESETS.get(name, {}))
 
 
 def _evaluate_flat_metrics(
@@ -11982,8 +12016,10 @@ def handle_analyze_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 print(f"[analyze_design] Warning: CIF-to-PDB conversion failed: {e}")
 
         metal_type = job_input.get("metal_type")
+        ligand_name = job_input.get("ligand_name")
         design_type = job_input.get("design_type")
         design_params = job_input.get("design_params", {})
+        filter_tier = job_input.get("filter_tier", "standard")
 
         # 1. Run UnifiedDesignAnalyzer
         analyzer = UnifiedDesignAnalyzer()
@@ -11996,12 +12032,34 @@ def handle_analyze_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
         # 2. Flatten nested analysis metrics
         flat_metrics = _flatten_analysis_metrics(analysis)
 
-        # 3. Pick filter preset based on design_type
-        preset_name = _pick_filter_preset(design_type)
-        preset = FILTER_PRESETS.get(preset_name, {})
+        # 3. Pick filter preset — chemistry-aware if metal provided
+        preset_name, preset = _pick_filter_preset(
+            design_type,
+            metal=metal_type,
+            ligand_name=ligand_name,
+            tier=filter_tier,
+        )
 
         # 4. Evaluate against preset
         filter_result = _evaluate_flat_metrics(flat_metrics, preset)
+
+        # 5. Build chemistry context for frontend display
+        chemistry_context = None
+        if metal_type:
+            try:
+                from metal_chemistry import get_hsab_class_simple, get_coordination_number_range, METAL_DATABASE
+                metal_upper = metal_type.upper()
+                if metal_upper in METAL_DATABASE:
+                    default_ox = METAL_DATABASE[metal_upper].get("default_oxidation", 2)
+                    cn_min, cn_max = get_coordination_number_range(metal_upper, default_ox)
+                    chemistry_context = {
+                        "metal": metal_upper,
+                        "hsab_class": get_hsab_class_simple(metal_upper),
+                        "formal_cn_range": [cn_min, cn_max],
+                        "tier": filter_tier,
+                    }
+            except Exception:
+                pass
 
         return {
             "status": "completed",
@@ -12011,6 +12069,8 @@ def handle_analyze_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 "filter_preset": preset_name,
                 "filter_passed": filter_result["passed"],
                 "failed_filters": filter_result["failed_filters"],
+                "filter_tier": filter_tier,
+                "chemistry_context": chemistry_context,
                 "auto_detected": analysis.get("auto_detected", {}),
                 "analyses": analysis.get("analyses", {}),
             },

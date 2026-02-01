@@ -1207,12 +1207,20 @@ class FoundryAPI {
     metal_type?: string;
     ligand_name?: string;
     design_type?: string;
+    filter_tier?: string;
     design_params?: Record<string, unknown>;
   }): Promise<{
     design_type: string;
     metrics: Record<string, number>;
     filter_preset: string;
     filter_passed: boolean;
+    filter_tier?: string;
+    chemistry_context?: {
+      metal: string;
+      hsab_class: string;
+      formal_cn_range: [number, number];
+      tier: string;
+    };
     failed_filters: Array<{ metric: string; value: number; threshold: Record<string, number> }>;
     auto_detected: Record<string, unknown>;
     analyses: Record<string, unknown>;

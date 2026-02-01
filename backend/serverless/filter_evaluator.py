@@ -2,10 +2,11 @@
 Filter Evaluator
 
 Evaluates design metrics against filter presets (BindCraft-style).
+Includes chemistry-aware preset generation from metal_chemistry.py data.
 """
 import os
 import json
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 
 # Centralized filter presets — threshold dicts for common design types.
@@ -52,6 +53,117 @@ FILTER_PRESETS = {
         "backbone_rmsd": {"max": 1.5},
     },
 }
+
+
+# Tier multipliers for chemistry-aware preset generation.
+# cn_offset: added to the empirical CN base (formal_cn_min - 2)
+# rmsd_base: geometry RMSD threshold for CN 4-6 metals, scaled up for CN 7+ metals
+_TIER_PARAMS = {
+    "relaxed": {"cn_offset": -1, "rmsd_base": 2.5, "rmsd_high_cn": 3.0, "plddt": 0.60, "ptm": 0.50, "lc": 2},
+    "standard": {"cn_offset": 0, "rmsd_base": 1.5, "rmsd_high_cn": 2.0, "plddt": 0.70, "ptm": 0.60, "lc": 3},
+    "strict": {"cn_offset": 1, "rmsd_base": 0.8, "rmsd_high_cn": 1.2, "plddt": 0.80, "ptm": 0.75, "lc": 5},
+}
+
+
+def generate_chemistry_aware_preset(
+    metal: Optional[str] = None,
+    ligand_name: Optional[str] = None,
+    tier: str = "standard",
+    design_type: str = "metal_binding",
+) -> Tuple[str, Dict[str, Any]]:
+    """
+    Generate filter thresholds from metal_chemistry.py data.
+
+    For metals in METAL_DATABASE, derives CN thresholds from formal coordination
+    range, adjusted by empirical observation that monomer designs typically achieve
+    formal_cn_min - 2 total coordination (protein + ligand combined).
+
+    Args:
+        metal: Metal element code (TB, ZN, CA, etc.)
+        ligand_name: Ligand residue name (CIT, PQQ, etc.) — adds ligand_contacts filter
+        tier: Quality tier — "relaxed", "standard", or "strict"
+        design_type: Fallback design type if metal not in database
+
+    Returns:
+        Tuple of (preset_name, preset_dict) where preset_dict uses
+        {"min": X} / {"max": X} format compatible with FILTER_PRESETS.
+    """
+    if tier not in _TIER_PARAMS:
+        tier = "standard"
+    tp = _TIER_PARAMS[tier]
+
+    # If no metal or metal not known, fall back to existing hardcoded presets
+    if not metal:
+        fallback = _fallback_preset_name(design_type)
+        return fallback, dict(FILTER_PRESETS.get(fallback, {}))
+
+    try:
+        from metal_chemistry import (
+            METAL_DATABASE,
+            get_coordination_number_range,
+            get_hsab_class_simple,
+        )
+    except ImportError:
+        fallback = _fallback_preset_name(design_type)
+        return fallback, dict(FILTER_PRESETS.get(fallback, {}))
+
+    metal_upper = metal.upper()
+    if metal_upper not in METAL_DATABASE:
+        fallback = _fallback_preset_name(design_type)
+        return fallback, dict(FILTER_PRESETS.get(fallback, {}))
+
+    metal_data = METAL_DATABASE[metal_upper]
+    default_ox = metal_data.get("default_oxidation", 2)
+
+    try:
+        formal_cn_min, formal_cn_max = get_coordination_number_range(metal_upper, default_ox)
+    except (ValueError, KeyError):
+        formal_cn_min, formal_cn_max = 4, 6
+
+    try:
+        hsab_class = get_hsab_class_simple(metal_upper)
+    except (ValueError, KeyError):
+        hsab_class = "borderline"
+
+    # Empirical CN base: formal_cn_min - 2 for monomers
+    # (protein provides ~3-5 donors, ligand provides ~3-4, total rarely reaches formal max)
+    cn_base = max(3, formal_cn_min - 2)
+    cn_threshold = max(3, cn_base + tp["cn_offset"])
+
+    # Geometry RMSD: higher CN metals have more flexible coordination spheres
+    if formal_cn_min >= 7:
+        rmsd_threshold = tp["rmsd_high_cn"]
+    else:
+        rmsd_threshold = tp["rmsd_base"]
+
+    # Build preset
+    preset: Dict[str, Any] = {
+        "coordination_number": {"min": cn_threshold},
+        "plddt": {"min": tp["plddt"]},
+        "ptm": {"min": tp["ptm"]},
+    }
+
+    # Only add geometry_rmsd if it's commonly computed
+    if rmsd_threshold is not None:
+        preset["geometry_rmsd"] = {"max": rmsd_threshold}
+
+    # Add ligand_contacts filter when ligand is specified
+    if ligand_name:
+        preset["ligand_contacts"] = {"min": tp["lc"]}
+
+    # Build descriptive name
+    name = f"metal_{metal_upper.lower()}_{tier}"
+
+    return name, preset
+
+
+def _fallback_preset_name(design_type: str) -> str:
+    """Map design_type to a hardcoded FILTER_PRESETS key."""
+    if design_type in ("metal", "metal_ligand", "metal_monomer", "metal_ligand_monomer", "metal_binding"):
+        return "metal_binding"
+    if design_type in ("enzyme", "scaffold", "enzyme_scaffold"):
+        return "enzyme_scaffold"
+    return "scout_relaxed"
 
 
 class FilterEvaluator:

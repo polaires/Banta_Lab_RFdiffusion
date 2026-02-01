@@ -43,6 +43,10 @@ services:
       - ./unified_analyzer.py:/app/unified_analyzer.py
       - ./analysis_types.py:/app/analysis_types.py
       - ./design_validation_pipeline.py:/app/design_validation_pipeline.py
+      - ./filter_evaluator.py:/app/filter_evaluator.py
+      - ./design_history.py:/app/design_history.py
+      - ./lesson_detector.py:/app/lesson_detector.py
+      - ./backbone_pre_filter.py:/app/backbone_pre_filter.py
       # Lanthanide design modules (Caldwell et al. 2020)
       - ./lanthanide_templates.py:/app/lanthanide_templates.py
       - ./metal_validation.py:/app/metal_validation.py

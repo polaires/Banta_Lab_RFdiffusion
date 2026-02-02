@@ -491,6 +491,25 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       parameterSchema: [
         { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'For production runs use 50-200' },
         { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
+        {
+          id: 'design_goal', label: 'Design Goal', type: 'select' as const, required: false, defaultValue: 'binding',
+          options: [
+            { value: 'binding', label: 'Tight binding' },
+            { value: 'catalysis', label: 'Catalytic activity' },
+            { value: 'sensing', label: 'Sensing / detection' },
+            { value: 'structural', label: 'Structural role' },
+          ],
+          helpText: 'Affects binding site geometry — buried for binding, accessible for catalysis/sensing',
+        },
+        {
+          id: 'filter_tier', label: 'Quality Bar', type: 'select' as const, required: false, defaultValue: 'standard',
+          options: [
+            { value: 'relaxed', label: 'Exploratory' },
+            { value: 'standard', label: 'Standard' },
+            { value: 'strict', label: 'Strict' },
+          ],
+          helpText: 'Passed to analysis step for quality filtering',
+        },
       ],
 
       async execute(ctx) {
@@ -547,6 +566,27 @@ export const naturalLanguagePipeline: PipelineDefinition = {
 
         // Bury ligand setting from AI parser (default: true)
         configData.bury_ligand = intentResult?.data?.bury_ligand ?? true;
+
+        // Design goal from wizard or configure step params → backend params
+        const designGoal = params.design_goal as string || initialParams.design_goal as string || '';
+        if (designGoal) {
+          configData.design_goal = designGoal;
+          if (designGoal === 'catalysis') {
+            configData.bury_ligand = false;
+          } else if (designGoal === 'sensing') {
+            configData.bury_ligand = false;
+          } else if (designGoal === 'structural') {
+            configData.bury_ligand = true;
+            configData.stability_focus = true;
+          }
+          // 'binding' → default (bury_ligand=true)
+        }
+
+        // Filter tier from wizard or configure step params → passed to analysis step
+        const filterTier = params.filter_tier as string || initialParams.filter_tier as string || '';
+        if (filterTier) {
+          configData.filter_tier = filterTier;
+        }
 
         // Wire in ligand feature overrides (from ligand_features_nl step)
         const featuresResult = previousResults['ligand_features_nl'];
@@ -974,11 +1014,14 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         const validated = allPdbs.filter(p => p.id.startsWith('rf3-') || p.id.startsWith('validated-'));
         const toAnalyze = validated.length > 0 ? validated : allPdbs.slice(-8);
 
-        const filterTier = (params.filter_tier as string) || 'standard';
-        ctx.onProgress(10, `Analyzing ${toAnalyze.length} designs (${filterTier} tier)...`);
-
         // Gather context from previous steps
         const configResult = Object.values(previousResults).find(r => r.data?.design_type);
+
+        // filter_tier: step params (user override at review gate) → configure step data → default
+        const filterTier = (params.filter_tier as string)
+          || (configResult?.data?.filter_tier as string)
+          || 'standard';
+        ctx.onProgress(10, `Analyzing ${toAnalyze.length} designs (${filterTier} tier)...`);
         const designType = configResult?.data?.design_type as string || 'general';
         const targetMetal = configResult?.data?.target_metal as string || initialParams.target_metal as string || undefined;
         const ligandName = configResult?.data?.ligand_name as string || undefined;

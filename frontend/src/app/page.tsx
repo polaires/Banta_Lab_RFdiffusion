@@ -191,11 +191,19 @@ export default function Home() {
           />
         }
         main={
-          <div className="h-full p-6 overflow-auto">
-            <div className="bg-card rounded-xl border border-border p-6">
+          !manualMode && activeTab !== 'jobs' ? (
+            // AI mode: ChatPanel fills the entire main area (no card wrapper)
+            <div className="h-full overflow-hidden">
               {renderMainContent()}
             </div>
-          </div>
+          ) : (
+            // Manual mode / jobs: card wrapper with padding
+            <div className="h-full p-6 overflow-auto">
+              <div className="bg-card rounded-xl border border-border p-6">
+                {renderMainContent()}
+              </div>
+            </div>
+          )
         }
         viewer={showViewer ? (
           <ViewerPanel

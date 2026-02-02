@@ -7,9 +7,14 @@ import {
   Gem,
   FlaskConical,
   Link,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import { useStore } from '@/lib/store';
+import { cn } from '@/lib/utils';
 import type { ChatMessage as ChatMessageType, ChatAttachment } from '@/lib/chat-types';
 import type { StepResult } from '@/lib/pipeline-types';
 import type { UserPreferences } from '@/lib/api';
@@ -30,14 +35,39 @@ import type { BinderPreferences } from '@/components/ai/BinderInterviewMode';
 
 type InterviewType = 'metal_binding' | 'metal_scaffold' | 'ligand_dimer' | 'binder' | null;
 
-/** Detect design type from user input to route to appropriate interview */
+// Known metal names for detection
+const METAL_KEYWORDS = [
+  'metal', 'iron', 'zinc', 'terbium', 'calcium', 'europium', 'gadolinium',
+  'copper', 'manganese', 'cobalt', 'nickel', 'lanthanide', 'magnesium',
+  'cadmium', 'chromium', 'molybdenum', 'vanadium', 'lanthanum', 'cerium',
+  'neodymium',
+];
+
+// Known ligand names that indicate metal-ligand design
+const LIGAND_KEYWORDS = ['citrate', 'pqq', 'atp', 'edta'];
+
+function hasMetalKeyword(lower: string): boolean {
+  return METAL_KEYWORDS.some(k => lower.includes(k));
+}
+
+function hasLigandKeyword(lower: string): boolean {
+  return LIGAND_KEYWORDS.some(k => lower.includes(k));
+}
+
+/**
+ * Detect design type from user input to route to appropriate interview.
+ * Returns null for generic queries — those go straight to the NL pipeline
+ * where the AI parser handles intent detection.
+ */
 function detectDesignType(text: string): InterviewType {
   const lower = text.toLowerCase();
+  const mentionsMetal = hasMetalKeyword(lower);
+  const mentionsLigand = hasLigandKeyword(lower);
 
-  // Metal scaffold: keywords like "scaffold", "de novo metal", "monomer scaffold"
+  // Metal scaffold: only when user explicitly says "scaffold" or "de novo"
   if (
-    (lower.includes('scaffold') && (lower.includes('metal') || lower.includes('terbium') || lower.includes('lanthanide') || lower.includes('citrate'))) ||
-    (lower.includes('de novo') && (lower.includes('metal') || lower.includes('binding')))
+    (lower.includes('scaffold') && (mentionsMetal || mentionsLigand)) ||
+    (lower.includes('de novo') && (mentionsMetal || lower.includes('binding')))
   ) {
     return 'metal_scaffold';
   }
@@ -45,8 +75,7 @@ function detectDesignType(text: string): InterviewType {
   // Metal binding redesign: existing PDB + metal swap
   if (
     (lower.includes('redesign') || lower.includes('convert') || lower.includes('swap') || lower.includes('replace')) &&
-    (lower.includes('metal') || lower.includes('iron') || lower.includes('zinc') || lower.includes('terbium') ||
-     lower.includes('calcium') || lower.includes('europium') || lower.includes('gadolinium'))
+    mentionsMetal
   ) {
     return 'metal_binding';
   }
@@ -59,14 +88,13 @@ function detectDesignType(text: string): InterviewType {
     return 'ligand_dimer';
   }
 
-  // Binder design: binder, binding protein
-  if (
-    lower.includes('binder') ||
-    (lower.includes('bind') && lower.includes('protein') && !lower.includes('metal'))
-  ) {
+  // Binder design: only match explicit "binder" keyword, not generic "bind"
+  if (lower.includes('binder')) {
     return 'binder';
   }
 
+  // Everything else (including "design a protein to bind X") → NL pipeline
+  // The AI parser will figure out the correct design type
   return null;
 }
 
@@ -167,6 +195,130 @@ function WelcomeSection({ onQuickStart }: { onQuickStart: (query: string) => voi
   );
 }
 
+// ---- Outputs Summary ----
+
+function OutputsSummary({
+  messages,
+  onSelectDesign,
+  onDeleteProject,
+}: {
+  messages: ChatMessageType[];
+  onSelectDesign: (pdbContent: string) => void;
+  onDeleteProject?: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Collect all design outputs from messages (step_result pdbOutputs, design_gallery, preference_summary)
+  const designs: Array<{ id: string; name: string; pdbContent?: string; metrics?: Record<string, number | string> }> = [];
+  const stepSummaries: Array<{ stepId: string; summary: string }> = [];
+  let designType: string | null = null;
+
+  for (const msg of messages) {
+    if (!msg.attachment) continue;
+    if (msg.attachment.type === 'step_result') {
+      stepSummaries.push({ stepId: msg.attachment.stepId, summary: msg.attachment.result.summary });
+      if (msg.attachment.result.pdbOutputs) {
+        for (const pdb of msg.attachment.result.pdbOutputs) {
+          designs.push({ id: pdb.id, name: pdb.label || pdb.id, pdbContent: pdb.pdbContent });
+        }
+      }
+    }
+    if (msg.attachment.type === 'design_gallery') {
+      for (const d of msg.attachment.designs) {
+        if (!designs.some(existing => existing.id === d.id)) {
+          designs.push(d);
+        }
+      }
+    }
+    if (msg.attachment.type === 'preference_summary') {
+      designType = msg.attachment.designType;
+    }
+  }
+
+  if (stepSummaries.length === 0 && designs.length === 0) return null;
+
+  return (
+    <div className="border-b border-border">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-6 py-2 text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
+      >
+        <Eye className="h-3.5 w-3.5" />
+        <span className="font-medium">
+          {designs.length > 0
+            ? `${designs.length} design${designs.length !== 1 ? 's' : ''} generated`
+            : `${stepSummaries.length} step${stepSummaries.length !== 1 ? 's' : ''} completed`}
+        </span>
+        {designType && (
+          <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[10px] font-medium">
+            {designType.replace(/_/g, ' ')}
+          </span>
+        )}
+        <span className="flex-1" />
+        {onDeleteProject && (
+          <span
+            role="button"
+            onClick={(e) => { e.stopPropagation(); onDeleteProject(); }}
+            className="p-1 hover:text-destructive rounded"
+            title="Delete project"
+          >
+            <Trash2 className="h-3 w-3" />
+          </span>
+        )}
+        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+
+      {expanded && (
+        <div className="px-6 pb-3 space-y-2">
+          {/* Step summaries */}
+          {stepSummaries.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Pipeline Steps</div>
+              {stepSummaries.map((s, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="font-mono text-[10px] bg-muted px-1 rounded">{s.stepId}</span>
+                  <span className="truncate">{s.summary}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Design outputs */}
+          {designs.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                Designs ({designs.length})
+              </div>
+              <div className="max-h-40 overflow-auto space-y-0.5">
+                {designs.map((d) => (
+                  <button
+                    key={d.id}
+                    onClick={() => d.pdbContent && onSelectDesign(d.pdbContent)}
+                    disabled={!d.pdbContent}
+                    className={cn(
+                      'w-full text-left px-2 py-1 rounded text-xs transition-colors',
+                      d.pdbContent
+                        ? 'hover:bg-muted cursor-pointer'
+                        : 'opacity-50 cursor-not-allowed'
+                    )}
+                  >
+                    <span className="font-medium text-foreground">{d.name}</span>
+                    {d.metrics && (
+                      <span className="text-muted-foreground ml-2">
+                        {Object.entries(d.metrics).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---- Main ChatPanel ----
 
 interface ChatPanelProps {
@@ -185,10 +337,17 @@ export function ChatPanel({ className }: ChatPanelProps) {
     setSelectedPdb,
     createProject,
     setActiveProject,
+    deleteProject,
   } = useStore();
 
-  // Track previous message count for typing animation
-  const prevMsgCountRef = useRef(0);
+  // Track previous message count for typing animation.
+  // Use a lazy initializer so existing messages don't re-animate on project switch.
+  // ChatPanel is keyed by activeProjectId, so this runs once per project.
+  const [initialMsgCount] = useState(() => {
+    const proj = useStore.getState().projects.find((p) => p.id === useStore.getState().activeProjectId);
+    return proj?.messages.length ?? 0;
+  });
+  const prevMsgCountRef = useRef(initialMsgCount);
 
   // Interview state — which interview is currently active
   const [pendingInterview, setPendingInterview] = useState<InterviewType>(null);
@@ -580,6 +739,15 @@ export function ChatPanel({ className }: ChatPanelProps) {
           Describe what you want to design in plain English. I&apos;ll handle the technical parameters.
         </p>
       </div>
+
+      {/* Outputs summary bar — shows when project has results */}
+      {!isEmpty && (
+        <OutputsSummary
+          messages={messages}
+          onSelectDesign={handleSelectDesign}
+          onDeleteProject={activeProjectId ? () => deleteProject(activeProjectId) : undefined}
+        />
+      )}
 
       {/* Chat Thread */}
       <ChatThread

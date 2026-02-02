@@ -1,10 +1,17 @@
 'use client';
 
-import { Check, Circle, XCircle, Archive, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { Check, Circle, XCircle, Archive, Trash2, MoreHorizontal } from 'lucide-react';
 import { useStore } from '@/lib/store';
 import type { ProjectStatus } from '@/lib/chat-types';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 function formatRelativeTime(ts: number): string {
   const diffMs = Date.now() - ts;
@@ -52,30 +59,45 @@ export function ProjectSidebar() {
         {sorted.map((project) => {
           const isActive = project.id === activeProjectId;
           return (
-            <button
+            <div
               key={project.id}
+              role="button"
+              tabIndex={0}
               onClick={() => setActiveProject(project.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveProject(project.id); }}
               className={cn(
-                'w-full flex items-center gap-2 px-2 py-2 rounded text-sm hover:bg-sidebar-accent text-left group transition-colors',
+                'w-full flex items-center gap-2 px-2 py-2 rounded text-sm hover:bg-sidebar-accent text-left group transition-colors cursor-pointer',
                 isActive && 'bg-sidebar-accent'
               )}
             >
               <StatusIcon status={project.status} />
               <span className="flex-1 truncate text-foreground">{project.name}</span>
-              <span className="text-[10px] text-muted-foreground shrink-0">
+              <span className="text-[10px] text-muted-foreground shrink-0 group-hover:hidden">
                 {formatRelativeTime(project.updatedAt)}
               </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteProject(project.id);
-                }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:text-destructive"
-                title="Delete project"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    onClick={(e) => e.stopPropagation()}
+                    className="hidden group-hover:flex shrink-0 p-0.5 rounded hover:bg-sidebar-accent/80 text-muted-foreground hover:text-foreground"
+                  >
+                    <MoreHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="right" align="start" className="w-36">
+                  <DropdownMenuItem
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteProject(project.id);
+                    }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-2" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           );
         })}
       </div>

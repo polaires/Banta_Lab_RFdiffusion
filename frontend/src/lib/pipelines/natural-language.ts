@@ -432,6 +432,10 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             metal_type: targetMetal || undefined,
           });
 
+          if (!result) {
+            throw new Error('Backend returned empty result — task may not be deployed');
+          }
+
           ctx.onProgress(100, 'Feature analysis complete');
 
           const coordDonors = result.coordination_donors || [];

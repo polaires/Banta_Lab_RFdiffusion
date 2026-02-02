@@ -2377,6 +2377,21 @@ def ensure_project_root():
             pass  # Silently continue
 
 
+# Metal ion SMILES for RF3 structure prediction
+# RF3 treats ions as small-molecule components via SMILES
+METAL_ION_SMILES = {
+    "TB": "[Tb+3]", "GD": "[Gd+3]", "EU": "[Eu+3]", "LA": "[La+3]",
+    "CE": "[Ce+3]", "ND": "[Nd+3]", "DY": "[Dy+3]", "SM": "[Sm+3]",
+    "YB": "[Yb+3]", "LU": "[Lu+3]", "PR": "[Pr+3]", "HO": "[Ho+3]",
+    "ER": "[Er+3]", "TM": "[Tm+3]",
+    "ZN": "[Zn+2]", "CA": "[Ca+2]", "MG": "[Mg+2]", "MN": "[Mn+2]",
+    "FE": "[Fe+2]", "FE2": "[Fe+2]", "FE3": "[Fe+3]",
+    "CU": "[Cu+2]", "CU1": "[Cu+]", "AG": "[Ag+]",
+    "CO": "[Co+2]", "NI": "[Ni+2]",
+    "NA": "[Na+]", "K": "[K+]",
+}
+
+
 def run_rf3_inference(
     sequence: str,
     name: str = "prediction",
@@ -2384,6 +2399,7 @@ def run_rf3_inference(
     msa_content: Optional[str] = None,
     sequences: Optional[List[str]] = None,  # Multi-chain: additional chain sequences
     ligand_smiles: Optional[str] = None,     # Small molecule SMILES for protein-ligand prediction
+    metal: Optional[str] = None,             # Metal element code (TB, ZN, CA, etc.)
     use_mock: bool = False
 ) -> Dict[str, Any]:
     """Run RF3 structure prediction
@@ -2397,6 +2413,8 @@ def run_rf3_inference(
                    For dimer evaluation, pass the second chain here
         ligand_smiles: Optional ligand SMILES for protein-ligand binding evaluation
                        This enables ipTM scoring for the protein-ligand interface
+        metal: Optional metal element code (e.g. 'TB', 'ZN', 'CA') — added as
+               a separate SMILES component so RF3 can model metal coordination
         use_mock: Whether to use mock mode
 
     Returns:
@@ -2415,12 +2433,12 @@ def run_rf3_inference(
     ensure_project_root()
 
     try:
-        # Try Python API first (supports MSA, multi-chain, ligand)
-        return run_rf3_python_api(sequence, name, pdb_content, msa_content, sequences, ligand_smiles)
+        # Try Python API first (supports MSA, multi-chain, ligand, metal)
+        return run_rf3_python_api(sequence, name, pdb_content, msa_content, sequences, ligand_smiles, metal=metal)
     except ImportError as e:
         print(f"[RF3] Python API not available: {e}")
         # Fallback to CLI with multi-chain and ligand support
-        return run_rf3_cli(sequence, name, msa_content, sequences, ligand_smiles)
+        return run_rf3_cli(sequence, name, msa_content, sequences, ligand_smiles, metal=metal)
     except Exception as e:
         import traceback
         return {
@@ -2436,15 +2454,16 @@ def run_rf3_python_api(
     pdb_content: Optional[str],
     msa_content: Optional[str] = None,
     sequences: Optional[List[str]] = None,
-    ligand_smiles: Optional[str] = None
+    ligand_smiles: Optional[str] = None,
+    metal: Optional[str] = None,
 ) -> Dict[str, Any]:
     """RF3 via Python API with optional MSA support"""
     from rf3.inference_engines.rf3 import RF3InferenceEngine
     from rf3.utils.inference import InferenceInput
 
-    # For sequence-only without MSA, use CLI approach (supports multi-chain/ligand)
+    # For sequence-only without MSA, use CLI approach (supports multi-chain/ligand/metal)
     if not pdb_content and not msa_content:
-        return run_rf3_cli(sequence, name, msa_content, sequences, ligand_smiles)
+        return run_rf3_cli(sequence, name, msa_content, sequences, ligand_smiles, metal=metal)
 
     # Initialize engine
     inference_engine = RF3InferenceEngine(ckpt_path='rf3', verbose=False)
@@ -2467,7 +2486,7 @@ def run_rf3_python_api(
                 input_data.msa_path = msa_path
         else:
             # Sequence-only with MSA - use JSON config approach
-            return run_rf3_cli(sequence, name, msa_content)
+            return run_rf3_cli(sequence, name, msa_content, metal=metal)
 
         # Run inference
         rf3_outputs = inference_engine.run(inputs=input_data)
@@ -2519,6 +2538,7 @@ def run_rf3_cli(
     msa_content: Optional[str] = None,
     sequences: Optional[List[str]] = None,  # Multi-chain support
     ligand_smiles: Optional[str] = None,     # Small molecule support
+    metal: Optional[str] = None,             # Metal element code (TB, ZN, CA, etc.)
 ) -> Dict[str, Any]:
     """
     RF3 via CLI for sequence-only input with optional MSA support.
@@ -2529,6 +2549,7 @@ def run_rf3_cli(
         msa_content: Optional MSA content
         sequences: Optional list of additional chain sequences [chain_B, chain_C, ...]
         ligand_smiles: Optional ligand SMILES string for protein-ligand prediction
+        metal: Optional metal element code — resolved to SMILES via METAL_ION_SMILES
 
     Returns:
         Prediction results with confidences including ipTM for interfaces
@@ -2561,6 +2582,15 @@ def run_rf3_cli(
                         "seq": seq,
                         "chain_id": chain_ids[i]
                     })
+
+        # Add metal ion if provided (as a separate SMILES component)
+        if metal:
+            metal_smiles = METAL_ION_SMILES.get(metal.upper())
+            if metal_smiles:
+                components.append({"smiles": metal_smiles})
+                print(f"[RF3] Added metal component: {metal} → {metal_smiles}")
+            else:
+                print(f"[RF3] Warning: unknown metal '{metal}', skipping metal component")
 
         # Add ligand if provided (RF3 uses smiles directly)
         if ligand_smiles:
@@ -3261,6 +3291,12 @@ def analyze_structure(pdb_content: str, target_ligands: Optional[List[str]] = No
         ligand_info = []
         seen_ligands = set()
 
+        # Known metal elements for identification in RF3 CIF outputs
+        _METAL_ELEMENTS = {
+            'FE', 'ZN', 'CA', 'MG', 'MN', 'CU', 'CO', 'NI',
+            'TB', 'GD', 'EU', 'LA', 'CE', 'ND', 'DY', 'HO', 'ER', 'SM', 'YB', 'LU',
+        }
+
         for i, atom in enumerate(hetatms):
             res_name = atom.res_name
             chain_id = atom.chain_id
@@ -3274,22 +3310,39 @@ def analyze_structure(pdb_content: str, target_ligands: Optional[List[str]] = No
                 if res_name in ['HOH', 'WAT', 'DOD', 'H2O']:
                     continue
 
-                # Filter by target ligands if specified
-                if target_ligands and res_name not in target_ligands:
-                    continue
-
-                # Get atom coordinates for this ligand
+                # Resolve display name for RF3 CIF outputs where res_name
+                # is "L:0", "L:1" etc. instead of standard 3-letter codes.
+                # Detect metals by atom_name (e.g. "TB0" -> "TB").
+                display_name = res_name
+                is_metal = False
                 lig_mask = (hetatms.res_name == res_name) & (hetatms.chain_id == chain_id) & (hetatms.res_id == res_id)
                 lig_atoms = hetatms[lig_mask]
+
+                if ':' in str(res_name):
+                    # RF3 CIF format — try to identify from atom names
+                    for la in lig_atoms:
+                        aname = str(la.atom_name).rstrip('0123456789')
+                        if aname.upper() in _METAL_ELEMENTS:
+                            display_name = aname.upper()
+                            is_metal = True
+                            break
+                    if not is_metal and len(lig_atoms) > 1:
+                        display_name = f"ligand_{chain_id}"
+
+                # Filter by target ligands if specified
+                if target_ligands and display_name not in target_ligands:
+                    continue
+
                 lig_center = np.mean(lig_atoms.coord, axis=0)
 
                 ligand_info.append({
-                    "name": res_name,
+                    "name": display_name,
                     "chain": chain_id,
                     "res_id": int(res_id),
                     "num_atoms": len(lig_atoms),
                     "center": lig_center.tolist(),
                     "atom_names": list(lig_atoms.atom_name),
+                    "is_metal": is_metal,
                 })
 
         # Find coordinating residues for each ligand

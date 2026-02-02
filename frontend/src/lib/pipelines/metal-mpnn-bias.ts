@@ -38,9 +38,16 @@ const HSAB_CLASSIFICATION: Record<string, HsabClass> = {
 /**
  * Per-class bias & omit rules.
  *
- * Values match the backend design_rules.py MPNN_METAL_PROFILES exactly,
- * with the addition of A:-1.5 to penalise alanine over-represented in
- * RFdiffusion backbones.
+ * Global bias: A:-2.0 alanine suppression for ALL metal classes.
+ * At low temperature (T=0.1) MPNN defaults to overproducing alanine (~60%).
+ * The penalty reduces Ala to <10%.
+ *
+ * Coordination-specific biases (D/E/H/C positive boosts) are NOT applied
+ * globally — they would push the entire protein toward those residues.
+ * Instead, atom context + fixed_positions handle the binding site:
+ *  - use_side_chain_context=true gives MPNN awareness of HETATM atoms
+ *  - pack_with_ligand_context=true scores sidechains against ligand contacts
+ *  - fixed_positions lock metal-coordinating residues (set in shared-steps.ts)
  *
  * Omit rules are intentionally conservative:
  *  - Hard acids omit only C (thiolate incompatible with hard Lewis acids).
@@ -50,17 +57,21 @@ const HSAB_CLASSIFICATION: Record<string, HsabClass> = {
  */
 const CONFIG_BY_CLASS: Record<HsabClass, Pick<MetalMpnnConfig, 'bias_AA' | 'omit_AA'>> = {
   hard: {
-    // Lanthanide / hard-acid: O-donors (carboxylates, amides)
-    bias_AA: 'E:3.0,D:3.0,N:2.4,Q:2.4,A:-1.5',
+    // Lanthanide / hard-acid: global alanine suppression only.
+    // Atom context naturally places carboxylates at coordination sites
+    // (ln_citrate: no donor bias + atom_context = 0.81Å RMSD).
+    bias_AA: 'A:-2.0',
     omit_AA: 'C',
   },
   soft: {
-    // Soft acid (Cu, Ag): S/N donors
-    bias_AA: 'C:4.0,H:3.0,M:2.0,A:-1.5',
+    // Soft acid (Cu, Ag): global alanine suppression only.
+    // Atom context + fixed_positions handle S/N-donor placement at binding site.
+    bias_AA: 'A:-2.0',
   },
   borderline: {
-    // Transition metals (Zn, Fe, Mn, Co, Ni): mixed O/N/S donors
-    bias_AA: 'H:3.0,D:2.0,E:2.0,C:1.5,A:-1.5',
+    // Transition metals (Zn, Fe, Mn, Co, Ni): global alanine suppression only.
+    // Atom context + fixed_positions handle mixed O/N/S-donor placement.
+    bias_AA: 'A:-2.0',
   },
 };
 

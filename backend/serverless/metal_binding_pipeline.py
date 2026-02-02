@@ -78,21 +78,25 @@ MONOMER_CONTIG_RANGES = {
 }
 
 # CFG scale values for sweep
-CFG_SCALE_VALUES = [1.5, 2.0, 2.5]
+CFG_SCALE_VALUES = [2.5, 3.0, 3.5]
 
 
 @dataclass
 class MetalBindingConfig:
-    """Single configuration for parameter sweep."""
+    """Single configuration for parameter sweep or single-run."""
     name: str
     contig_range: str      # "100-120", "110-130", "130-150"
     cfg_scale: float       # 1.5, 2.0, 2.5
     metal: str
     ligand: Optional[str] = None
     num_designs: int = 10
+    # Optional overrides from configure step (educated defaults)
+    num_timesteps: Optional[int] = None   # Default 200 in build_rfd3_params
+    step_scale: Optional[float] = None    # Default 1.5 in build_rfd3_params
+    gamma_0: Optional[float] = None       # RFD3 gamma_0 param
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "name": self.name,
             "contig_range": self.contig_range,
             "cfg_scale": self.cfg_scale,
@@ -100,6 +104,13 @@ class MetalBindingConfig:
             "ligand": self.ligand,
             "num_designs": self.num_designs,
         }
+        if self.num_timesteps is not None:
+            d["num_timesteps"] = self.num_timesteps
+        if self.step_scale is not None:
+            d["step_scale"] = self.step_scale
+        if self.gamma_0 is not None:
+            d["gamma_0"] = self.gamma_0
+        return d
 
 
 @dataclass
@@ -369,22 +380,26 @@ def build_rfd3_params(
     if config.ligand:
         ligand_str = f"{config.metal},{config.ligand}"
 
-    # Default fixed atoms: fix metal (chain X) and ligand (chain L) completely
-    # These chain IDs match the template generator output
+    # Default fixed atoms: fix metal and ligand completely
+    # Use RESIDUE NAMES (e.g., "TB", "CIT") not chain+resnum ("X1", "L1")
+    # Foundry SDK resolves components by residue name from the atom array
     if fixed_atoms is None:
         fixed_atoms = {
-            "X1": "all",  # Fix metal position (chain X, residue 1)
+            config.metal.upper(): "all",  # Fix metal position
         }
         if config.ligand:
-            fixed_atoms["L1"] = "all"  # Fix ligand position (chain L, residue 1)
+            fixed_atoms[config.ligand.upper()] = "all"  # Fix ligand position
 
-    # Default buried atoms: bury metal for pocket formation
+    # Default buried atoms: bury metal AND ligand for pocket formation
+    # Both must be buried so RFD3 wraps protein around the entire complex
     if buried_atoms is None:
-        buried_atoms = {"X1": "all"}
+        buried_atoms = {config.metal.upper(): "all"}
+        if config.ligand:
+            buried_atoms[config.ligand.upper()] = "all"
 
-    # Default H-bond acceptors for common ligands
+    # Default H-bond acceptors — extracted dynamically from ligand atoms in PDB
     if hbond_acceptors is None and config.ligand:
-        hbond_acceptors = get_ligand_hbond_atoms(config.ligand)
+        hbond_acceptors = get_ligand_hbond_atoms(config.ligand, motif_pdb=motif_pdb)
 
     params = {
         "pdb_content": motif_pdb,
@@ -396,45 +411,86 @@ def build_rfd3_params(
         "cfg_scale": config.cfg_scale,
         "num_designs": 1,  # One at a time for tracking
         "seed": seed,
-        "num_timesteps": 200,
-        "step_scale": 1.5,
+        "num_timesteps": config.num_timesteps or 200,
+        "step_scale": config.step_scale or 1.5,
         "infer_ori_strategy": "com",  # Center on fixed atoms
     }
 
     if hbond_acceptors:
         params["select_hbond_acceptor"] = hbond_acceptors
 
+    # Optional gamma_0 from configure step
+    if config.gamma_0 is not None:
+        params["gamma_0"] = config.gamma_0
+
+    # Scaffold mode: when fixed_atoms includes protein residues (keys like "A1", "A2"),
+    # add unindex so RFD3 knows these are spatially fixed but sequence-flexible
+    # Match "A" followed by digits only (not ligand codes like "ATP", "ADP")
+    import re
+    protein_fixed = [k for k in fixed_atoms if re.match(r'^A\d+$', k)]
+    if protein_fixed:
+        params["unindex"] = ",".join(protein_fixed)
+
     return params
 
 
-# H-bond acceptor atoms for common ligands (for RFD3 conditioning)
-LIGAND_HBOND_ATOMS = {
-    # Citrate - 6 carboxylate oxygens for H-bond accepting
-    "CIT": {"L1": "O1,O2,O3,O4,O5,O6"},
-    # PQQ - quinone oxygens
-    "PQQ": {"L1": "O1,O2,O3,O4,O5"},
-    # ATP/ADP - phosphate oxygens
-    "ATP": {"L1": "O1G,O2G,O3G,O1B,O2B,O3B"},
-    "ADP": {"L1": "O1B,O2B,O3B,O1A,O2A,O3A"},
-    # NAD - phosphate and ribose oxygens
-    "NAD": {"L1": "O1A,O2A,O1N,O2N"},
-}
-
-
-def get_ligand_hbond_atoms(ligand: str) -> Optional[Dict[str, str]]:
+def get_ligand_hbond_atoms(ligand: str, motif_pdb: Optional[str] = None) -> Optional[Dict[str, str]]:
     """
-    Get H-bond acceptor atoms for a ligand.
+    Get H-bond acceptor atoms for a ligand by extracting O/N atoms from the PDB.
 
-    These atoms will receive H-bond conditioning in RFD3 to ensure
-    the scaffold makes proper hydrogen bonds with the ligand.
+    Dynamically identifies H-bond acceptor atoms (oxygen, nitrogen) from the ligand's
+    HETATM records in the motif PDB. Falls back to RCSB CCD lookup if no PDB provided.
 
     Args:
         ligand: Ligand code (CIT, PQQ, etc.)
+        motif_pdb: PDB content containing the ligand (optional)
 
     Returns:
         Dict for select_hbond_acceptor parameter, or None
     """
-    return LIGAND_HBOND_ATOMS.get(ligand.upper())
+    ligand_upper = ligand.upper()
+
+    # Extract O and N atoms from ligand HETATM records in the PDB
+    if motif_pdb:
+        acceptor_atoms = []
+        for line in motif_pdb.split("\n"):
+            if not line.startswith("HETATM"):
+                continue
+            resname = line[17:20].strip()
+            if resname != ligand_upper:
+                continue
+            atom_name = line[12:16].strip()
+            element = line[76:78].strip() if len(line) >= 78 else ""
+            # H-bond acceptors are O and N atoms
+            if element in ("O", "N") or atom_name.startswith("O") or atom_name.startswith("N"):
+                acceptor_atoms.append(atom_name)
+
+        if acceptor_atoms:
+            atoms_str = ",".join(sorted(set(acceptor_atoms)))
+            return {ligand_upper: atoms_str}
+
+    # Fallback: try to get atoms from RCSB CCD
+    try:
+        import requests
+        resp = requests.get(
+            f"https://data.rcsb.org/rest/v1/core/chemcomp/{ligand_upper}",
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # Extract atom names that are O or N from the ideal coordinates
+            atoms = data.get("rcsb_chem_comp_descriptor", {})
+            # CCD doesn't directly list atoms, but we can check the formula
+            formula = data.get("chem_comp", {}).get("formula", "")
+            if "O" in formula or "N" in formula:
+                # Has potential H-bond acceptors, but we can't get specific atom names
+                # from CCD descriptor alone — return None to skip conditioning
+                print(f"[HBond] {ligand_upper} has O/N atoms per CCD formula ({formula}) "
+                      f"but no PDB to extract atom names — skipping H-bond conditioning")
+    except Exception:
+        pass
+
+    return None
 
 
 def build_mpnn_params(
@@ -442,31 +498,47 @@ def build_mpnn_params(
     metal: str,
     ligand: Optional[str] = None,
     num_seqs: int = 4,
-    temperature: float = 0.2,
+    temperature: float = 0.1,
     hsab_bias: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Build LigandMPNN parameters for sequence design.
+
+    Uses educated defaults from ln_citrate experiments:
+    - temperature=0.1 (conservative, preserves coordination geometry)
+    - No bias for hard Lewis acids (atom context handles it naturally)
+    - omit_AA='C' for hard metals (Cys incompatible with hard Lewis acids)
+    - pack_side_chains=True (optimizes chi angles around metal)
+    - use_side_chain_context=True (uses fixed residue sidechains as context)
 
     Args:
         pdb_content: Backbone PDB from RFD3
         metal: Metal code for context
         ligand: Optional ligand code
         num_seqs: Number of sequences to generate
-        temperature: Sampling temperature
-        hsab_bias: HSAB-compliant amino acid bias string
+        temperature: Sampling temperature (0.1 recommended for metal sites)
+        hsab_bias: HSAB-compliant amino acid bias string (None for hard acids)
 
     Returns:
-        MPNN parameters dict
+        MPNN parameters dict compatible with run_mpnn_inference()
     """
-    params = {
+    hsab_class = classify_hsab(metal)
+
+    params: Dict[str, Any] = {
         "pdb_content": pdb_content,
         "num_sequences": num_seqs,
         "model_type": "ligand_mpnn",
-        "ligand_mpnn_use_atom_context": 1,
         "temperature": temperature,
+        "pack_side_chains": True,
+        "use_side_chain_context": True,
     }
 
+    # Omit cysteine for hard Lewis acids (thiolate incompatible)
+    if hsab_class == "hard":
+        params["omit_AA"] = "C"
+
+    # Only apply AA bias for soft/borderline metals
+    # Hard acids: atom context naturally places carboxylates at coordination sites
     if hsab_bias:
         params["bias_AA"] = hsab_bias
 
@@ -528,21 +600,108 @@ def delete_session(session_id: str) -> bool:
     return False
 
 
+# HSAB classification for metals
+HSAB_CLASSIFICATION = {
+    # Hard Lewis acids (lanthanides, alkaline earth)
+    "TB": "hard", "EU": "hard", "GD": "hard", "CA": "hard", "MG": "hard",
+    "LA": "hard", "CE": "hard", "SM": "hard", "YB": "hard", "DY": "hard",
+    # Borderline Lewis acids (transition metals)
+    "ZN": "borderline", "FE": "borderline", "MN": "borderline",
+    "CO": "borderline", "NI": "borderline",
+    # Soft Lewis acids
+    "CU": "soft", "AG": "soft",
+}
+
 # HSAB amino acid biases for common metals
+# Hard Lewis acids: NO bias — LigandMPNN atom context handles coordination
+# naturally (ln_citrate R6 lesson: bias-free + atom_context → 0.81A RMSD,
+# vs E:3.0,D:3.0 bias → 61% charged → RMSD 21-25A non-foldable)
 HSAB_BIASES = {
-    # Hard Lewis acids (lanthanides, Ca2+)
-    "TB": "E:3.0,D:3.0,N:2.4,Q:2.4,H:0.5,C:-5.0",
-    "EU": "E:3.0,D:3.0,N:2.4,Q:2.4,H:0.5,C:-5.0",
-    "CA": "E:3.0,D:3.0,N:2.0,Q:2.0,H:0.5,C:-5.0",
-    "GD": "E:3.0,D:3.0,N:2.4,Q:2.4,H:0.5,C:-5.0",
-    # Borderline Lewis acids (Zn2+, Fe2+)
+    # Hard Lewis acids: no bias needed (atom context is sufficient)
+    "TB": None, "EU": None, "GD": None, "CA": None, "MG": None,
+    "LA": None, "CE": None, "SM": None, "YB": None, "DY": None,
+    # Borderline Lewis acids (Zn2+, Fe2+): moderate bias
     "ZN": "H:3.0,C:2.0,E:2.0,D:2.0,N:1.5,Q:1.5",
     "FE": "H:2.5,C:2.0,E:2.5,D:2.5,N:1.5",
-    # Soft Lewis acids (Cu+)
+    # Soft Lewis acids (Cu+): strong S/N donor bias
     "CU": "C:3.0,M:2.5,H:2.0,E:1.0,D:1.0",
 }
 
+# Cache for resolved ligand SMILES (avoids repeated HTTP lookups)
+_ligand_smiles_cache: Dict[str, Optional[str]] = {}
+
+
+def _fetch_ccd_smiles(ligand_code: str) -> Optional[str]:
+    """Fetch SMILES from RCSB Chemical Component Dictionary (CCD).
+
+    Uses the RCSB REST API to look up canonical SMILES for any PDB ligand code.
+    Falls back gracefully on network errors.
+    """
+    try:
+        import requests
+        url = f"https://data.rcsb.org/rest/v1/core/chemcomp/{ligand_code.upper()}"
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            # CCD stores SMILES in rcsb_chem_comp_descriptor
+            descriptors = data.get("rcsb_chem_comp_descriptor", [])
+            for desc in descriptors:
+                if desc.get("type") == "SMILES_CANONICAL":
+                    return desc.get("descriptor")
+                if desc.get("type") == "SMILES":
+                    return desc.get("descriptor")
+        print(f"[MetalBinding] CCD lookup for {ligand_code}: HTTP {resp.status_code}")
+    except Exception as e:
+        print(f"[MetalBinding] CCD lookup failed for {ligand_code}: {e}")
+    return None
+
+
+def classify_hsab(metal: str) -> str:
+    """Classify a metal by HSAB theory."""
+    return HSAB_CLASSIFICATION.get(metal.upper(), "borderline")
+
 
 def get_hsab_bias(metal: str) -> Optional[str]:
-    """Get HSAB-compliant amino acid bias for a metal."""
+    """Get HSAB-compliant amino acid bias for a metal.
+    Returns None for hard Lewis acids (atom context is sufficient)."""
     return HSAB_BIASES.get(metal.upper())
+
+
+def get_ligand_smiles(ligand_code: str) -> Optional[str]:
+    """Get SMILES string for a ligand code (for RF3 ligand-aware prediction).
+
+    Resolution order:
+    1. In-memory cache (from previous lookups)
+    2. LigandResolver (templates + PDB structures)
+    3. RCSB CCD HTTP lookup (canonical SMILES for any PDB ligand)
+    """
+    if not ligand_code:
+        return None
+
+    code = ligand_code.upper()
+
+    # Check cache first
+    if code in _ligand_smiles_cache:
+        return _ligand_smiles_cache[code]
+
+    # Try the existing LigandResolver (templates, PDB, PubChem)
+    try:
+        from ligand_resolver import resolve_ligand
+        resolved = resolve_ligand(code)
+        if resolved.resolved and resolved.smiles:
+            _ligand_smiles_cache[code] = resolved.smiles
+            print(f"[MetalBinding] Resolved {code} SMILES via {resolved.source}")
+            return resolved.smiles
+    except Exception as e:
+        print(f"[MetalBinding] LigandResolver failed for {code}: {e}")
+
+    # Fall back to RCSB CCD database
+    smiles = _fetch_ccd_smiles(code)
+    if smiles:
+        _ligand_smiles_cache[code] = smiles
+        print(f"[MetalBinding] Resolved {code} SMILES via CCD")
+        return smiles
+
+    _ligand_smiles_cache[code] = None
+    print(f"[MetalBinding] Could not resolve SMILES for {code}")
+    return None

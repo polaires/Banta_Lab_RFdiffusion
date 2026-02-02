@@ -6,7 +6,7 @@
 #
 # Note: Model checkpoints should be stored on a Network Volume, not in the image
 
-FROM runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04
+FROM runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04
 
 WORKDIR /app
 
@@ -138,6 +138,13 @@ ENV ARCHITECTOR_PYTHON="${CONDA_DIR}/envs/architector/bin/python"
 
 # Install Foundry and dependencies (requires Python 3.12)
 RUN uv pip install "rc-foundry[all]" biotite
+
+# Upgrade PyTorch to nightly with CUDA 12.8 for Blackwell (sm_120) support
+# rc-foundry installs torch 2.7.1+cu126 which only supports up to sm_90.
+# RTX 5090 requires sm_120 kernels. No stable PyTorch release includes sm_120 yet.
+# This must come AFTER rc-foundry to override its pinned torch version.
+# TODO: Remove this once a stable PyTorch release includes sm_120 support.
+RUN pip install --upgrade --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
 
 # Install RDKit for SMILES-to-SDF conversion (needed for GNINA)
 RUN uv pip install rdkit

@@ -276,12 +276,31 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
         const progressBase = (i / totalDesigns) * 90;
         ctx.onProgress(progressBase + 5, `Designing sequences for ${pdb.label} (${i + 1}/${totalDesigns})...`);
 
+        // For metal-containing backbones, fix residues that coordinate the metal
+        // so MPNN doesn't redesign the binding site.
+        let perBackboneFixed: string[] | undefined;
+        if (metalConfig.omit_AA || metalConfig.bias_AA) {
+          const coordResidues = findMetalCoordinatingResidues(pdb.pdbContent);
+          if (coordResidues) {
+            // Format: ["A1", "A2", ...] — chain A + residue numbers
+            perBackboneFixed = coordResidues.split(',').map(r => `A${r}`);
+            console.log(`[MPNN] Design ${i + 1}: fixing ${perBackboneFixed.length} metal-coordinating residues: ${coordResidues}`);
+          }
+        }
+
         const response = await api.submitMPNNDesign({
           pdb_content: pdb.pdbContent,
           temperature: (params.temperature as number) ?? 0.1,
           num_sequences: (params.num_sequences as number) ?? 4,
           model_type: (params.model_type as 'ligand_mpnn' | 'protein_mpnn') ?? 'ligand_mpnn',
           ...metalConfig,
+          // Merge per-backbone fixed positions with any from metalConfig
+          ...(perBackboneFixed ? {
+            fixed_positions: [
+              ...(metalConfig.fixed_positions || []),
+              ...perBackboneFixed,
+            ],
+          } : {}),
         });
 
         checkAborted(ctx.abortSignal);
@@ -387,6 +406,20 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
         throw new Error('No sequences available for validation');
       }
 
+      // Extract ligand SMILES and metal type from previous results for RF3 prediction
+      let ligandSmiles: string | undefined;
+      let targetMetal: string | undefined;
+      for (const result of Object.values(previousResults)) {
+        if (!ligandSmiles) {
+          const smiles = result.data?.ligand_smiles as string;
+          if (smiles) ligandSmiles = smiles;
+        }
+        if (!targetMetal) {
+          const metal = result.data?.target_metal as string;
+          if (metal) targetMetal = metal;
+        }
+      }
+
       const pdbOutputs: PdbOutput[] = [];
       const totalSeqs = sequences.length;
 
@@ -400,6 +433,8 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
         const response = await api.submitRF3Prediction({
           sequence: seq.sequence,
           name: seq.label ?? seq.id,
+          ligand_smiles: ligandSmiles,
+          metal: targetMetal,
         });
 
         checkAborted(ctx.abortSignal);
@@ -444,14 +479,26 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
 
       ctx.onProgress(100, 'Validation complete');
 
+      // Compute average quality metrics for summary
+      const ptmValues = pdbOutputs.map(p => p.metrics?.pTM as number).filter(v => typeof v === 'number');
+      const plddtValues = pdbOutputs.map(p => p.metrics?.pLDDT as number).filter(v => typeof v === 'number');
+      const avgPtm = ptmValues.length > 0 ? ptmValues.reduce((a, b) => a + b, 0) / ptmValues.length : undefined;
+      const avgPlddt = plddtValues.length > 0 ? plddtValues.reduce((a, b) => a + b, 0) / plddtValues.length : undefined;
+
+      const qualitySuffix = avgPtm !== undefined
+        ? ` (avg pTM: ${avgPtm.toFixed(3)}, pLDDT: ${(avgPlddt ?? 0).toFixed(3)})`
+        : '';
+
       return {
         id: `rf3-${Date.now()}`,
-        summary: `Validated ${pdbOutputs.length}/${totalSeqs} sequences successfully`,
+        summary: `Validated ${pdbOutputs.length}/${totalSeqs} sequences${qualitySuffix}`,
         pdbOutputs,
         data: {
           total_validated: pdbOutputs.length,
           total_attempted: totalSeqs,
           success_rate: totalSeqs > 0 ? ((pdbOutputs.length / totalSeqs) * 100).toFixed(1) + '%' : 'N/A',
+          ...(avgPtm !== undefined ? { avg_pTM: avgPtm } : {}),
+          ...(avgPlddt !== undefined ? { avg_pLDDT: avgPlddt } : {}),
         },
       };
     },
@@ -598,7 +645,7 @@ export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinit
     description: 'Search RCSB PDB for existing structures with the target metal-ligand complex',
     icon: Database,
     requiresReview: true,
-    supportsSelection: false,
+    supportsSelection: true,
     optional: true,
     defaultParams: {
       resolution_max: 3.0,
@@ -778,6 +825,73 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
         };
       }
 
+      // Metal single mode: backbones contain HETATM (metal/ligand) which scout's
+      // simple RF3 call can't handle. But the CPU pre-filter CAN check these backbones
+      // for broken chains, missing metal/ligand, etc. Run pre-filter only (no GPU).
+      // NOTE: Don't re-emit pdbOutputs here — MPNN finds them from rfd3_nl directly.
+      // Re-emitting would cause duplicates (MPNN collects from ALL previous steps).
+      if (rfd3Result?.data?.metal_single_mode) {
+        const metalPdbOutputs = findPdbOutputs(previousResults, selectedItems);
+        if (metalPdbOutputs.length <= 1) {
+          return {
+            id: `scout-skip-${Date.now()}`,
+            summary: 'Skipped: single metal backbone',
+            data: { skipped: true, reason: 'Only 1 backbone — pre-filter not needed' },
+          };
+        }
+
+        ctx.onProgress(5, `Pre-filtering ${metalPdbOutputs.length} metal backbones (CPU only)...`);
+        checkAborted(ctx.abortSignal);
+
+        const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+        const scoutTargetMetal = (intentResult?.data?.target_metal as string)
+          || (rfd3Result?.data?.target_metal as string)
+          || (initialParams.target_metal as string)
+          || '';
+        const scoutLigandName = (intentResult?.data?.ligand_name as string)
+          || (rfd3Result?.data?.ligand_name as string)
+          || (initialParams.ligand_name as string)
+          || '';
+
+        // Call scout filter with pre-filter only flag — backend runs CPU checks, skips MPNN+RF3
+        const pfResult = await api.scoutFilter({
+          backbone_pdbs: metalPdbOutputs.map(p => p.pdbContent),
+          ptm_threshold: (params.ptm_threshold as number) ?? 0.6,
+          plddt_threshold: (params.plddt_threshold as number) ?? 0.65,
+          target_metal: scoutTargetMetal,
+          ligand_name: scoutLigandName || undefined,
+          pre_filter_only: true,
+        });
+
+        checkAborted(ctx.abortSignal);
+
+        const pfPassed = pfResult.pre_filter_passed ?? metalPdbOutputs.length;
+        const pfFailed = pfResult.pre_filter_failed ?? 0;
+
+        ctx.onProgress(100, pfFailed > 0
+          ? `Pre-filter: ${pfFailed} backbone(s) eliminated`
+          : 'Pre-filter: all backbones passed');
+
+        return {
+          id: `scout-prefilter-${Date.now()}`,
+          summary: pfFailed > 0
+            ? `Pre-filter: ${pfPassed}/${metalPdbOutputs.length} metal backbones passed (${pfFailed} eliminated)`
+            : `Pre-filter: all ${metalPdbOutputs.length} metal backbones passed`,
+          // Don't re-emit pdbOutputs — MPNN step finds them from rfd3_nl
+          data: {
+            metal_pre_filter_only: true,
+            original_count: metalPdbOutputs.length,
+            passing_count: pfPassed,
+            scout_results: pfResult.scout_results,
+            pre_filter_results: pfResult.pre_filter_results,
+            pre_filter_passed: pfPassed,
+            pre_filter_failed: pfFailed,
+            ptm_threshold: pfResult.ptm_threshold,
+            plddt_threshold: pfResult.plddt_threshold,
+          },
+        };
+      }
+
       // Gather PDB outputs from previous steps
       const pdbOutputs = findPdbOutputs(previousResults, selectedItems);
 
@@ -791,16 +905,16 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
       }
 
       // Guard: skip if only 1 backbone (not worth filtering)
+      // NOTE: Don't re-emit pdbOutputs — MPNN finds them from rfd3_nl directly.
       if (pdbOutputs.length <= 1) {
         return {
           id: `scout-skip-${Date.now()}`,
           summary: 'Skipped: single backbone',
-          pdbOutputs,
           data: { skipped: true, reason: 'Only 1 backbone — scout filtering not needed' },
         };
       }
 
-      ctx.onProgress(5, `Scout filtering ${pdbOutputs.length} backbones...`);
+      ctx.onProgress(5, `Scout filtering ${pdbOutputs.length} backbone(s): 1 seq each → MPNN → RF3...`);
       checkAborted(ctx.abortSignal);
 
       // Extract metal/ligand from intent result (NL pipeline) or initialParams (direct pipeline)
@@ -811,6 +925,11 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
       const scoutLigandSmiles = (intentResult?.data?.ligand_smiles as string)
         || (initialParams.ligand_smiles as string)
         || '';
+      const scoutLigandName = (intentResult?.data?.ligand_name as string)
+        || (initialParams.ligand_name as string)
+        || '';
+
+      ctx.onProgress(10, `Validating ${pdbOutputs.length} backbone(s) (MPNN + RF3 per backbone)...`);
 
       const result = await api.scoutFilter({
         backbone_pdbs: pdbOutputs.map(p => p.pdbContent),
@@ -818,11 +937,22 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
         plddt_threshold: (params.plddt_threshold as number) ?? 0.65,
         target_metal: scoutTargetMetal,
         ligand_smiles: scoutLigandSmiles,
+        ligand_name: scoutLigandName || undefined,
       });
 
       checkAborted(ctx.abortSignal);
 
-      ctx.onProgress(90, 'Processing scout results...');
+      // Debug: log raw scout results to help diagnose display issues
+      console.log('[Scout] Raw API result:', JSON.stringify({
+        passing_count: result.passing_count,
+        original_count: result.original_count,
+        scout_results: result.scout_results?.map((sr: any) => ({
+          idx: sr.backbone_index, passed: sr.passed, ptm: sr.ptm, plddt: sr.plddt,
+          pre_filter_failed: sr.pre_filter_failed,
+        })),
+      }));
+
+      ctx.onProgress(90, `Processing results: ${result.passing_count}/${result.original_count} passed...`);
 
       // Build filtered PDB outputs — only passing backbones
       const filteredOutputs: PdbOutput[] = [];
@@ -856,6 +986,9 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
           scout_results: result.scout_results,
           ptm_threshold: result.ptm_threshold,
           plddt_threshold: result.plddt_threshold,
+          pre_filter_results: result.pre_filter_results,
+          pre_filter_passed: result.pre_filter_passed,
+          pre_filter_failed: result.pre_filter_failed,
         },
       };
     },
@@ -1214,21 +1347,98 @@ function extractRf3PdbContent(result: Record<string, unknown>): string | undefin
   return extractPdbContent(result);
 }
 
-/** Extract confidence metrics from RF3 result. */
+/** Extract confidence metrics from RF3 result.
+ *
+ * RF3 returns confidences in varying formats:
+ * - Direct: { confidences: { overall_plddt, chain_ptm, overall_pae } }
+ * - Nested: { confidences: { summary_confidences: { ptm, overall_plddt } } }
+ * - Per-prediction: { predictions: [{ confidences: { ... } }] }
+ */
 function extractConfidences(result: Record<string, unknown>): {
   overall_plddt?: number;
   ptm?: number;
   overall_pae?: number;
 } | undefined {
-  const confidences = result.confidences as Record<string, unknown> | undefined;
+  // Try per-prediction confidences first
+  const predictions = result.predictions as Array<Record<string, unknown>> | undefined;
+  const predConf = predictions?.[0]?.confidences as Record<string, unknown> | undefined;
+
+  // Then top-level confidences
+  const topConf = result.confidences as Record<string, unknown> | undefined;
+  const confidences = predConf || topConf;
   if (!confidences) return undefined;
 
+  // Try summary_confidences (nested format), then fall back to direct fields
   const summary = confidences.summary_confidences as Record<string, unknown> | undefined;
-  if (!summary) return undefined;
+  const src = summary || confidences;
+
+  // pTM: try ptm, then chain_ptm[0]
+  let ptm = src.ptm as number | undefined;
+  if (ptm === undefined) {
+    const chainPtm = (confidences.chain_ptm || src.chain_ptm) as number[] | undefined;
+    if (Array.isArray(chainPtm) && chainPtm.length > 0) {
+      ptm = chainPtm[0];
+    }
+  }
 
   return {
-    overall_plddt: summary.overall_plddt as number | undefined,
-    ptm: summary.ptm as number | undefined,
-    overall_pae: summary.overall_pae as number | undefined,
+    overall_plddt: (src.overall_plddt as number | undefined) ?? (src.mean_plddt as number | undefined),
+    ptm,
+    overall_pae: (src.overall_pae as number | undefined),
   };
+}
+
+/**
+ * Find protein residues that coordinate a metal ion in a PDB.
+ * Returns a comma-separated string of residue numbers (chain A)
+ * that have any heavy atom within `cutoff` Å of a HETATM metal atom.
+ *
+ * These residues should be fixed during MPNN to preserve the binding site.
+ */
+function findMetalCoordinatingResidues(pdbContent: string, cutoff = 3.5): string {
+  // Parse HETATM positions (metals are single-atom HETATM with element like TB, MG, etc.)
+  const metalAtoms: Array<[number, number, number]> = [];
+  const lines = pdbContent.split('\n');
+
+  for (const line of lines) {
+    if (!line.startsWith('HETATM')) continue;
+    const resName = line.substring(17, 20).trim();
+    // Metal residues are typically 1-3 letter elements (TB, MG, CA, ZN, FE, etc.)
+    // Skip known ligands (CIT, ATP, NAD, HEM, PQQ, etc.)
+    if (resName.length > 3 || resName.length === 0) continue;
+    // If residue name is all uppercase letters and ≤2 chars, likely a metal
+    if (!/^[A-Z]{1,2}$/.test(resName)) continue;
+
+    const x = parseFloat(line.substring(30, 38));
+    const y = parseFloat(line.substring(38, 46));
+    const z = parseFloat(line.substring(46, 54));
+    if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+      metalAtoms.push([x, y, z]);
+    }
+  }
+
+  if (metalAtoms.length === 0) return '';
+
+  // Find ATOM residues near metals
+  const coordResidues = new Set<number>();
+  const cutoffSq = cutoff * cutoff;
+
+  for (const line of lines) {
+    if (!line.startsWith('ATOM')) continue;
+    const x = parseFloat(line.substring(30, 38));
+    const y = parseFloat(line.substring(38, 46));
+    const z = parseFloat(line.substring(46, 54));
+    if (isNaN(x) || isNaN(y) || isNaN(z)) continue;
+
+    for (const [mx, my, mz] of metalAtoms) {
+      const dx = x - mx, dy = y - my, dz = z - mz;
+      if (dx * dx + dy * dy + dz * dz <= cutoffSq) {
+        const resNum = parseInt(line.substring(22, 26).trim(), 10);
+        if (!isNaN(resNum)) coordResidues.add(resNum);
+        break;
+      }
+    }
+  }
+
+  return [...coordResidues].sort((a, b) => a - b).join(',');
 }

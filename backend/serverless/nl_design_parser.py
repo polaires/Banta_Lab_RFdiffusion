@@ -151,6 +151,11 @@ class DesignIntent:
     include_all_contacts: bool = False     # If True, include all ligand-contacting residues
     stability_focus: bool = False          # If True, optimize for protein stability
 
+    # RASA conditioning: controls whether metal/ligand are buried in protein core
+    # True (default): bury for deep binding pocket (binding, catalysis)
+    # False: partially buried or exposed (sensing, structural, surface sites)
+    bury_ligand: bool = True
+
     # Enzyme activity preservation (NEW)
     enzyme_class: Optional[str] = None     # Detected enzyme class (e.g., "dehydrogenase")
     enzyme_class_confidence: float = 0.0   # Confidence of enzyme class detection
@@ -329,7 +334,10 @@ For each query, extract:
 3. design_goal: One of: binding, catalysis, sensing, structural
 4. target_topology: One of: monomer, dimer, symmetric, custom
 5. chain_length: Suggested protein size (small: 60-80, medium: 80-120, large: 120-160)
-6. confidence: Your confidence in the parsing (0.0 to 1.0)
+6. bury_ligand: Whether to bury the metal/ligand inside the protein (true/false).
+   - true (default): creates a deep binding pocket — use for binding, catalysis, most designs
+   - false: leaves metal/ligand partially exposed — use for sensing, surface sites, structural roles
+7. confidence: Your confidence in the parsing (0.0 to 1.0)
 
 Common metal-ligand combinations:
 - Citrate with lanthanides (Tb, Eu, Gd) - luminescent biosensors
@@ -344,7 +352,7 @@ PARSER_USER_TEMPLATE = """Parse this protein design request:
 
 "{query}"
 
-Return JSON with fields: metal_type, ligand_name, design_goal, target_topology, chain_length_min, chain_length_max, confidence, reasoning
+Return JSON with fields: metal_type, ligand_name, design_goal, target_topology, chain_length_min, chain_length_max, bury_ligand, confidence, reasoning
 """
 
 
@@ -448,6 +456,10 @@ class NLDesignParser:
                         intent.confidence = float(parsed["confidence"])
                     except (ValueError, TypeError):
                         intent.confidence = 0.5
+
+                # Extract bury_ligand preference
+                if "bury_ligand" in parsed:
+                    intent.bury_ligand = bool(parsed["bury_ligand"])
 
                 # Store reasoning
                 if parsed.get("reasoning"):
@@ -667,16 +679,18 @@ class SimpleFallbackParser:
         else:
             intent.design_mode = "de_novo"
 
-        # Extract metal
-        for alias, metal in METAL_ALIASES.items():
-            if alias in query_lower:
+        # Extract metal — use word boundaries to avoid substring matches
+        # (e.g. "ni" inside "designing", "co" inside "complex")
+        # Sort by length descending so longer aliases match first
+        for alias, metal in sorted(METAL_ALIASES.items(), key=lambda x: len(x[0]), reverse=True):
+            if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
                 intent.metal_type = metal
                 intent.parsed_entities["metal_match"] = alias
                 break
 
-        # Extract ligand
-        for alias, ligand in LIGAND_ALIASES.items():
-            if alias in query_lower:
+        # Extract ligand — same word-boundary matching
+        for alias, ligand in sorted(LIGAND_ALIASES.items(), key=lambda x: len(x[0]), reverse=True):
+            if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
                 intent.ligand_name = ligand
                 intent.parsed_entities["ligand_match"] = alias
                 break

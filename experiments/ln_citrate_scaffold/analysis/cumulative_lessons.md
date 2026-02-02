@@ -36,15 +36,20 @@
 
 ## Parameter Evolution Tracker
 
-| Parameter | R1 | R2 | R3 | R4 | R5 | Final | Rationale |
-|-----------|-----|-----|-----|-----|-----|-------|-----------|
-| approach | de novo + unindex motif | de novo + fixed metal | partial_t | | | | |
-| contig length | 80-140 | 80-110 | | | | | |
-| fixed_atoms (TB) | ALL | ALL / "" | | | | | Fixed works better |
-| fixed_atoms (CIT) | "" | "" | | | | | |
-| burial | TB:ALL, CIT:O1-O6 | TB:ALL, CIT:O1-O6 | | | | | |
-| hbond_acceptor | none | CIT:O1-O6 (r2b) | | | | | |
-| input type | motif+residues | just TB+CIT | | | | | Simpler is better |
+| Parameter | R1 | R2 | R7b | R8-NL (best) | Rationale |
+|-----------|-----|-----|-----|--------------|-----------|
+| approach | de novo + unindex | de novo + fixed metal | motif scaffolding | auto template (metal_binding_design) | Auto-template beats hand-crafted |
+| contig length | 80-140 | 80-110 | 110-150 | 110-150 | |
+| cfg_scale | none | none | 2.5 | 2.0 | 2.0 sufficient with other improvements |
+| fixed_atoms (TB) | ALL | ALL / "" | X1:all | auto (TB:all) | |
+| fixed_atoms (CIT) | "" | "" | L1:all | auto (CIT:all) | |
+| burial | TB:ALL | TB:ALL | X1:all (metal only) | TB+CIT (metal+ligand) | Burying both works fine |
+| hbond_acceptor | none | CIT:O1-O6 | L1:O1-O6 | auto: all O as acceptors | |
+| hbond_donor | none | none | L1:O7 | none | Missing donor didn't hurt |
+| MPNN temp | - | - | 0.2 | 0.1 | Lower temp + bias better |
+| MPNN bias | - | - | none | A:-2.0, omit C | Critical for Ala reduction |
+| RF3 context | - | - | seq only | seq + ligand + metal | Ligand-aware = uniform quality |
+| input type | motif+residues | just TB+CIT | hand-crafted motif PDB | auto citrate_tb template | Simpler is better |
 
 ---
 
@@ -838,3 +843,64 @@ LigandMPNN naturally placed carboxylates at coordination-relevant positions.
 | `outputs/round_06d/r6d_extended_000_seqs.fasta` | LigandMPNN sequences |
 | `outputs/round_06d/BEST_R6D.fasta` | Best sequence (0.43Å RMSD) |
 | `outputs/round_06d/AF3_SUBMISSION_R6D.md` | AF3 submission guide |
+
+## Round 8: NL Pipeline vs R7b E2E Comparison (2026-01-31)
+
+### Overview
+
+Systematic head-to-head comparison of the NL pipeline (automated defaults via `metal_binding_design` single mode) vs Round 7b (expert-tuned manual parameters). Both arms generated 5 backbones and 20 designed sequences for Tb-citrate binding.
+
+### Results
+
+| Metric | R7b (Expert) | NL (Auto) | Delta |
+|--------|-------------|-----------|-------|
+| Pass rate (pTM >= 0.6) | 85% (17/20) | **100% (20/20)** | +15% |
+| Avg pTM | 0.770 | **0.902** | +17% |
+| Avg pLDDT | 0.801 | **0.867** | +8% |
+| Avg PAE | 6.22 | **3.61** | -42% |
+| Avg Ala% | 17.1% | **6.7%** | 2.5x less |
+| Within-backbone pTM std | 0.126 | **0.008** | 15.7x better |
+| Best pTM | 0.910 | **0.925** | |
+| Worst pTM | 0.357 | **0.865** | |
+| RFD3 time | 57s | 242s | 4.2x slower |
+| Total time | 520s | 736s | 1.4x slower |
+
+### Key Lessons
+
+1. **NL pipeline automated defaults outperform expert-tuned R7b on every quality metric.** The auto-template approach (metal+ligand only, no hand-crafted motif residues) produces more designable scaffolds. Motif residues in R7b may over-constrain.
+
+2. **MPNN bias_AA: "A:-2.0" + omit_AA: "C" is critical.** R7b sequences had 17-32% alanine (classic MPNN failure for metal binding). NL pipeline's bias reduces this to 2.7-13.8%, yielding healthier sequence composition with more charged residues (Glu 12%, Lys 7%).
+
+3. **Ligand-aware RF3 dramatically improves prediction consistency.** Sequence-only RF3 (R7b) has 3 designs below pTM 0.5 and huge within-backbone variance (std 0.126). RF3 with citrate SMILES + TB metal (NL) gives uniformly high confidence (min pTM 0.865, std 0.008).
+
+4. **CFG 2.0 is sufficient when combined with other improvements.** R7b's CFG 2.5 provided no advantage over NL's 2.0. The quality gains come from MPNN bias and RF3 context, not stronger conditioning.
+
+5. **Metal+ligand burial doesn't hurt.** Despite concern that burying citrate would reduce H-bond access, NL pipeline buries both metal and ligand and achieves higher pTM/pLDDT.
+
+6. **Auto H-bond handling is adequate.** NL pipeline assigns all citrate O atoms as acceptors (O1-O7) and no donors, vs R7b's curated O1-O6 acceptors + O7 donor. The simpler auto approach works equally well.
+
+7. **Speed tradeoff is acceptable.** NL pipeline is 1.4x slower due to `metal_binding_design` single mode overhead (template generation, scaffold extraction) and `pack_side_chains` MPNN (39s vs 3s). The quality improvement justifies this.
+
+### Bugs Fixed During Round 8
+
+1. **`analyze_design` task missing from Docker** - handler.py had the task in uncommitted changes, but `filter_evaluator.py`, `design_history.py`, `lesson_detector.py`, `backbone_pre_filter.py` were not volume-mounted in docker-compose.local.yml. Fixed by adding mounts.
+
+2. **RF3 CIF output coordination extraction** - RF3 returns CIF format where res_name is `L:0` (metal) and `L:1` (ligand) instead of `TB`/`CIT`. The `analyze_structure()` function in inference_utils.py matched by res_name, failing for CIF. Fixed by adding atom_name-based metal detection (e.g., atom `TB0` -> metal `TB`).
+
+3. **Windows Unicode encoding** - Arrow and em-dash characters crashed stdout with cp1252 codec. Fixed to use ASCII alternatives.
+
+### Recommendations for Production
+
+Based on Round 8 findings, the NL pipeline should be the default for all Tb-citrate (and likely all Ln-metal) designs:
+
+- Use `metal_binding_design` mode=single for backbone generation
+- Always set `bias_AA: "A:-2.0"` and `omit_AA: "C"` in MPNN
+- Always use ligand-aware RF3 validation (ligand_smiles + metal)
+- CFG 2.0 is the right default
+- No need for hand-crafted motif PDBs; auto-templates suffice
+
+### Data Location
+
+- Raw outputs: `backend/serverless/output_nl_vs_r7b/`
+- Analysis JSON: `experiments/ln_citrate_scaffold/analysis/round_08_nl_vs_r7b.json`
+- Test script: `backend/serverless/test_nl_vs_r7b.py`

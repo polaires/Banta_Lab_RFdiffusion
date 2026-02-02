@@ -397,6 +397,15 @@ def get_binding_pocket_sasa(
     }
 
 
+# Residues without TIP atoms in the Foundry SDK (rfd3.constants.TIP_BY_RESTYPE)
+_NO_TIP_RESIDUES = {"ALA", "GLY", "PRO", "UNK", "MSK"}
+
+
+def _tip_or_fallback(res_name: str) -> str:
+    """Return 'TIP' if the residue supports it, else 'BKBN'."""
+    return "BKBN" if res_name in _NO_TIP_RESIDUES else "TIP"
+
+
 def suggest_rfd3_burial_params(
     sasa_analysis: Dict[str, Any],
     target_burial: str = "buried"
@@ -433,9 +442,10 @@ def suggest_rfd3_burial_params(
         current_burial = data["burial_classification"]
 
         # If residue needs to change burial state
+        # Use TIP for residues that support it, BKBN for GLY/ALA/PRO/UNK
         if target_burial == "buried" and current_burial == "exposed":
-            burial_params[rfd3_key] = "TIP"  # Bury the tip atom
+            burial_params[rfd3_key] = _tip_or_fallback(res_name)
         elif target_burial == "exposed" and current_burial == "buried":
-            burial_params[rfd3_key] = "TIP"  # Expose the tip atom
+            burial_params[rfd3_key] = _tip_or_fallback(res_name)
 
     return burial_params

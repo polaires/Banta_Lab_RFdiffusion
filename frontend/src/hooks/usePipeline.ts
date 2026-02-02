@@ -9,7 +9,9 @@ import type {
   StepStatus,
   StepResult,
   StepExecutionContext,
+  SequenceOutput,
 } from '@/lib/pipeline-types';
+import { computeProtParam } from '@/lib/protparam';
 
 // ---- FIX #14: Pipeline State Persistence ----
 
@@ -348,6 +350,30 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
 
       if (stepDef.requiresReview) {
         dispatch({ type: 'STEP_PAUSE', stepIndex });
+
+        // Auto-select outputs when supportsSelection is true
+        if (stepDef.supportsSelection) {
+          if (result.sequences && result.sequences.length > 0) {
+            // For sequence steps: auto-select only stable sequences (II < 40)
+            const stableIds = result.sequences
+              .filter((seq: SequenceOutput) => {
+                const pp = computeProtParam(seq.sequence);
+                return pp.isStable;
+              })
+              .map((seq: SequenceOutput) => seq.id);
+            // Fall back to all if none are stable
+            const autoIds = stableIds.length > 0 ? stableIds : result.sequences.map((s: SequenceOutput) => s.id);
+            dispatch({ type: 'SET_SELECTION', stepId: stepDef.id, outputIds: autoIds });
+          } else if (result.pdbOutputs && result.pdbOutputs.length > 0) {
+            // For backbone generation (rfd3_nl): auto-select ALL designs since there's no pre-filtering
+            // For other steps (scaffold search): auto-select only the first (best) candidate
+            const isBackboneStep = stepDef.id === 'rfd3_nl';
+            const autoIds = isBackboneStep
+              ? result.pdbOutputs.map(p => p.id)
+              : [result.pdbOutputs[0].id];
+            dispatch({ type: 'SET_SELECTION', stepId: stepDef.id, outputIds: autoIds });
+          }
+        }
       }
     } catch (err) {
       // FIX #12: Handle both abort signal and AbortError from shared-steps

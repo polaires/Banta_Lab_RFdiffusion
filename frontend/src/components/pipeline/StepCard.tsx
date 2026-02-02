@@ -196,7 +196,7 @@ export function StepCard({
 
         <CollapsibleContent>
           <Separator />
-          <CardContent className="p-3 space-y-3">
+          <CardContent className="p-3 space-y-3 max-h-[70vh] overflow-y-auto min-w-0 overflow-x-hidden">
             {/* Running: progress bar */}
             {isRunning && (
               <div className="space-y-1.5">
@@ -231,34 +231,51 @@ export function StepCard({
             {/* Paused or completed with results: result preview */}
             {(isPaused || (isDone && isExpanded)) && state.result && (
               <>
-                {step.ResultPreview ? (
-                  <step.ResultPreview result={state.result} onSelectDesign={onViewDesign} />
-                ) : (
-                  <StepResultPreview result={state.result} onSelectDesign={onViewDesign} />
-                )}
+                {(() => {
+                  // When paused with selectable outputs and no custom preview,
+                  // skip the full result preview — the DesignSelector below
+                  // already shows the items in a compact selectable grid.
+                  const showSelectionInstead = isPaused
+                    && step.supportsSelection
+                    && !step.ResultPreview
+                    && (state.result.pdbOutputs?.length || state.result.sequences?.length);
 
-                {/* Selection grid — only on paused (active review) */}
-                {isPaused && step.supportsSelection && (state.result.pdbOutputs || state.result.sequences) && (
-                  <>
-                    <Separator />
-                    <div>
-                      {/* FIX #20: Explain what selection does */}
-                      <p className="text-xs font-medium text-foreground mb-1">
-                        Select outputs to carry forward
-                      </p>
-                      <p className="text-[10px] text-muted-foreground mb-2">
-                        Only selected items will be used by the next step. Unselected items are discarded.
-                      </p>
-                      <DesignSelector
-                        pdbOutputs={state.result.pdbOutputs}
-                        sequences={state.result.sequences}
-                        selectedIds={state.selectedOutputIds}
-                        onSelectionChange={onSelectionChange}
-                        onViewDesign={onViewDesign}
-                      />
-                    </div>
-                  </>
-                )}
+                  if (showSelectionInstead) {
+                    // Show just the summary + integrated selector
+                    return (
+                      <div>
+                        <p className="text-xs font-medium text-foreground mb-1">
+                          Select outputs to carry forward
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mb-2">
+                          {state.result.summary} — only selected items continue to the next step.
+                        </p>
+                        <DesignSelector
+                          pdbOutputs={state.result.pdbOutputs}
+                          sequences={state.result.sequences}
+                          selectedIds={state.selectedOutputIds}
+                          onSelectionChange={onSelectionChange}
+                          onViewDesign={onViewDesign}
+                        />
+                      </div>
+                    );
+                  }
+
+                  // Normal path: full result preview (custom or default)
+                  return step.ResultPreview ? (
+                    <step.ResultPreview
+                      result={state.result}
+                      onSelectDesign={onViewDesign}
+                      {...(step.supportsSelection ? {
+                        selectedIds: state.selectedOutputIds,
+                        onSelectionChange,
+                        isPaused,
+                      } : {})}
+                    />
+                  ) : (
+                    <StepResultPreview result={state.result} onSelectDesign={onViewDesign} />
+                  );
+                })()}
 
                 {/* Next step parameter editor — only on paused */}
                 {isPaused && nextStepSchema && nextStepSchema.length > 0 && nextStepParams && onNextStepParamsChange && (
@@ -285,10 +302,13 @@ export function StepCard({
                 This step completed but produced no structures or sequences. Check the summary above for details.
               </div>
             )}
+          </CardContent>
 
-            {/* Action buttons */}
-            {(isPaused || isFailed) && (
-              <div className="flex items-center gap-2 pt-1">
+          {/* Action buttons — outside scrollable area so they're always visible */}
+          {(isPaused || isFailed) && (
+            <>
+              <Separator />
+              <div className="flex items-center gap-2 px-3 py-2.5">
                 {isPaused && (
                   <Button
                     size="sm"
@@ -301,7 +321,8 @@ export function StepCard({
                     Continue
                   </Button>
                 )}
-                {isFailed && (
+                {/* Show Retry on failed OR when paused with all-failed sweep results */}
+                {(isFailed || (isPaused && Boolean(state.result?.data?.sweep_all_failed))) && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -330,8 +351,8 @@ export function StepCard({
                   </span>
                 )}
               </div>
-            )}
-          </CardContent>
+            </>
+          )}
         </CollapsibleContent>
       </Card>
     </Collapsible>

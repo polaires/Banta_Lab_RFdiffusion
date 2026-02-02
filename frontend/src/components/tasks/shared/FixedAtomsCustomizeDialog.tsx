@@ -187,9 +187,9 @@ export function FixedAtomsCustomizeDialog({
                     </SelectTrigger>
                     <SelectContent>
                       {ATOM_TYPE_OPTIONS.map((opt) => {
-                        // GLY doesn't have sidechain atoms, so 'TIP' is invalid
-                        const isGly = res.name === 'GLY';
-                        const isTipDisabled = isGly && opt.value === 'TIP';
+                        // GLY, ALA, PRO don't have TIP atoms in the Foundry SDK
+                        const noTipResidues = new Set(['GLY', 'ALA', 'PRO']);
+                        const isTipDisabled = noTipResidues.has(res.name) && opt.value === 'TIP';
                         return (
                           <SelectItem
                             key={opt.value || 'NONE'}

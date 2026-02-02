@@ -282,13 +282,22 @@ try:
         cancel_session,
         get_hsab_bias,
         get_ligand_hbond_atoms,
+        get_ligand_smiles,
         MONOMER_CONTIG_RANGES,
-        LIGAND_HBOND_ATOMS,
     )
     METAL_BINDING_PIPELINE_AVAILABLE = True
 except ImportError as e:
     METAL_BINDING_PIPELINE_AVAILABLE = False
     print(f"[Handler] Warning: metal_binding_pipeline not available: {e}")
+
+# Import unified design analyzer + filter presets for analyze_design task
+try:
+    from unified_analyzer import UnifiedDesignAnalyzer
+    from filter_evaluator import FILTER_PRESETS
+    UNIFIED_ANALYZER_AVAILABLE = True
+except ImportError as e:
+    UNIFIED_ANALYZER_AVAILABLE = False
+    print(f"[Handler] Warning: unified_analyzer not available: {e}")
 
 # NOTE: ai_design_pipeline.py is DEPRECATED — its NL parsing is now exposed
 # via the 'ai_parse' task, and its monolithic orchestration is replaced by
@@ -531,6 +540,11 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Check lesson triggers (detect failure patterns, breakthroughs)
         elif task == "check_lessons":
             return handle_check_lessons(job_input)
+        # Unified design analysis (UnifiedDesignAnalyzer + FILTER_PRESETS)
+        elif task == "analyze_design":
+            if not UNIFIED_ANALYZER_AVAILABLE:
+                return {"status": "failed", "error": "Unified analyzer not available"}
+            return handle_analyze_design(job_input)
         # Modular workflow execution via JSON spec
         elif task == "workflow_run":
             from workflow_runner import WorkflowRunner
@@ -898,6 +912,9 @@ def handle_rf3(job_input: Dict[str, Any]) -> Dict[str, Any]:
     # Ligand support for protein-ligand binding evaluation
     ligand_smiles = job_input.get("ligand_smiles")  # SMILES string
 
+    # Metal ion support for metal-binding protein validation
+    metal = job_input.get("metal")  # Element code (TB, ZN, CA, etc.)
+
     result = run_rf3_inference(
         sequence=sequence,
         name=name,
@@ -905,6 +922,7 @@ def handle_rf3(job_input: Dict[str, Any]) -> Dict[str, Any]:
         msa_content=msa_content,
         sequences=sequences,
         ligand_smiles=ligand_smiles,
+        metal=metal,
         use_mock=not FOUNDRY_AVAILABLE
     )
 
@@ -10526,7 +10544,8 @@ def handle_metal_binding_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     Modes:
     - analyze: Analyze PDB for metal binding potential
-    - sweep: Run parameter sweep (9 configs)
+    - single: Educated single-run — backbone only (MPNN/RF3 as separate pipeline steps)
+    - sweep: Run parameter sweep (9 configs, includes MPNN/RF3)
     - production: Generate designs with best config
     - status: Get pipeline status
 
@@ -10573,12 +10592,14 @@ def handle_metal_binding_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return _analyze_metal_binding_site(job_input)
     elif mode == "sweep":
         return _run_metal_binding_sweep(job_input)
+    elif mode == "single":
+        return _run_metal_binding_single(job_input)
     elif mode == "production":
         return _run_metal_binding_production(job_input)
     elif mode == "status":
         return _get_metal_binding_status(job_input)
     else:
-        return {"status": "failed", "error": f"Unknown mode: {mode}. Valid: analyze, sweep, production, status"}
+        return {"status": "failed", "error": f"Unknown mode: {mode}. Valid: analyze, single, sweep, production, status"}
 
 
 def _analyze_metal_binding_site(job_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -10683,35 +10704,76 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
     if not metal:
         return {"status": "failed", "error": "Must provide metal code (e.g., TB, CA, ZN)"}
 
-    # Generate template PDB with proper chain IDs (X for metal, L for ligand)
-    # This ensures conditioning parameters work correctly
-    from metal_ligand_templates import generate_complex_pdb, list_templates
+    print(f"[MetalBindingSweep] motif_pdb: {len(motif_pdb) if motif_pdb else 0} chars, "
+          f"metal={metal}, ligand={ligand}")
+    if motif_pdb:
+        # Log first 200 chars to diagnose scaffold vs template
+        print(f"[MetalBindingSweep] motif_pdb starts with: {motif_pdb[:200]}")
 
-    template_name = None
-    if ligand and ligand.upper() == "CIT":
-        # Template names are citrate_tb, citrate_eu, citrate_gd, citrate_la
-        template_name = f"citrate_{metal.lower()}"
-        # Fallback to citrate_tb if specific metal template doesn't exist
-        if template_name not in list_templates():
-            template_name = "citrate_tb"
-    elif ligand and ligand.upper() == "PQQ":
-        template_name = "pqq_ca"
+    # Check if caller provided a real scaffold PDB (has protein ATOM records)
+    # This happens when scaffold_search found a real protein structure from RCSB
+    # Note: large PDB files have extensive headers (HEADER, TITLE, REMARK, etc.)
+    # before ATOM records, so we must scan well beyond the first few KB
+    has_real_scaffold = bool(motif_pdb and "ATOM" in motif_pdb)
+    print(f"[MetalBindingSweep] has_real_scaffold={has_real_scaffold}")
+    use_scaffold_mode = False
+    scaffold_fixed_atoms = None
+    scaffold_buried = None
+    scaffold_hbond = None
+    scaffold_unindex = None
 
-    if template_name:
-        # Use template generator for proper chain IDs
-        generated_pdb = generate_complex_pdb(template_name, metal=metal.upper())
-        if generated_pdb:
-            motif_pdb = generated_pdb
-            print(f"[MetalBindingSweep] Generated template PDB for {metal}-{ligand}")
+    if has_real_scaffold:
+        # Try extracting motif from the real scaffold PDB
+        try:
+            from scaffolding_workflow import ScaffoldingWorkflow
+            workflow = ScaffoldingWorkflow()
+            scaffold_result = workflow.extract_metal_motif(
+                pdb_content=motif_pdb,
+                metal=metal,
+                ligand=ligand,
+            )
+            if scaffold_result and scaffold_result.motif_pdb:
+                motif_pdb = scaffold_result.motif_pdb
+                scaffold_fixed_atoms = scaffold_result.fixed_atoms
+                scaffold_buried = scaffold_result.rasa_targets or None
+                scaffold_hbond = scaffold_result.hbond_acceptors
+                scaffold_unindex = scaffold_result.unindex
+                use_scaffold_mode = True
+                print(f"[MetalBindingSweep] Extracted motif from scaffold PDB "
+                      f"({len(scaffold_result.motif_pdb)} chars, "
+                      f"{len(scaffold_result.coordinating_residues)} residues)")
+            else:
+                err = scaffold_result.error_message if scaffold_result else "no result"
+                print(f"[MetalBindingSweep] Motif extraction failed ({err}), falling back to bare template")
+        except Exception as e:
+            print(f"[MetalBindingSweep] Scaffold extraction error: {e}, falling back to bare template")
+
+    if not use_scaffold_mode:
+        # Bare template path: generate synthetic metal-ligand template PDB
+        from metal_ligand_templates import generate_complex_pdb, list_templates
+
+        template_name = None
+        if ligand and ligand.upper() == "CIT":
+            template_name = f"citrate_{metal.lower()}"
+            if template_name not in list_templates():
+                template_name = "citrate_tb"
+        elif ligand and ligand.upper() == "PQQ":
+            template_name = "pqq_ca"
+
+        if template_name:
+            generated_pdb = generate_complex_pdb(template_name, metal=metal.upper())
+            if generated_pdb:
+                motif_pdb = generated_pdb
+                print(f"[MetalBindingSweep] Generated template PDB for {metal}-{ligand}")
+            elif not motif_pdb:
+                return {"status": "failed", "error": f"Failed to generate template for {metal}-{ligand}"}
         elif not motif_pdb:
-            return {"status": "failed", "error": f"Failed to generate template for {metal}-{ligand}"}
-    elif not motif_pdb:
-        return {"status": "failed", "error": "Must provide motif_pdb or valid metal-ligand combination. "
-                "Use the scaffold_search task first to find a PDB scaffold from RCSB."}
+            return {"status": "failed", "error": "Must provide motif_pdb or valid metal-ligand combination. "
+                    "Use the scaffold_search task first to find a PDB scaffold from RCSB."}
 
     # Parse sweep configuration
     sizes = job_input.get("sizes", ["small", "medium", "large"])
-    cfg_scales = job_input.get("cfg_scales", [1.5, 2.0, 2.5])
+    cfg_scales = job_input.get("cfg_scales", [2.5, 3.0, 3.5])
     designs_per_config = job_input.get("designs_per_config", 10)
     filters = job_input.get("filters", {"plddt": 0.80, "ptm": 0.75, "pae": 5.0})
 
@@ -10736,6 +10798,7 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
     # Run sweep
     all_results = []
+    config_errors = {}  # Track per-config errors for diagnostics
     seed_base = job_input.get("seed", 42)
 
     for config_idx, config in enumerate(configs):
@@ -10755,7 +10818,12 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
             seed = seed_base + config_idx * 1000 + design_idx
 
             # Build RFD3 params for MONOMER design
-            rfd3_params = build_rfd3_params(config, motif_pdb, seed)
+            rfd3_params = build_rfd3_params(
+                config, motif_pdb, seed,
+                fixed_atoms=scaffold_fixed_atoms if use_scaffold_mode else None,
+                buried_atoms=scaffold_buried if use_scaffold_mode else None,
+                hbond_acceptors=scaffold_hbond if use_scaffold_mode else None,
+            )
 
             try:
                 # Run RFD3 inference for de novo design around metal-ligand
@@ -10766,6 +10834,7 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
                     contig=rfd3_params.get("contig"),  # MONOMER scaffold size range
                     ligand=rfd3_params.get("ligand"),  # Metal/ligand residue names
                     select_fixed_atoms=rfd3_params.get("select_fixed_atoms"),
+                    unindex=rfd3_params.get("unindex"),  # Scaffold mode: flexible catalytic residues
                     select_buried=rfd3_params.get("select_buried"),
                     select_hbond_acceptor=rfd3_params.get("select_hbond_acceptor"),
                     infer_ori_strategy=rfd3_params.get("infer_ori_strategy"),
@@ -10778,7 +10847,9 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 if rfd3_result.get("status") != "completed":
-                    print(f"[MetalBindingSweep] RFD3 failed: {rfd3_result.get('error')}")
+                    err_msg = str(rfd3_result.get('error', 'Unknown error'))
+                    print(f"[MetalBindingSweep] RFD3 failed: {err_msg}")
+                    config_errors.setdefault(config.name, []).append(f"RFD3: {err_msg}")
                     continue
 
                 backbone_pdb = rfd3_result["result"]["designs"][0]["content"]
@@ -10790,32 +10861,35 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
                     metal=metal,
                     ligand=ligand,
                     num_seqs=4,
-                    temperature=0.2,
                     hsab_bias=hsab_bias,
                 )
 
-                mpnn_result = run_mpnn_inference(
-                    pdb_content=mpnn_params["pdb_content"],
-                    num_sequences=mpnn_params["num_sequences"],
-                    model_type=mpnn_params["model_type"],
-                    temperature=mpnn_params["temperature"],
-                    bias_AA=mpnn_params.get("bias_AA"),
-                )
+                # Pass ALL params from build_mpnn_params (includes pack_side_chains,
+                # use_side_chain_context, omit_AA for hard metals, bias_AA for soft/borderline)
+                mpnn_result = run_mpnn_inference(**mpnn_params)
 
                 if mpnn_result.get("status") != "completed":
-                    print(f"[MetalBindingSweep] MPNN failed: {mpnn_result.get('error')}")
+                    err_msg = str(mpnn_result.get('error', 'Unknown error'))
+                    print(f"[MetalBindingSweep] MPNN failed: {err_msg}")
+                    config_errors.setdefault(config.name, []).append(f"MPNN: {err_msg}")
                     continue
 
                 # Get best sequence
                 sequences = mpnn_result["result"].get("sequences", [])
                 if not sequences:
+                    config_errors.setdefault(config.name, []).append("MPNN: No sequences generated")
                     continue
 
                 best_seq_data = sequences[0]
                 sequence = best_seq_data.get("content", "").replace(">", "").split("\n")[-1]
 
-                # Run RF3 for structure prediction and metrics
-                rf3_result = run_rf3_inference(sequence=sequence)
+                # Run RF3 for structure prediction with ligand + metal context
+                ligand_smiles = get_ligand_smiles(ligand) if ligand else None
+                rf3_result = run_rf3_inference(
+                    sequence=sequence,
+                    ligand_smiles=ligand_smiles,
+                    metal=metal,
+                )
 
                 if rf3_result.get("status") != "completed":
                     # Use backbone metrics if RF3 fails
@@ -10869,7 +10943,9 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 })
 
             except Exception as e:
-                print(f"[MetalBindingSweep] Error in design {design_idx}: {e}")
+                err_msg = str(e)
+                print(f"[MetalBindingSweep] Error in design {design_idx}: {err_msg}")
+                config_errors.setdefault(config.name, []).append(f"Exception: {err_msg}")
                 continue
 
     # Rank configurations
@@ -10890,6 +10966,12 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
         "best_design": best_design,
     })
 
+    # Deduplicate config errors (e.g., same CUDA error repeated N times per config)
+    config_errors_deduped = {}
+    for cfg_name, errors in config_errors.items():
+        unique_errors = list(dict.fromkeys(errors))  # preserve order, remove dupes
+        config_errors_deduped[cfg_name] = unique_errors
+
     return {
         "status": "completed",
         "result": {
@@ -10904,6 +10986,190 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "best_design": best_design,
             "config_rankings": config_rankings,
             "results": [r.to_dict() for r in all_results],
+            "config_errors": config_errors_deduped if config_errors_deduped else None,
+        }
+    }
+
+
+def _run_metal_binding_single(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Run single metal binding RFD3 design — backbone only, no MPNN/RF3.
+
+    Returns backbone PDBs in the same format as general RFD3, so the frontend
+    pipeline can run MPNN and RF3 as separate steps with proper metal-aware params.
+
+    Input:
+        motif_pdb: str - PDB content with metal-ligand motif
+        metal: str - Metal code (TB, EU, CA, ZN, etc.)
+        ligand: str - Optional ligand code (CIT, PQQ, etc.)
+        contig: str - Contig range (e.g., "110-130")
+        cfg_scale: float - CFG scale (default 2.0)
+        num_designs: int - Number of backbone designs (default 4)
+        num_timesteps: int - Diffusion steps (default 200)
+        step_scale: float - Step scale (default 1.5)
+        gamma_0: float - Optional gamma_0
+        seed: int - Random seed (default 42)
+    """
+    motif_pdb = job_input.get("motif_pdb")
+    metal = job_input.get("metal")
+    ligand = job_input.get("ligand")
+
+    if not metal:
+        return {"status": "failed", "error": "Must provide metal code (e.g., TB, CA, ZN)"}
+
+    print(f"[MetalBindingSingle] motif_pdb: {len(motif_pdb) if motif_pdb else 0} chars, "
+          f"metal={metal}, ligand={ligand}")
+
+    # Scaffold detection: same logic as sweep
+    has_real_scaffold = bool(motif_pdb and "ATOM" in motif_pdb)
+    use_scaffold_mode = False
+    scaffold_fixed_atoms = None
+    scaffold_buried = None
+    scaffold_hbond = None
+
+    if has_real_scaffold:
+        try:
+            from scaffolding_workflow import ScaffoldingWorkflow
+            workflow = ScaffoldingWorkflow()
+            scaffold_result = workflow.extract_metal_motif(
+                pdb_content=motif_pdb,
+                metal=metal,
+                ligand=ligand,
+            )
+            if scaffold_result and scaffold_result.motif_pdb:
+                motif_pdb = scaffold_result.motif_pdb
+                scaffold_fixed_atoms = scaffold_result.fixed_atoms
+                scaffold_buried = scaffold_result.rasa_targets or None
+                scaffold_hbond = scaffold_result.hbond_acceptors
+                use_scaffold_mode = True
+                print(f"[MetalBindingSingle] Extracted motif from scaffold PDB")
+            else:
+                err = scaffold_result.error_message if scaffold_result else "no result"
+                print(f"[MetalBindingSingle] Motif extraction failed ({err}), falling back to bare template")
+        except Exception as e:
+            print(f"[MetalBindingSingle] Scaffold extraction error: {e}, falling back to bare template")
+
+    if not use_scaffold_mode:
+        from metal_ligand_templates import generate_complex_pdb, list_templates
+
+        template_name = None
+        if ligand and ligand.upper() == "CIT":
+            template_name = f"citrate_{metal.lower()}"
+            if template_name not in list_templates():
+                template_name = "citrate_tb"
+        elif ligand and ligand.upper() == "PQQ":
+            template_name = "pqq_ca"
+
+        if template_name:
+            generated_pdb = generate_complex_pdb(template_name, metal=metal.upper())
+            if generated_pdb:
+                motif_pdb = generated_pdb
+                print(f"[MetalBindingSingle] Generated template PDB for {metal}-{ligand}")
+            elif not motif_pdb:
+                return {"status": "failed", "error": f"Failed to generate template for {metal}-{ligand}"}
+        elif not motif_pdb:
+            return {"status": "failed", "error": "Must provide motif_pdb or valid metal-ligand combination."}
+
+    # Build config from caller params
+    contig = job_input.get("contig", "110-130")
+    cfg_scale = job_input.get("cfg_scale", 2.0)
+    num_designs = job_input.get("num_designs", 4)
+    num_timesteps = job_input.get("num_timesteps")
+    step_scale = job_input.get("step_scale")
+    gamma_0 = job_input.get("gamma_0")
+    bury_ligand = job_input.get("bury_ligand", True)
+    seed_base = job_input.get("seed", 42)
+
+    config = MetalBindingConfig(
+        name="single",
+        contig_range=contig,
+        cfg_scale=cfg_scale,
+        metal=metal,
+        ligand=ligand,
+        num_designs=num_designs,
+        num_timesteps=num_timesteps,
+        step_scale=step_scale,
+        gamma_0=gamma_0,
+    )
+
+    print(f"[MetalBindingSingle] contig={contig}, cfg_scale={cfg_scale}, "
+          f"num_designs={num_designs}, timesteps={num_timesteps}, step_scale={step_scale}, "
+          f"bury_ligand={bury_ligand}")
+
+    # Generate backbone designs
+    designs = []
+    errors = []
+
+    for i in range(num_designs):
+        seed = seed_base + i
+
+        # Determine buried_atoms based on mode and bury_ligand flag
+        if use_scaffold_mode:
+            effective_buried = scaffold_buried
+        elif not bury_ligand:
+            effective_buried = {}  # Empty dict skips default burial
+        else:
+            effective_buried = None  # Let build_rfd3_params use defaults (bury metal+ligand)
+
+        rfd3_params = build_rfd3_params(
+            config, motif_pdb, seed,
+            fixed_atoms=scaffold_fixed_atoms if use_scaffold_mode else None,
+            buried_atoms=effective_buried,
+            hbond_acceptors=scaffold_hbond if use_scaffold_mode else None,
+        )
+
+        try:
+            rfd3_result = run_rfd3_inference(
+                pdb_content=rfd3_params["pdb_content"],
+                contig=rfd3_params.get("contig"),
+                ligand=rfd3_params.get("ligand"),
+                select_fixed_atoms=rfd3_params.get("select_fixed_atoms"),
+                unindex=rfd3_params.get("unindex"),
+                select_buried=rfd3_params.get("select_buried"),
+                select_hbond_acceptor=rfd3_params.get("select_hbond_acceptor"),
+                infer_ori_strategy=rfd3_params.get("infer_ori_strategy"),
+                use_classifier_free_guidance=rfd3_params.get("use_classifier_free_guidance", True),
+                cfg_scale=rfd3_params.get("cfg_scale", 2.0),
+                num_designs=1,
+                seed=seed,
+                num_timesteps=rfd3_params.get("num_timesteps", 200),
+                step_scale=rfd3_params.get("step_scale", 1.5),
+                gamma_0=rfd3_params.get("gamma_0"),
+            )
+
+            if rfd3_result.get("status") != "completed":
+                err_msg = str(rfd3_result.get('error', 'Unknown error'))
+                print(f"[MetalBindingSingle] RFD3 failed design {i+1}: {err_msg}")
+                errors.append(err_msg)
+                continue
+
+            backbone_pdb = rfd3_result["result"]["designs"][0]["content"]
+            designs.append({
+                "content": backbone_pdb,
+                "name": f"metal_design_{i+1}",
+                "seed": seed,
+            })
+            print(f"[MetalBindingSingle] Design {i+1}/{num_designs} complete")
+
+        except Exception as e:
+            print(f"[MetalBindingSingle] RFD3 error design {i+1}: {e}")
+            errors.append(str(e))
+
+    if not designs:
+        return {
+            "status": "failed",
+            "error": f"All {num_designs} designs failed. Errors: {'; '.join(errors[:3])}"
+        }
+
+    # Return in same format as general RFD3 handler
+    return {
+        "status": "completed",
+        "result": {
+            "designs": designs,
+            "total_generated": len(designs),
+            "total_requested": num_designs,
+            "errors": errors if errors else None,
+            "metal": metal,
+            "ligand": ligand,
         }
     }
 
@@ -11264,6 +11530,7 @@ def handle_scout_filter(job_input: Dict[str, Any]) -> Dict[str, Any]:
     Filter backbones by generating 1 scout sequence each and validating.
 
     For each backbone PDB: run MPNN (1 seq) → RF3 → check pTM/pLDDT thresholds.
+    Includes CPU-only pre-filter to catch broken backbones before GPU work.
     Returns only passing backbones with scout metrics.
     """
     backbone_pdbs = job_input.get("backbone_pdbs", [])
@@ -11284,6 +11551,76 @@ def handle_scout_filter(job_input: Dict[str, Any]) -> Dict[str, Any]:
     plddt_threshold = job_input.get("plddt_threshold", 0.65)
     target_metal = job_input.get("target_metal")
     ligand_smiles = job_input.get("ligand_smiles")
+    ligand_name = job_input.get("ligand_name")
+    pre_filter_only = job_input.get("pre_filter_only", False)
+
+    # --- CPU Pre-filter: catch obviously bad backbones before GPU work ---
+    pre_filter_results = []
+    pre_filter_passed_indices = set()
+    pre_filter_failed_count = 0
+
+    try:
+        from backbone_pre_filter import run_backbone_pre_filter
+
+        for i, backbone_pdb in enumerate(backbone_pdbs):
+            try:
+                pf_result = run_backbone_pre_filter(
+                    backbone_pdb,
+                    target_metal=target_metal,
+                    ligand_name=ligand_name,
+                )
+                pre_filter_results.append(pf_result)
+                if pf_result["passed"]:
+                    pre_filter_passed_indices.add(i)
+                    print(f"[Scout Pre-filter] Backbone {i}: PASSED")
+                else:
+                    pre_filter_failed_count += 1
+                    print(f"[Scout Pre-filter] Backbone {i}: FAILED — {pf_result['failed_checks']}")
+            except Exception as e:
+                # Non-fatal: allow backbone through
+                pre_filter_results.append({"passed": True, "error": str(e), "checks": {}, "failed_checks": [], "skipped_checks": []})
+                pre_filter_passed_indices.add(i)
+                print(f"[Scout Pre-filter] Backbone {i}: ERROR (allowing through) — {e}")
+
+        print(f"[Scout Pre-filter] {len(pre_filter_passed_indices)}/{len(backbone_pdbs)} passed pre-filter")
+    except ImportError:
+        # Module not available — allow all backbones through
+        print("[Scout Pre-filter] backbone_pre_filter module not available, skipping")
+        pre_filter_passed_indices = set(range(len(backbone_pdbs)))
+
+    # Pre-filter only mode: return results without running MPNN+RF3 GPU loop
+    if pre_filter_only:
+        print(f"[Scout] Pre-filter only mode: returning {len(pre_filter_passed_indices)}/{len(backbone_pdbs)} passed")
+        scout_results_pf = []
+        filtered_pdbs_pf = []
+        for i, backbone_pdb in enumerate(backbone_pdbs):
+            passed = i in pre_filter_passed_indices
+            scout_results_pf.append({
+                "backbone_index": i,
+                "ptm": 0.0,
+                "plddt": 0.0,
+                "passed": passed,
+                "sequence": "",
+                "pre_filter_failed": not passed,
+            })
+            if passed:
+                filtered_pdbs_pf.append(backbone_pdb)
+
+        return {
+            "status": "completed",
+            "result": {
+                "filtered_pdbs": filtered_pdbs_pf,
+                "original_count": len(backbone_pdbs),
+                "passing_count": len(filtered_pdbs_pf),
+                "scout_results": scout_results_pf,
+                "ptm_threshold": ptm_threshold,
+                "plddt_threshold": plddt_threshold,
+                "pre_filter_results": pre_filter_results,
+                "pre_filter_passed": len(pre_filter_passed_indices),
+                "pre_filter_failed": pre_filter_failed_count,
+                "pre_filter_only": True,
+            },
+        }
 
     filtered_pdbs = []
     scout_results = []
@@ -11295,7 +11632,14 @@ def handle_scout_filter(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "plddt": 0.0,
             "passed": False,
             "sequence": "",
+            "pre_filter_failed": i not in pre_filter_passed_indices,
         }
+
+        # Skip GPU work for pre-filter failures
+        if i not in pre_filter_passed_indices:
+            print(f"[Scout] Backbone {i}: skipped (pre-filter failed)")
+            scout_results.append(scout_entry)
+            continue
 
         try:
             # 1. Generate 1 scout sequence via MPNN
@@ -11328,12 +11672,14 @@ def handle_scout_filter(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
             scout_entry["sequence"] = sequence
 
-            # 2. Validate with RF3
+            # 2. Validate with RF3 (with ligand + metal context)
             rf3_params: Dict[str, Any] = {"sequence": sequence, "name": f"scout_{i:03d}"}
             if ligand_smiles:
                 rf3_params["ligand_smiles"] = ligand_smiles
+            if target_metal:
+                rf3_params["metal"] = target_metal
 
-            rf3_result = run_rf3_inference(rf3_params)
+            rf3_result = run_rf3_inference(**rf3_params)
             predictions = rf3_result.get("predictions", [{}])
             pred = predictions[0] if predictions else rf3_result
             confidences = pred.get("confidences", rf3_result.get("confidences", {}))
@@ -11369,6 +11715,9 @@ def handle_scout_filter(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "scout_results": scout_results,
             "ptm_threshold": ptm_threshold,
             "plddt_threshold": plddt_threshold,
+            "pre_filter_results": pre_filter_results,
+            "pre_filter_passed": len(pre_filter_passed_indices),
+            "pre_filter_failed": pre_filter_failed_count,
         },
     }
 
@@ -11460,6 +11809,277 @@ def handle_check_lessons(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "status": "failed",
             "error": f"Failed to check lessons: {str(e)}",
+        }
+
+
+# ============== Unified Design Analysis ==============
+
+
+def _flatten_analysis_metrics(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extract flat metric dict from UnifiedDesignAnalyzer's nested output.
+
+    Maps nested analysis results into a flat dict suitable for filter evaluation.
+    """
+    flat: Dict[str, Any] = {}
+
+    analyses = analysis.get("analyses", {})
+
+    # Structure confidence → plddt
+    sc = analyses.get("structure_confidence", {})
+    if sc.get("status") == "success":
+        metrics = sc.get("metrics", {})
+        if "plddt" in metrics:
+            flat["plddt"] = metrics["plddt"]
+
+    # Metal coordination → coordination_number, geometry_rmsd
+    mc = analyses.get("metal_coordination", {})
+    if mc.get("status") == "success":
+        metrics = mc.get("metrics", {})
+        if "coordination_number" in metrics:
+            flat["coordination_number"] = metrics["coordination_number"]
+        if "geometry_rmsd" in metrics:
+            flat["geometry_rmsd"] = metrics["geometry_rmsd"]
+        if "ligand_coordination" in metrics:
+            flat["ligand_coordination"] = metrics["ligand_coordination"]
+        if "protein_coordination" in metrics:
+            flat["protein_coordination"] = metrics["protein_coordination"]
+
+    # Ligand interactions
+    li = analyses.get("ligand_interactions", {})
+    if li.get("status") == "success":
+        metrics = li.get("metrics", {})
+        for key in ["total_contacts", "hydrogen_bonds", "hydrophobic_contacts", "pi_stacking", "salt_bridges"]:
+            if key in metrics:
+                flat[key] = metrics[key]
+        # Alias: ligand_contacts = total_contacts (used by chemistry-aware presets)
+        if "total_contacts" in metrics:
+            flat["ligand_contacts"] = metrics["total_contacts"]
+
+    # Sequence composition
+    seq = analyses.get("sequence_composition", {})
+    if seq.get("status") == "success":
+        metrics = seq.get("metrics", {})
+        if "total_residues" in metrics:
+            flat["total_residues"] = metrics["total_residues"]
+        ala = metrics.get("alanine", {})
+        if "percentage" in ala:
+            flat["alanine_pct"] = ala["percentage"]
+        arom = metrics.get("aromatics", {})
+        if "percentage" in arom:
+            flat["aromatic_pct"] = arom["percentage"]
+
+    # Interface quality
+    iq = analyses.get("interface_quality", {})
+    if iq.get("status") == "success":
+        metrics = iq.get("metrics", {})
+        for key in ["dSASA", "contacts", "interface_residues"]:
+            if key in metrics:
+                flat[key] = metrics[key]
+
+    # Topology
+    topo = analyses.get("topology", {})
+    if topo.get("status") == "success":
+        metrics = topo.get("metrics", {})
+        if "valid" in metrics:
+            flat["topology_valid"] = metrics["valid"]
+
+    return flat
+
+
+def _pick_filter_preset(
+    design_type: Optional[str],
+    metal: Optional[str] = None,
+    ligand_name: Optional[str] = None,
+    tier: str = "standard",
+) -> Tuple[str, Dict[str, Any]]:
+    """Pick or generate the appropriate filter preset.
+
+    If metal is provided and recognized, generates chemistry-aware thresholds
+    from metal_chemistry.py data (CN ranges, HSAB class). Falls back to
+    hardcoded FILTER_PRESETS otherwise.
+
+    Returns:
+        Tuple of (preset_name, preset_dict).
+    """
+    # Chemistry-aware path: generate thresholds from metal database
+    if metal:
+        try:
+            from filter_evaluator import generate_chemistry_aware_preset
+            name, preset = generate_chemistry_aware_preset(
+                metal=metal,
+                ligand_name=ligand_name,
+                tier=tier,
+                design_type=design_type or "metal_binding",
+            )
+            return name, preset
+        except Exception:
+            pass  # Fall through to hardcoded presets
+
+    # Hardcoded fallback
+    from filter_evaluator import FILTER_PRESETS
+    if design_type in ("metal", "metal_ligand", "metal_monomer", "metal_ligand_monomer"):
+        name = "metal_binding"
+    elif design_type in ("enzyme", "scaffold", "enzyme_scaffold"):
+        name = "enzyme_scaffold"
+    else:
+        name = "scout_relaxed"
+    return name, dict(FILTER_PRESETS.get(name, {}))
+
+
+def _evaluate_flat_metrics(
+    metrics: Dict[str, Any], preset: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Evaluate flat metrics dict against a filter preset.
+
+    Returns dict with 'passed' bool and 'failed_filters' list.
+    """
+    failed_filters: List[Dict[str, Any]] = []
+
+    for metric_name, threshold in preset.items():
+        value = metrics.get(metric_name)
+        if value is None:
+            continue
+
+        passed = True
+        if "min" in threshold and value < threshold["min"]:
+            passed = False
+        if "max" in threshold and value > threshold["max"]:
+            passed = False
+
+        if not passed:
+            failed_filters.append({
+                "metric": metric_name,
+                "value": value,
+                "threshold": threshold,
+            })
+
+    return {
+        "passed": len(failed_filters) == 0,
+        "failed_filters": failed_filters,
+    }
+
+
+def handle_analyze_design(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run UnifiedDesignAnalyzer + FILTER_PRESETS filtering on a design PDB.
+
+    Input:
+        pdb_content: PDB file content (required)
+        metal_type: Metal element code (auto-detected if omitted)
+        ligand_name: Ligand name for context
+        design_type: Design type for filter preset selection
+        design_params: Optional params dict passed to analyzer
+
+    Returns:
+        Enriched analysis with flat metrics, filter pass/fail, and full nested data.
+    """
+    try:
+        pdb_content = job_input.get("pdb_content")
+        if not pdb_content:
+            return {"status": "failed", "error": "pdb_content is required"}
+
+        # Auto-convert CIF to PDB format (RF3 outputs CIF despite .pdb extension)
+        if pdb_content.lstrip().startswith("data_"):
+            try:
+                from biotite.structure.io import pdbx, pdb as pdb_io
+                import io as _io
+                cif_file = pdbx.CIFFile.read(_io.StringIO(pdb_content))
+                atom_array = pdbx.get_structure(cif_file, model=1)
+                pdb_file = pdb_io.PDBFile()
+                pdb_io.set_structure(pdb_file, atom_array)
+                pdb_str = _io.StringIO()
+                pdb_file.write(pdb_str)
+                pdb_content = pdb_str.getvalue()
+                # Fix CIF residue names (L:0, L:1) -> standard codes using element/atom_name
+                from analysis_types import METAL_CODES
+                fixed_lines = []
+                for line in pdb_content.split("\n"):
+                    if line.startswith("HETATM"):
+                        res_name = line[17:20].strip()
+                        if ":" in res_name:
+                            # Check element column (cols 76-78) or atom_name (cols 12-16)
+                            element = line[76:78].strip().upper() if len(line) > 76 else ""
+                            atom_name = line[12:16].strip().rstrip("0123456789").upper()
+                            new_res = None
+                            if element and element in METAL_CODES:
+                                new_res = element
+                            elif atom_name and atom_name in METAL_CODES:
+                                new_res = atom_name
+                            if new_res:
+                                line = line[:17] + f"{new_res:>3}" + line[20:]
+                    fixed_lines.append(line)
+                pdb_content = "\n".join(fixed_lines)
+                print("[analyze_design] Converted CIF input to PDB format (fixed HETATM residue names)")
+            except Exception as e:
+                print(f"[analyze_design] Warning: CIF-to-PDB conversion failed: {e}")
+
+        metal_type = job_input.get("metal_type")
+        ligand_name = job_input.get("ligand_name")
+        design_type = job_input.get("design_type")
+        design_params = job_input.get("design_params", {})
+        filter_tier = job_input.get("filter_tier", "standard")
+
+        # 1. Run UnifiedDesignAnalyzer
+        analyzer = UnifiedDesignAnalyzer()
+        analysis = analyzer.analyze(
+            pdb_content,
+            design_params,
+            metal_type=metal_type,
+        )
+
+        # 2. Flatten nested analysis metrics
+        flat_metrics = _flatten_analysis_metrics(analysis)
+
+        # 3. Pick filter preset — chemistry-aware if metal provided
+        preset_name, preset = _pick_filter_preset(
+            design_type,
+            metal=metal_type,
+            ligand_name=ligand_name,
+            tier=filter_tier,
+        )
+
+        # 4. Evaluate against preset
+        filter_result = _evaluate_flat_metrics(flat_metrics, preset)
+
+        # 5. Build chemistry context for frontend display
+        chemistry_context = None
+        if metal_type:
+            try:
+                from metal_chemistry import get_hsab_class_simple, get_coordination_number_range, METAL_DATABASE
+                metal_upper = metal_type.upper()
+                if metal_upper in METAL_DATABASE:
+                    default_ox = METAL_DATABASE[metal_upper].get("default_oxidation", 2)
+                    cn_min, cn_max = get_coordination_number_range(metal_upper, default_ox)
+                    chemistry_context = {
+                        "metal": metal_upper,
+                        "hsab_class": get_hsab_class_simple(metal_upper),
+                        "formal_cn_range": [cn_min, cn_max],
+                        "tier": filter_tier,
+                    }
+            except Exception:
+                pass
+
+        return {
+            "status": "completed",
+            "result": {
+                "design_type": analysis.get("design_type", "unknown"),
+                "metrics": flat_metrics,
+                "filter_preset": preset_name,
+                "filter_passed": filter_result["passed"],
+                "failed_filters": filter_result["failed_filters"],
+                "filter_tier": filter_tier,
+                "chemistry_context": chemistry_context,
+                "auto_detected": analysis.get("auto_detected", {}),
+                "analyses": analysis.get("analyses", {}),
+            },
+        }
+    except Exception as e:
+        traceback.print_exc()
+        return {
+            "status": "failed",
+            "error": f"Design analysis failed: {str(e)}",
         }
 
 

@@ -25,8 +25,8 @@ import { SweepResultPreview } from '@/components/pipeline/SweepResultPreview';
 // AI Parse Helpers
 // ============================================================================
 
-/** SMILES lookup table for known ligands */
-const LIGAND_SMILES: Record<string, string> = {
+/** Fallback SMILES table (used when backend is unreachable) */
+const LIGAND_SMILES_FALLBACK: Record<string, string> = {
   citrate: 'OC(=O)CC(O)(CC(O)=O)C(O)=O',
   atp: 'c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N',
   glucose: 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O',
@@ -42,10 +42,36 @@ function mapDesignType(ai: { metal_type?: string; design_mode?: string; target_t
   return 'general';
 }
 
-/** Lookup SMILES for a ligand name */
-function lookupSmiles(name?: string): string {
+/** Resolve ligand SMILES via backend API, with sync fallback */
+async function resolveLigandSmiles(
+  name?: string,
+  metalType?: string,
+  isomerSpec?: string,
+): Promise<{ smiles: string; source: string }> {
+  if (!name) return { smiles: '', source: 'none' };
+
+  try {
+    const result = await api.resolveLigand({
+      ligand_name: name,
+      metal_type: metalType,
+      isomer_spec: isomerSpec,
+    });
+    if (result.success && result.smiles) {
+      return { smiles: result.smiles, source: result.source };
+    }
+  } catch (err) {
+    console.warn('[resolveLigandSmiles] Backend resolution failed, using fallback:', err);
+  }
+
+  // Sync fallback for offline/error
+  const fallback = LIGAND_SMILES_FALLBACK[name.toLowerCase()] || '';
+  return { smiles: fallback, source: fallback ? 'fallback' : 'none' };
+}
+
+/** Sync-only lookup for immediate use (no network) */
+function lookupSmilesFallback(name?: string): string {
   if (!name) return '';
-  return LIGAND_SMILES[name.toLowerCase()] || '';
+  return LIGAND_SMILES_FALLBACK[name.toLowerCase()] || '';
 }
 
 /** Build a human-readable description from AI parsed intent */
@@ -220,11 +246,22 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           // Try backend AI parser (Claude API or keyword fallback on server)
           const ai = await api.parseIntent(prompt);
           usedAI = true;
+
+          // Resolve ligand SMILES via backend (async, with isomer support)
+          const isomerSpec = ai.isomer_specification;
+          const ligandResolution = await resolveLigandSmiles(
+            ai.ligand_name,
+            ai.metal_type,
+            isomerSpec,
+          );
+
           intentData = {
             design_type: mapDesignType(ai),
             target_metal: ai.metal_type || '',
             ligand_name: ai.ligand_name || '',
-            ligand_smiles: lookupSmiles(ai.ligand_name),
+            ligand_smiles: ligandResolution.smiles,
+            ligand_smiles_source: ligandResolution.source,
+            isomer_specification: isomerSpec || null,
             pdb_id: ai.source_pdb_id || pdbId || 'Not specified',
             user_prompt: prompt,
             parsed_description: buildDescription(ai),
@@ -249,7 +286,19 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         } catch (err) {
           // Fallback: local keyword-based parsing (works without backend)
           console.warn('[parse_intent] AI parse unavailable, using keyword fallback:', err);
-          intentData = keywordFallbackParse(prompt, pdbId);
+          const fallback = keywordFallbackParse(prompt, pdbId);
+          // Try async ligand resolution even for fallback path
+          const fallbackLigand = fallback.ligand_name as string || '';
+          if (fallbackLigand) {
+            try {
+              const resolution = await resolveLigandSmiles(fallbackLigand, fallback.target_metal as string);
+              fallback.ligand_smiles = resolution.smiles;
+              fallback.ligand_smiles_source = resolution.source;
+            } catch {
+              // Keep existing fallback smiles
+            }
+          }
+          intentData = fallback;
         }
 
         ctx.onProgress(100, usedAI ? 'AI parsing complete' : 'Intent parsed (fallback)');
@@ -359,7 +408,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       optional: false,
       defaultParams: {},
       parameterSchema: [
-        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 } },
+        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'For production runs use 50-200' },
         { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
       ],
 
@@ -478,7 +527,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         num_timesteps: 200,
       },
       parameterSchema: [
-        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 }, helpText: 'Total designs to generate' },
+        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'For production runs use 50-200 (per config if sweep enabled)' },
         { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
         { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3, step: 0.1 }, helpText: 'Higher = more designable, less diverse' },
         { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1, step: 0.05 }, helpText: 'Lower = more designable' },

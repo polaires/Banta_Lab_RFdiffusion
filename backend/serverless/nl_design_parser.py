@@ -61,6 +61,12 @@ STABILITY_KEYWORDS = [
     "robust", "thermostable", "thermal stability", "improve stability"
 ]
 
+# Keywords that indicate isomer specification (cis/trans)
+ISOMER_KEYWORDS = {
+    "cis": ["cis-", "cis ", "(z)-", "z-"],
+    "trans": ["trans-", "trans ", "(e)-", "e-"],
+}
+
 # Keywords that indicate enzyme function preservation
 PRESERVE_FUNCTION_KEYWORDS = [
     "preserve activity", "preserve function", "preserve functionality",
@@ -135,6 +141,7 @@ class DesignIntent:
     # Core design parameters
     metal_type: Optional[str] = None       # Metal symbol (TB, ZN, CA, etc.)
     ligand_name: Optional[str] = None      # Ligand name (citrate, PQQ, etc.)
+    isomer_specification: Optional[str] = None  # "cis", "trans", "E", "Z"
     design_goal: str = "binding"           # binding | catalysis | sensing | structural
     target_topology: str = "monomer"       # monomer | dimer | symmetric | custom
 
@@ -337,7 +344,8 @@ For each query, extract:
 6. bury_ligand: Whether to bury the metal/ligand inside the protein (true/false).
    - true (default): creates a deep binding pocket — use for binding, catalysis, most designs
    - false: leaves metal/ligand partially exposed — use for sensing, surface sites, structural roles
-7. confidence: Your confidence in the parsing (0.0 to 1.0)
+7. isomer_specification: If the user specifies cis/trans or E/Z isomer, extract it ("cis", "trans", or null)
+8. confidence: Your confidence in the parsing (0.0 to 1.0)
 
 Common metal-ligand combinations:
 - Citrate with lanthanides (Tb, Eu, Gd) - luminescent biosensors
@@ -352,7 +360,7 @@ PARSER_USER_TEMPLATE = """Parse this protein design request:
 
 "{query}"
 
-Return JSON with fields: metal_type, ligand_name, design_goal, target_topology, chain_length_min, chain_length_max, bury_ligand, confidence, reasoning
+Return JSON with fields: metal_type, ligand_name, isomer_specification, design_goal, target_topology, chain_length_min, chain_length_max, bury_ligand, confidence, reasoning
 """
 
 
@@ -456,6 +464,18 @@ class NLDesignParser:
                         intent.confidence = float(parsed["confidence"])
                     except (ValueError, TypeError):
                         intent.confidence = 0.5
+
+                # Extract isomer specification
+                if parsed.get("isomer_specification"):
+                    isomer = parsed["isomer_specification"].lower().strip()
+                    if isomer in ("cis", "trans", "e", "z"):
+                        # Normalize E/Z to cis/trans
+                        if isomer == "z":
+                            isomer = "cis"
+                        elif isomer == "e":
+                            isomer = "trans"
+                        intent.isomer_specification = isomer
+                        intent.parsed_entities["isomer"] = isomer
 
                 # Extract bury_ligand preference
                 if "bury_ligand" in parsed:
@@ -693,6 +713,16 @@ class SimpleFallbackParser:
             if re.search(r'\b' + re.escape(alias) + r'\b', query_lower):
                 intent.ligand_name = ligand
                 intent.parsed_entities["ligand_match"] = alias
+                break
+
+        # Detect isomer specification (cis/trans)
+        for isomer_key, patterns in ISOMER_KEYWORDS.items():
+            for pattern in patterns:
+                if pattern in query_lower:
+                    intent.isomer_specification = isomer_key
+                    intent.parsed_entities["isomer"] = isomer_key
+                    break
+            if intent.isomer_specification:
                 break
 
         # Detect design goal

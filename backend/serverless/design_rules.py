@@ -344,6 +344,10 @@ class DesignDecisions:
     num_timesteps: int = 200
     plddt_threshold: float = 0.75
 
+    # Ligand fixing strategy for RFD3 select_fixed_atoms
+    ligand_fixing_strategy: str = "fix_all"           # "fix_coordination" | "diffuse_all" | "fix_all"
+    coordination_fixed_atoms: List[str] = field(default_factory=list)  # e.g. ["O2","O5","O7"]
+
     # Enzyme activity preservation parameters
     select_exposed: Dict[str, str] = field(default_factory=dict)
     catalytic_fixed_residues: List[str] = field(default_factory=list)
@@ -360,9 +364,13 @@ def make_design_decisions(
     design_goal: str,             # "binding" | "catalysis" | "sensing"
     target_topology: str,         # "monomer" | "dimer" | "symmetric"
     has_hbond_conditioning: bool,
-    stability_focus: bool = False,        # NEW: User requested stability optimization
-    enzyme_class: Optional[str] = None,   # NEW: Detected enzyme class
-    preserve_function: bool = False,      # NEW: Preserve enzymatic function
+    stability_focus: bool = False,        # User requested stability optimization
+    enzyme_class: Optional[str] = None,   # Detected enzyme class
+    preserve_function: bool = False,      # Preserve enzymatic function
+    ligand_coordination_donors: Optional[List[str]] = None,  # Known metal-coordinating atoms on ligand
+    is_scaffolding: bool = False,         # Whether this is a scaffolding (motif) design
+    has_ligand: bool = False,             # Whether a ligand is present
+    recommended_fixing_strategy: Optional[str] = None,  # Strategy from ligand resolver
 ) -> DesignDecisions:
     """
     Central decision function that applies all rules.
@@ -460,6 +468,30 @@ def make_design_decisions(
         # Note: select_exposed and catalytic_fixed_residues will be populated
         # by enzyme_chemistry module based on PDB analysis
 
+    # 9. Ligand fixing strategy
+    # Rules:
+    # - Scaffolding (is_scaffolding=True) → fix_all (preserve extracted motif geometry)
+    # - If resolver already set a strategy (e.g. PubChem → diffuse_all), use it
+    # - Metal + ligand with known coordination donors → fix_coordination
+    # - Metal + ligand without coordination info → fix_all (safe fallback)
+    # - Organic ligand only (no metal) → diffuse_all (let RFD3 place it)
+    # - No ligand → fix_all (only metal, if present)
+    ligand_fixing_strategy = "fix_all"
+    coordination_fixed_atoms: List[str] = []
+
+    if is_scaffolding:
+        ligand_fixing_strategy = "fix_all"
+    elif recommended_fixing_strategy:
+        ligand_fixing_strategy = recommended_fixing_strategy
+    elif metal_type and has_ligand:
+        if ligand_coordination_donors and len(ligand_coordination_donors) > 0:
+            ligand_fixing_strategy = "fix_coordination"
+            coordination_fixed_atoms = list(ligand_coordination_donors)
+        else:
+            ligand_fixing_strategy = "fix_all"
+    elif has_ligand and not metal_type:
+        ligand_fixing_strategy = "diffuse_all"
+
     return DesignDecisions(
         chain_length=chain_length,
         hotspot_strategy=hotspot_strat,
@@ -472,6 +504,8 @@ def make_design_decisions(
         mpnn_bias_AA=bias_aa,
         mpnn_omit_AA=profile.omit_AA,
         mpnn_temperature=profile.temperature,
+        ligand_fixing_strategy=ligand_fixing_strategy,
+        coordination_fixed_atoms=coordination_fixed_atoms,
         rationale={
             "chain_length": f"Ligand size {ligand_size.value}, topology {target_topology}",
             "hotspots": f"Strategy: {strategy.description}",

@@ -528,6 +528,9 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Scaffold search (reusable across pipelines)
         elif task == "scaffold_search":
             return handle_scaffold_search(job_input)
+        # Ligand name → SMILES/structure resolution
+        elif task == "resolve_ligand":
+            return handle_resolve_ligand(job_input)
         # AI-powered natural language intent parsing
         elif task == "ai_parse":
             return handle_ai_parse(job_input)
@@ -561,7 +564,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, scaffold_search, ai_parse, scout_filter, save_design_history, check_lessons, workflow_run, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, scaffold_search, resolve_ligand, ai_parse, scout_filter, save_design_history, check_lessons, workflow_run, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -10390,6 +10393,75 @@ def _generate_mock_metal_ligand_design(
 
 
 # ============== AI Parse Handler ==============
+
+def handle_resolve_ligand(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Resolve a ligand name to SMILES, residue code, and chemistry info.
+
+    Uses the LigandResolver priority chain:
+    1. Pre-built templates (curated metal-ligand complexes)
+    2. PDB experimental structures
+    3. PubChem SMILES + isomeric SMILES table
+    4. Calculated fallback
+
+    Input:
+        ligand_name: str - Ligand name (e.g., "citrate", "azobenzene", "caffeine")
+        metal_type: str - Optional metal symbol (e.g., "TB", "CA")
+        isomer_spec: str - Optional isomer ("cis", "trans")
+
+    Returns:
+        {
+            "status": "completed",
+            "result": {
+                "success": true/false,
+                "smiles": "...",
+                "residue_code": "LIG",
+                "source": "template|pdb|pubchem|calculated",
+                "ligand_fixing_strategy": "fix_all|fix_coordination|diffuse_all",
+                "warnings": [...]
+            }
+        }
+    """
+    ligand_name = job_input.get("ligand_name", "")
+    if not ligand_name:
+        return {"status": "failed", "error": "Must provide 'ligand_name' parameter"}
+
+    metal_type = job_input.get("metal_type")
+    isomer_spec = job_input.get("isomer_spec")
+
+    try:
+        from ligand_resolver import LigandResolver
+        resolver = LigandResolver()
+        resolved = resolver.resolve(
+            ligand_name=ligand_name,
+            metal_type=metal_type,
+            isomer_spec=isomer_spec,
+        )
+
+        result = {
+            "success": resolved.resolved,
+            "smiles": resolved.smiles or "",
+            "residue_code": resolved.residue_code,
+            "source": resolved.source,
+            "name": resolved.name,
+            "warnings": resolved.warnings,
+        }
+
+        # Include coordination info if available
+        if resolved.coordination:
+            result["ligand_fixing_strategy"] = resolved.coordination.get(
+                "recommended_fixing_strategy", "fix_all"
+            )
+            result["coordination_donors"] = resolved.coordination.get(
+                "ligand_metal_donors", []
+            )
+
+        return {"status": "completed", "result": result}
+    except Exception as e:
+        print(f"[Resolve Ligand] Error: {e}")
+        traceback.print_exc()
+        return {"status": "failed", "error": f"Ligand resolution error: {str(e)}"}
+
 
 def handle_ai_parse(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """

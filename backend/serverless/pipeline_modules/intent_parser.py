@@ -59,6 +59,7 @@ class IntentParser:
             ligand = resolver.resolve(
                 ligand_name=intent.ligand_name,
                 metal_type=intent.metal_type,
+                isomer_spec=getattr(intent, 'isomer_specification', None),
             )
             context.resolved_ligand = ligand
             if ligand.resolved:

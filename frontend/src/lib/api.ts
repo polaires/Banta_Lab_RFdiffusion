@@ -2142,12 +2142,58 @@ class FoundryAPI {
   }
 
   /**
+   * Resolve a ligand name to SMILES, residue code, and source via backend.
+   * Uses template library, PDB, PubChem, and isomeric SMILES table.
+   */
+  async resolveLigand(request: {
+    ligand_name: string;
+    metal_type?: string;
+    isomer_spec?: string;
+  }): Promise<{
+    success: boolean;
+    smiles: string;
+    residue_code: string;
+    source: string;
+    name: string;
+    warnings: string[];
+    ligand_fixing_strategy?: string;
+    coordination_donors?: string[];
+  }> {
+    const endpoint = this.getRunsyncEndpoint();
+    console.log('[API] Resolving ligand:', request.ligand_name, '| metal:', request.metal_type || 'none');
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'resolve_ligand',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`Ligand resolution failed (${response.status}): ${errorBody || response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Ligand resolution failed');
+    }
+
+    return result.output?.result || result.result;
+  }
+
+  /**
    * Parse a natural language design query using the backend AI parser (Claude API).
    * Falls back to keyword-based parsing if no API key is configured.
    */
   async parseIntent(query: string): Promise<{
     metal_type?: string;
     ligand_name?: string;
+    isomer_specification?: string;
     design_goal: string;
     target_topology: string;
     chain_length_min: number;

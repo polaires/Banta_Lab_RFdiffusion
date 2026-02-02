@@ -2187,6 +2187,69 @@ class FoundryAPI {
   }
 
   /**
+   * Analyze ligand features using three-layer system:
+   * 1. Knowledge base (cached PDB crystal structure data)
+   * 2. ChemicalFeatures (RDKit pharmacophore perception)
+   * 3. Geometry filter (SMARTS-based fallback)
+   */
+  async analyzeLigandFeatures(request: {
+    ligand_name: string;
+    smiles?: string;
+    metal_type?: string;
+    pdb_content?: string;
+    record_evidence?: Record<string, unknown>;
+  }): Promise<{
+    ligand_name: string;
+    smiles: string;
+    source: 'knowledge_base' | 'chemicalfeatures' | 'geometry_filter' | 'unknown';
+    metal: string | null;
+    features: Array<{
+      atom_idx: number;
+      atom_name: string;
+      element: string;
+      type: 'donor' | 'acceptor' | 'aromatic' | 'hydrophobic';
+      is_coordination_donor: boolean;
+      coords: [number, number, number] | null;
+      hsab: string | null;
+      enabled: boolean;
+    }>;
+    coordination_donors: string[];
+    max_denticity: number;
+    evidence_count: number;
+    compatibility_score: number;
+    coordination_mode: string;
+    notes: string;
+    pdb_evidence: string[];
+    ligand_pdb_content: string | null;
+  }> {
+    const endpoint = this.getRunsyncEndpoint();
+    console.log('[API] Analyzing ligand features:', request.ligand_name, '| metal:', request.metal_type || 'none');
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          task: 'analyze_ligand_features',
+          ...request,
+        }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      throw new Error(`Ligand feature analysis failed (${response.status}): ${errorBody || response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.output?.status === 'failed') {
+      throw new Error(result.output.error || 'Ligand feature analysis failed');
+    }
+
+    return result.output?.result || result.result;
+  }
+
+  /**
    * Parse a natural language design query using the backend AI parser (Claude API).
    * Falls back to keyword-based parsing if no API key is configured.
    */

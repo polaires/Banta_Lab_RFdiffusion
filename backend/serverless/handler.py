@@ -531,6 +531,9 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Ligand name → SMILES/structure resolution
         elif task == "resolve_ligand":
             return handle_resolve_ligand(job_input)
+        # Ligand feature analysis (knowledge base + ChemicalFeatures + geometry fallback)
+        elif task == "analyze_ligand_features":
+            return handle_analyze_ligand_features(job_input)
         # AI-powered natural language intent parsing
         elif task == "ai_parse":
             return handle_ai_parse(job_input)
@@ -564,7 +567,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         else:
             return {
                 "status": "failed",
-                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, scaffold_search, resolve_ligand, ai_parse, scout_filter, save_design_history, check_lessons, workflow_run, download_checkpoints, delete_file"
+                "error": f"Unknown task: {task}. Valid tasks: health, rfd3, rf3, mpnn, rmsd, analyze, validate_design, binding_eval, cleavable_monomer, interface_ligand_design, interface_metal_design, interface_metal_ligand_design, metal_binding_design, fastrelax, protein_binder_design, detect_hotspots, interaction_analysis, design, pipeline_design, pipeline_status, pipeline_cancel, pipeline_export, esm3_score, esm3_generate, esm3_embed, scaffold_search, resolve_ligand, analyze_ligand_features, ai_parse, scout_filter, save_design_history, check_lessons, workflow_run, download_checkpoints, delete_file"
             }
 
     except Exception as e:
@@ -10463,6 +10466,58 @@ def handle_resolve_ligand(job_input: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "failed", "error": f"Ligand resolution error: {str(e)}"}
 
 
+def handle_analyze_ligand_features(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze ligand features using three-layer system:
+    1. Knowledge base (cached PDB crystal structure data)
+    2. ChemicalFeatures (RDKit pharmacophore perception)
+    3. Geometry filter (SMARTS-based fallback)
+
+    Input:
+        ligand_name: str - Ligand name (e.g., "citrate", "pqq")
+        smiles: str - Optional SMILES string
+        metal_type: str - Optional metal symbol (e.g., "TB", "CA")
+        pdb_content: str - Optional PDB content for 3D analysis
+        record_evidence: dict - Optional PDB evidence to cache
+
+    Returns:
+        {
+            "status": "completed",
+            "result": {
+                "ligand_name": "...",
+                "smiles": "...",
+                "source": "knowledge_base|chemicalfeatures|geometry_filter",
+                "features": [...],
+                "coordination_donors": [...],
+                ...
+            }
+        }
+    """
+    ligand_name = job_input.get("ligand_name", "")
+    if not ligand_name:
+        return {"status": "failed", "error": "Must provide 'ligand_name' parameter"}
+
+    smiles = job_input.get("smiles")
+    metal_type = job_input.get("metal_type")
+    pdb_content = job_input.get("pdb_content")
+    record_evidence = job_input.get("record_evidence")
+
+    try:
+        from ligand_features import analyze_ligand_features
+        result = analyze_ligand_features(
+            ligand_name=ligand_name,
+            smiles=smiles,
+            metal=metal_type,
+            pdb_content=pdb_content,
+            record_evidence_data=record_evidence,
+        )
+        return {"status": "completed", "result": result}
+    except Exception as e:
+        print(f"[Analyze Ligand Features] Error: {e}")
+        traceback.print_exc()
+        return {"status": "failed", "error": f"Ligand feature analysis error: {str(e)}"}
+
+
 def handle_ai_parse(job_input: Dict[str, Any]) -> Dict[str, Any]:
     """
     Parse a natural language design query into structured DesignIntent using Claude AI.
@@ -11149,6 +11204,7 @@ def _run_metal_binding_single(job_input: Dict[str, Any]) -> Dict[str, Any]:
     step_scale = job_input.get("step_scale")
     gamma_0 = job_input.get("gamma_0")
     bury_ligand = job_input.get("bury_ligand", True)
+    ligand_fix_atoms = job_input.get("ligand_fix_atoms")  # e.g. "O2,O5,O7" for partial fixing
     seed_base = job_input.get("seed", 42)
 
     config = MetalBindingConfig(
@@ -11161,6 +11217,7 @@ def _run_metal_binding_single(job_input: Dict[str, Any]) -> Dict[str, Any]:
         num_timesteps=num_timesteps,
         step_scale=step_scale,
         gamma_0=gamma_0,
+        ligand_fix_atoms=ligand_fix_atoms,
     )
 
     print(f"[MetalBindingSingle] contig={contig}, cfg_scale={cfg_scale}, "

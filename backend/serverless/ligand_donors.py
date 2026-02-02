@@ -27,6 +27,13 @@ except ImportError:
     HAS_RDKIT = False
     logger.warning("RDKit not available - ligand analysis limited")
 
+# Enhancement 5: pH-aware protonation via Dimorphite-DL
+try:
+    import dimorphite_dl
+    HAS_DIMORPHITE = True
+except ImportError:
+    HAS_DIMORPHITE = False
+
 from metal_chemistry import get_hsab_class
 
 
@@ -95,7 +102,40 @@ DONOR_SMARTS: Dict[str, str] = {
 # PUBLIC FUNCTIONS
 # =============================================================================
 
-def identify_donors_from_smiles(smiles: str) -> List[Dict[str, Any]]:
+def protonate_at_pH(smiles: str, pH: float = 7.4) -> str:
+    """
+    Generate the most probable protonation state at a given pH.
+
+    Uses Dimorphite-DL for pH-aware protonation. At physiological pH (7.4),
+    carboxylate groups are deprotonated (COO⁻), amines may be protonated, etc.
+
+    Args:
+        smiles: Input SMILES string
+        pH: Target pH (default 7.4 for physiological conditions)
+
+    Returns:
+        SMILES string with appropriate protonation state.
+        Falls back to original SMILES if Dimorphite-DL is unavailable.
+    """
+    if not HAS_DIMORPHITE:
+        return smiles
+
+    try:
+        protonated = dimorphite_dl.run(
+            smiles=[smiles],
+            min_ph=pH - 0.5,
+            max_ph=pH + 0.5,
+        )
+        if protonated and len(protonated) > 0:
+            logger.debug(f"Protonated SMILES at pH {pH}: {smiles} -> {protonated[0]}")
+            return protonated[0]
+    except Exception as e:
+        logger.debug(f"Dimorphite-DL protonation failed: {e}")
+
+    return smiles
+
+
+def identify_donors_from_smiles(smiles: str, pH: float = 7.4) -> List[Dict[str, Any]]:
     """
     Parse SMILES and identify potential coordinating atoms.
 
@@ -116,6 +156,9 @@ def identify_donors_from_smiles(smiles: str) -> List[Dict[str, Any]]:
 
     if not smiles or not isinstance(smiles, str):
         return []
+
+    # Enhancement 5: Apply pH-dependent protonation before SMARTS matching
+    smiles = protonate_at_pH(smiles, pH)
 
     # Parse SMILES
     mol = Chem.MolFromSmiles(smiles)
@@ -426,6 +469,166 @@ def analyze_denticity(smiles: str) -> List[Dict[str, Any]]:
     return denticity_groups
 
 
+def filter_donors_by_geometry(
+    donors: List[Dict[str, Any]],
+    smiles: str,
+    metal: Optional[str] = None,
+    max_donor_distance: float = 5.0,
+) -> List[Dict[str, Any]]:
+    """
+    Filter SMARTS-identified donors by 3D geometry to find the largest
+    spatially coherent coordination site.
+
+    Steps:
+    1. Generate 3D conformer from SMILES
+    2. Get 3D coordinates for each donor atom
+    3. Union-Find clustering with distance cutoff
+    4. Return donors in the largest cluster (primary coordination site)
+    5. Rank chelate-validated donors first (5-6 membered chelate rings)
+
+    Args:
+        donors: List of donor dicts from identify_donors_from_smiles()
+        smiles: SMILES string of the ligand
+        metal: Optional metal symbol (unused currently, reserved for future)
+        max_donor_distance: Max distance (Angstroms) between donors in same cluster
+
+    Returns:
+        Filtered list of donors in the primary coordination site.
+        Falls back to original donors if conformer generation fails.
+    """
+    if not HAS_RDKIT or len(donors) <= 1:
+        return donors
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return donors
+
+    mol = Chem.AddHs(mol)
+
+    # Generate 3D conformer
+    try:
+        params = AllChem.ETKDGv3()
+        result = AllChem.EmbedMolecule(mol, params)
+        if result == -1:
+            # Retry with random coords
+            params.useRandomCoords = True
+            result = AllChem.EmbedMolecule(mol, params)
+        if result == -1:
+            logger.debug("Conformer generation failed, returning unfiltered donors")
+            return donors
+        AllChem.MMFFOptimizeMolecule(mol, maxIters=200)
+    except Exception as e:
+        logger.debug(f"Conformer generation failed: {e}, returning unfiltered donors")
+        return donors
+
+    conf = mol.GetConformer()
+
+    # Get 3D positions for each donor
+    donor_positions = []
+    valid_donors = []
+    for d in donors:
+        idx = d["atom_idx"]
+        if idx < mol.GetNumAtoms():
+            pos = conf.GetAtomPosition(idx)
+            donor_positions.append((pos.x, pos.y, pos.z))
+            valid_donors.append(d)
+
+    if not valid_donors:
+        return donors
+
+    n = len(valid_donors)
+
+    # Build pairwise distance matrix
+    dist_matrix = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            dx = donor_positions[i][0] - donor_positions[j][0]
+            dy = donor_positions[i][1] - donor_positions[j][1]
+            dz = donor_positions[i][2] - donor_positions[j][2]
+            d = (dx * dx + dy * dy + dz * dz) ** 0.5
+            dist_matrix[i][j] = d
+            dist_matrix[j][i] = d
+
+    # Chelate ring scoring: donors sharing a 3-4 bond path form
+    # 5-6 membered chelate rings with the metal (most stable)
+    chelate_pairs: set = set()
+    chelate_score = [0] * n  # higher = more chelate partnerships
+    for i in range(n):
+        for j in range(i + 1, n):
+            idx_i = valid_donors[i]["atom_idx"]
+            idx_j = valid_donors[j]["atom_idx"]
+            try:
+                path = Chem.GetShortestPath(mol, idx_i, idx_j)
+                if path and len(path) in (4, 5):
+                    chelate_pairs.add((i, j))
+                    chelate_score[i] += 1
+                    chelate_score[j] += 1
+            except Exception:
+                pass
+
+    # Greedy max-clique: find the largest set of donors where ALL pairs
+    # are within max_donor_distance. This avoids Union-Find's transitive
+    # closure problem where distant donors connect through intermediaries.
+    # For coordination chemistry, all donors must converge on the same
+    # metal center, so mutual proximity is required.
+
+    # Start with the donor that has the most chelate partnerships
+    # (most likely to be at the coordination site center)
+    seed = max(range(n), key=lambda i: (chelate_score[i], -valid_donors[i]["atom_idx"]))
+
+    clique = [seed]
+    # Try adding donors in order of distance from seed, keeping clique property
+    candidates = sorted(
+        [i for i in range(n) if i != seed],
+        key=lambda i: dist_matrix[seed][i],
+    )
+
+    for c in candidates:
+        # Check if c is within cutoff of ALL current clique members
+        if all(dist_matrix[c][m] <= max_donor_distance for m in clique):
+            clique.append(c)
+
+    # If clique is very small (1-2) but we have chelate pairs, try alternate seeds
+    if len(clique) <= 2 and chelate_pairs:
+        for alt_seed in sorted(range(n), key=lambda i: -chelate_score[i]):
+            if alt_seed == seed:
+                continue
+            alt_clique = [alt_seed]
+            alt_candidates = sorted(
+                [i for i in range(n) if i != alt_seed],
+                key=lambda i: dist_matrix[alt_seed][i],
+            )
+            for c in alt_candidates:
+                if all(dist_matrix[c][m] <= max_donor_distance for m in alt_clique):
+                    alt_clique.append(c)
+            if len(alt_clique) > len(clique):
+                clique = alt_clique
+                break
+
+    filtered = [valid_donors[i] for i in clique]
+
+    # Sort: chelate-validated donors first, then by atom index
+    chelate_in_clique = set()
+    for idx_pos, i in enumerate(clique):
+        for idx_pos2, j in enumerate(clique):
+            if i < j and (i, j) in chelate_pairs:
+                chelate_in_clique.add(idx_pos)
+                chelate_in_clique.add(idx_pos2)
+
+    def sort_key(idx):
+        return (0 if idx in chelate_in_clique else 1, filtered[idx]["atom_idx"])
+
+    sorted_indices = sorted(range(len(filtered)), key=sort_key)
+    result = [filtered[i] for i in sorted_indices]
+
+    logger.info(
+        f"Geometry filter: {len(donors)} raw donors -> {len(result)} in primary site "
+        f"({len(chelate_in_clique)} chelate-validated)"
+    )
+
+    return result
+
+
 def get_recommended_coordination_mode(
     smiles: str,
     metal: str,
@@ -455,25 +658,46 @@ def get_recommended_coordination_mode(
             "error": "RDKit not available",
         }
 
-    donors = identify_donors_from_smiles(smiles)
+    # Layer 1: Try knowledge base first (ground-truth from PDB crystal structures)
+    try:
+        from ligand_features import LigandKnowledgeBase
+        kb = LigandKnowledgeBase()
+        kb_donors = kb.get_coordination_donors_by_smiles(smiles, metal)
+        if kb_donors and len(kb_donors) > 0:
+            logger.info(f"Knowledge base hit for {metal}: {kb_donors}")
+            compatibility = score_ligand_metal_compatibility(smiles, metal)
+            cn_contribution = len(kb_donors)
+            coord_mode = "polydentate" if cn_contribution >= 3 else ("bidentate" if cn_contribution == 2 else "monodentate")
+            return {
+                "recommended_donors": [{"atom_name": d, "source": "knowledge_base"} for d in kb_donors],
+                "coordination_mode": coord_mode,
+                "estimated_cn_contribution": cn_contribution,
+                "compatibility_score": compatibility,
+                "total_donors": cn_contribution,
+                "geometry_filtered_donors": cn_contribution,
+                "denticity_groups": [],
+                "source": "knowledge_base",
+            }
+    except (ImportError, Exception) as e:
+        logger.debug(f"Knowledge base lookup failed: {e}")
+
+    raw_donors = identify_donors_from_smiles(smiles)
+    donors = filter_donors_by_geometry(raw_donors, smiles, metal=metal)
     denticity = analyze_denticity(smiles)
     compatibility = score_ligand_metal_compatibility(smiles, metal)
 
-    # Determine coordination mode based on denticity groups
-    if not denticity:
+    # Determine coordination mode based on filtered donor count
+    if len(donors) >= 3:
+        coordination_mode = "polydentate"
+    elif len(donors) == 2:
+        coordination_mode = "bidentate"
+    elif len(donors) == 1:
         coordination_mode = "monodentate"
-        cn_contribution = min(len(donors), 1) if donors else 0
     else:
-        max_dent = max(d["max_denticity"] for d in denticity)
-        if max_dent >= 3:
-            coordination_mode = "polydentate"
-        elif max_dent == 2:
-            coordination_mode = "bidentate"
-        else:
-            coordination_mode = "monodentate"
+        coordination_mode = "monodentate"
 
-        # Estimate CN contribution
-        cn_contribution = sum(d["max_denticity"] for d in denticity)
+    # Estimate CN contribution from filtered donors
+    cn_contribution = len(donors)
 
     # Filter donors by compatibility with metal
     try:
@@ -506,7 +730,8 @@ def get_recommended_coordination_mode(
         "coordination_mode": coordination_mode,
         "estimated_cn_contribution": cn_contribution,
         "compatibility_score": compatibility,
-        "total_donors": len(donors),
+        "total_donors": len(raw_donors),
+        "geometry_filtered_donors": len(donors),
         "denticity_groups": denticity,
     }
 
@@ -565,3 +790,34 @@ def get_ligand_summary(smiles: str) -> Dict[str, Any]:
         "denticity_groups": len(denticity),
         "max_denticity": max((d["max_denticity"] for d in denticity), default=1),
     }
+
+
+# =============================================================================
+# Enhancement 8: GNN COORDINATION PREDICTION (STUB)
+# =============================================================================
+
+def predict_donors_ml(
+    smiles: str,
+    metal: str,
+    model_path: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Predict metal-coordinating donor atoms using ML methods.
+
+    Currently a stub that falls back to SMARTS-based identification.
+    Future implementations could use:
+    - Chemprop GNN on MESPEUS training data (26k metal-ligand structures)
+    - Morgan fingerprints + sklearn for simple classification
+    - DimeNet++ for 3D-aware coordination prediction
+    - SchNet/PaiNN for equivariant message passing
+
+    Args:
+        smiles: SMILES string of the ligand
+        metal: Metal element symbol (e.g., "TB", "ZN")
+        model_path: Path to trained model weights (not yet used)
+
+    Returns:
+        List of donor dictionaries (same format as identify_donors_from_smiles)
+    """
+    logger.info("ML donor prediction not yet implemented, falling back to SMARTS")
+    return identify_donors_from_smiles(smiles)

@@ -1,0 +1,37 @@
+{
+  "ligand_id": "atp",
+  "smiles": "c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N",
+  "aliases": [
+    "adenosine triphosphate"
+  ],
+  "pdb_codes": [
+    "ATP"
+  ],
+  "heavy_atom_count": 31,
+  "hsab_character": "hard",
+  "pharmacophore_features": [
+    {
+      "atom_idx": 0,
+      "atom_name": "N1",
+      "element": "N",
+      "type": "acceptor"
+    },
+    {
+      "atom_idx": 6,
+      "atom_name": "N6",
+      "element": "N",
+      "type": "donor"
+    }
+  ],
+  "coordination_summary": {
+    "MG": {
+      "donors": [
+        "O2B",
+        "O2G"
+      ],
+      "denticity": 2,
+      "evidence_count": 3
+    }
+  },
+  "notes": "Triphosphate chelates Mg2+ through beta/gamma phosphate oxygens"
+}

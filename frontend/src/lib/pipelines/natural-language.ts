@@ -1,12 +1,12 @@
 /**
  * Natural Language Pipeline
- * Steps: parse_intent → resolve_structure → scaffold_search → configure → structure_gen → mpnn_sequence → validation → analysis
+ * Steps: parse_intent → resolve_structure → ligand_features → scaffold_search → configure → structure_gen → mpnn_sequence → validation → analysis
  *
  * This pipeline handles free-form natural language requests by parsing user intent,
  * resolving the target structure, and configuring the appropriate design parameters.
  */
 
-import { MessageSquare, Search, Settings, Building2, Shield, Dna, BarChart3 } from 'lucide-react';
+import { MessageSquare, Search, Settings, Building2, Shield, Dna, BarChart3, FlaskConical } from 'lucide-react';
 import api from '@/lib/api';
 import { extractPdbContent } from '@/lib/workflowHandlers';
 import type { PipelineDefinition, PdbOutput, SequenceOutput } from '@/lib/pipeline-types';
@@ -20,6 +20,7 @@ import {
 } from './shared-steps';
 import { IntentResultPreview } from '@/components/pipeline/IntentResultPreview';
 import { SweepResultPreview } from '@/components/pipeline/SweepResultPreview';
+import { LigandFeaturesPreview } from '@/components/pipeline/LigandFeaturesPreview';
 
 // ============================================================================
 // AI Parse Helpers
@@ -391,13 +392,89 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 3: Scaffold search — auto-discover PDB scaffolds for metal+ligand
+    // Step 3: Ligand feature analysis — identify coordination donors with KB/ChemicalFeatures
+    {
+      id: 'ligand_features_nl',
+      name: 'Ligand Features',
+      description: 'Identify coordination donors and pharmacophore features for the ligand',
+      icon: FlaskConical,
+      requiresReview: true,
+      supportsSelection: false,
+      optional: true,
+      defaultParams: {},
+      parameterSchema: [],
+      ResultPreview: LigandFeaturesPreview,
+
+      async execute(ctx) {
+        const { previousResults } = ctx;
+
+        // Get intent data
+        const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+        const ligandName = intentResult?.data?.ligand_name as string || '';
+        const ligandSmiles = intentResult?.data?.ligand_smiles as string || '';
+        const targetMetal = intentResult?.data?.target_metal as string || '';
+
+        // Auto-skip if no ligand
+        if (!ligandName && !ligandSmiles) {
+          return {
+            id: `ligand-features-${Date.now()}`,
+            summary: 'No ligand — skipped',
+            data: { skipped: true, reason: 'No ligand specified in design intent' },
+          };
+        }
+
+        ctx.onProgress(20, `Analyzing ${ligandName || 'ligand'} features...`);
+
+        try {
+          const result = await api.analyzeLigandFeatures({
+            ligand_name: ligandName,
+            smiles: ligandSmiles || undefined,
+            metal_type: targetMetal || undefined,
+          });
+
+          ctx.onProgress(100, 'Feature analysis complete');
+
+          const coordDonors = result.coordination_donors || [];
+          const source = result.source || 'unknown';
+          const sourceLabel = source === 'knowledge_base' ? 'KB' : source === 'chemicalfeatures' ? 'predicted' : 'geometry';
+          const summary = coordDonors.length > 0
+            ? `${ligandName}: ${coordDonors.length} coordination donor${coordDonors.length !== 1 ? 's' : ''} (${sourceLabel})`
+            : `${ligandName}: features identified (${sourceLabel})`;
+
+          // Pass ligand PDB for 3D viewing
+          const pdbOutputs: PdbOutput[] = [];
+          if (result.ligand_pdb_content) {
+            pdbOutputs.push({
+              id: 'ligand-structure',
+              label: ligandName || 'Ligand',
+              pdbContent: result.ligand_pdb_content,
+            });
+          }
+
+          return {
+            id: `ligand-features-${Date.now()}`,
+            summary,
+            pdbOutputs,
+            data: result,
+          };
+        } catch (err) {
+          console.warn('[ligand_features_nl] Analysis failed:', err);
+          return {
+            id: `ligand-features-${Date.now()}`,
+            summary: `Ligand feature analysis failed — continuing without`,
+            data: { skipped: true, reason: `Analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}` },
+          };
+        }
+      },
+    },
+
+    // Step 4: Scaffold search — auto-discover PDB scaffolds for metal+ligand
     createScaffoldSearchStep({
       id: 'scaffold_search_nl',
       description: 'Search RCSB PDB for structures with the target metal-ligand complex (auto-skipped if not applicable)',
     }),
 
-    // Step 4: Configure design parameters
+    // Step 5: Configure design parameters
     {
       id: 'configure',
       name: 'Configure Parameters',
@@ -467,6 +544,18 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         // Bury ligand setting from AI parser (default: true)
         configData.bury_ligand = intentResult?.data?.bury_ligand ?? true;
 
+        // Wire in ligand feature overrides (from ligand_features_nl step)
+        const featuresResult = previousResults['ligand_features_nl'];
+        const featuresData = featuresResult?.data as Record<string, unknown> | undefined;
+        const userOverrides = featuresData?.user_overrides as { active_donors: string[]; modified: boolean } | undefined;
+        if (userOverrides?.modified) {
+          configData.ligand_coordination_donors = userOverrides.active_donors;
+          configData.recommended_fixing_strategy = 'fix_coordination';
+        } else if (featuresData?.coordination_donors && !featuresData?.skipped) {
+          // Use KB/predicted donors even without user override
+          configData.ligand_coordination_donors = featuresData.coordination_donors;
+        }
+
         // De novo mode: set design-type-aware contig when no PDB is available
         const resolveResult = Object.values(previousResults).find(r => r.data?.source === 'de_novo');
         if (resolveResult || !pdbContent) {
@@ -512,7 +601,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 5: Backbone generation — single-run for metal, raw RFD3 for general
+    // Step 6: Backbone generation — single-run for metal, raw RFD3 for general
     {
       id: 'rfd3_nl',
       name: 'Backbone Generation',
@@ -833,16 +922,16 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 5.5: Scout filter (optional — validates 1 seq per backbone and filters)
+    // Step 6.5: Scout filter (optional — validates 1 seq per backbone and filters)
     createScoutFilterStep({ id: 'scout_filter_nl' }),
 
-    // Step 6: MPNN sequence design
+    // Step 7: MPNN sequence design
     createMpnnStep({ id: 'mpnn_nl' }),
 
-    // Step 7: RF3 validation
+    // Step 8: RF3 validation
     createRf3Step({ id: 'rf3_nl' }),
 
-    // Step 8: Final analysis — UnifiedDesignAnalyzer + FILTER_PRESETS
+    // Step 9: Final analysis — UnifiedDesignAnalyzer + FILTER_PRESETS
     {
       id: 'analysis',
       name: 'Final Analysis',
@@ -972,10 +1061,10 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 9: Save to design history (automatic, no user interaction)
+    // Step 10: Save to design history (automatic, no user interaction)
     createSaveHistoryStep({ id: 'save_history_nl' }),
 
-    // Step 10: Check for lesson triggers (shows results if detected)
+    // Step 11: Check for lesson triggers (shows results if detected)
     createCheckLessonsStep({ id: 'check_lessons_nl' }),
   ],
 };

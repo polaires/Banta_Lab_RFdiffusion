@@ -1,0 +1,54 @@
+{
+  "ligand_id": "heme",
+  "smiles": "",
+  "aliases": [
+    "hem",
+    "protoporphyrin IX",
+    "heme b"
+  ],
+  "pdb_codes": [
+    "HEM",
+    "HEB"
+  ],
+  "heavy_atom_count": 43,
+  "hsab_character": "borderline",
+  "pharmacophore_features": [
+    {
+      "atom_idx": 0,
+      "atom_name": "NA",
+      "element": "N",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 1,
+      "atom_name": "NB",
+      "element": "N",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 2,
+      "atom_name": "NC",
+      "element": "N",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 3,
+      "atom_name": "ND",
+      "element": "N",
+      "type": "donor"
+    }
+  ],
+  "coordination_summary": {
+    "FE": {
+      "donors": [
+        "NA",
+        "NB",
+        "NC",
+        "ND"
+      ],
+      "denticity": 4,
+      "evidence_count": 100
+    }
+  },
+  "notes": "Porphyrin macrocycle, tetradentate equatorial Fe coordination"
+}

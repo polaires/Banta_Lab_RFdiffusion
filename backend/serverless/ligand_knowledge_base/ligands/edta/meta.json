@@ -1,0 +1,88 @@
+{
+  "ligand_id": "edta",
+  "smiles": "OC(=O)CN(CCN(CC(O)=O)CC(O)=O)CC(O)=O",
+  "aliases": [
+    "ethylenediaminetetraacetic acid"
+  ],
+  "pdb_codes": [
+    "EDT"
+  ],
+  "heavy_atom_count": 18,
+  "hsab_character": "hard",
+  "pharmacophore_features": [
+    {
+      "atom_idx": 1,
+      "atom_name": "O1",
+      "element": "O",
+      "type": "acceptor"
+    },
+    {
+      "atom_idx": 2,
+      "atom_name": "O2",
+      "element": "O",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 4,
+      "atom_name": "N1",
+      "element": "N",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 7,
+      "atom_name": "N2",
+      "element": "N",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 10,
+      "atom_name": "O5",
+      "element": "O",
+      "type": "acceptor"
+    },
+    {
+      "atom_idx": 11,
+      "atom_name": "O6",
+      "element": "O",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 14,
+      "atom_name": "O7",
+      "element": "O",
+      "type": "acceptor"
+    },
+    {
+      "atom_idx": 15,
+      "atom_name": "O8",
+      "element": "O",
+      "type": "donor"
+    }
+  ],
+  "coordination_summary": {
+    "CA": {
+      "donors": [
+        "O2",
+        "N1",
+        "N2",
+        "O6",
+        "O8"
+      ],
+      "denticity": 5,
+      "evidence_count": 1
+    },
+    "FE": {
+      "donors": [
+        "O2",
+        "N1",
+        "N2",
+        "O6",
+        "O8",
+        "O1"
+      ],
+      "denticity": 6,
+      "evidence_count": 1
+    }
+  },
+  "notes": "Hexadentate chelator, binds most transition metals and lanthanides"
+}

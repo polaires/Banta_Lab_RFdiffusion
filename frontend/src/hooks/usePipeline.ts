@@ -210,6 +210,8 @@ function pipelineReducer(state: PipelineRuntimeState, action: PipelineAction): P
 export interface PipelineCallbacks {
   onPdbUpdate?: (pdbContent: string) => void;
   onJobCreated?: (job: { id: string; type: string; status: string; createdAt: string }) => void;
+  /** Called when a step completes, allowing callers to sync job status */
+  onJobCompleted?: (jobId: string, status: 'completed' | 'failed') => void;
 }
 
 // ---- Hook ----
@@ -247,6 +249,8 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
   // Store callbacks in ref to avoid re-creating executeStep
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
+  // Track job IDs created during current step for status sync
+  const stepJobIdsRef = useRef<string[]>([]);
 
   const definition = definitionRef.current;
   const activeStep = definition?.steps[runtime.activeStepIndex] ?? null;
@@ -312,6 +316,9 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
       }
     }
 
+    // Reset step job tracking
+    stepJobIdsRef.current = [];
+
     const ctx: StepExecutionContext = {
       previousResults,
       selectedItems,
@@ -323,6 +330,7 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
         dispatch({ type: 'STEP_PROGRESS', stepIndex, progress: percent, message });
       },
       onJobCreated: (jobId, type) => {
+        stepJobIdsRef.current.push(jobId);
         callbacksRef.current?.onJobCreated?.({
           id: jobId,
           type,
@@ -347,6 +355,11 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
       }
 
       dispatch({ type: 'STEP_COMPLETE', stepIndex, result });
+
+      // Notify callers of completed jobs for status sync
+      for (const jobId of stepJobIdsRef.current) {
+        callbacksRef.current?.onJobCompleted?.(jobId, 'completed');
+      }
 
       if (stepDef.requiresReview) {
         dispatch({ type: 'STEP_PAUSE', stepIndex });
@@ -384,6 +397,11 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
       }
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       dispatch({ type: 'STEP_FAIL', stepIndex, error: errorMsg });
+
+      // Notify callers of failed jobs for status sync
+      for (const jobId of stepJobIdsRef.current) {
+        callbacksRef.current?.onJobCompleted?.(jobId, 'failed');
+      }
     } finally {
       executingRef.current = false;
     }

@@ -1,17 +1,22 @@
 /**
- * Zustand store for application state (v2.2)
+ * Zustand store for application state (v3.0)
  * Supports cross-panel data flow, confidence metrics, enhanced viewer state,
- * and versioned persistence with migration support
+ * project-based chat sessions, and versioned persistence with migration support
  */
 
 import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
+import type { Project, ChatMessage, ProjectContext, ProjectStatus } from './chat-types';
+import { createProject as createProjectObj, generateId, deriveProjectName, createEmptyContext } from './chat-types';
 
 // Store version for migration handling
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 
 // Maximum conversation messages to persist (prevent localStorage bloat)
 const MAX_PERSISTED_MESSAGES = 100;
+
+// Maximum projects to keep in localStorage
+const MAX_PERSISTED_PROJECTS = 30;
 
 // Maximum serialized size for job result payloads before truncation
 const MAX_JOB_RESULT_SIZE = 50_000;
@@ -346,11 +351,23 @@ interface AppState {
   analysisLoading: boolean;
   setAnalysisLoading: (loading: boolean) => void;
 
-  // AI Design Assistant state
+  // AI Design Assistant state (legacy — kept for migration)
   aiCaseStudy: AICaseStudyState;
   setAiCaseStudy: (state: Partial<AICaseStudyState>) => void;
   addAiMessage: (message: Omit<AIConversationMessage, 'timestamp'>) => void;
   clearAiConversation: () => void;
+
+  // Project-based chat state
+  projects: Project[];
+  activeProjectId: string | null;
+  createProject: (name?: string) => string;
+  setActiveProject: (id: string | null) => void;
+  addProjectMessage: (projectId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>) => void;
+  updateProjectContext: (projectId: string, partial: Partial<ProjectContext>) => void;
+  updateProjectStatus: (projectId: string, status: ProjectStatus) => void;
+  setProjectPipeline: (projectId: string, pipelineId: string | null) => void;
+  addProjectJobId: (projectId: string, jobId: string) => void;
+  deleteProject: (id: string) => void;
 
   // Manual mode toggle (sidebar)
   manualMode: boolean;
@@ -730,6 +747,73 @@ export const useStore = create<AppState>()(
       evaluationResult: null,
       jobProgress: 0,
     },
+  })),
+
+  // Project-based chat state
+  projects: [],
+  activeProjectId: null,
+
+  createProject: (name) => {
+    const project = createProjectObj(name);
+    set((state) => ({
+      projects: [project, ...state.projects].slice(0, MAX_PERSISTED_PROJECTS),
+      activeProjectId: project.id,
+    }));
+    return project.id;
+  },
+
+  setActiveProject: (id) => set({ activeProjectId: id }),
+
+  addProjectMessage: (projectId, message) => set((state) => ({
+    projects: state.projects.map((p) => {
+      if (p.id !== projectId) return p;
+      const msg: ChatMessage = {
+        ...message,
+        id: generateId('msg'),
+        timestamp: Date.now(),
+      };
+      // Auto-name project from first user message
+      const shouldRename = p.name === 'New Design' && message.role === 'user';
+      return {
+        ...p,
+        messages: [...p.messages, msg],
+        updatedAt: Date.now(),
+        name: shouldRename ? deriveProjectName(message.content) : p.name,
+      };
+    }),
+  })),
+
+  updateProjectContext: (projectId, partial) => set((state) => ({
+    projects: state.projects.map((p) =>
+      p.id === projectId
+        ? { ...p, context: { ...p.context, ...partial }, updatedAt: Date.now() }
+        : p
+    ),
+  })),
+
+  updateProjectStatus: (projectId, status) => set((state) => ({
+    projects: state.projects.map((p) =>
+      p.id === projectId ? { ...p, status, updatedAt: Date.now() } : p
+    ),
+  })),
+
+  setProjectPipeline: (projectId, pipelineId) => set((state) => ({
+    projects: state.projects.map((p) =>
+      p.id === projectId ? { ...p, activePipelineId: pipelineId, updatedAt: Date.now() } : p
+    ),
+  })),
+
+  addProjectJobId: (projectId, jobId) => set((state) => ({
+    projects: state.projects.map((p) =>
+      p.id === projectId
+        ? { ...p, jobIds: [...p.jobIds, jobId], updatedAt: Date.now() }
+        : p
+    ),
+  })),
+
+  deleteProject: (id) => set((state) => ({
+    projects: state.projects.filter((p) => p.id !== id),
+    activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
   })),
 
   // Manual mode toggle (sidebar)
@@ -1223,6 +1307,48 @@ export const useStore = create<AppState>()(
           // NOT persisted: isProcessing, jobProgress, currentStage, currentStep
           // NOT persisted: pdbContent, analysisResult, recommendation (too large)
         },
+        // Persist projects (strip large PDB content from context and attachments)
+        projects: state.projects.slice(0, MAX_PERSISTED_PROJECTS).map(p => ({
+          ...p,
+          messages: p.messages.slice(-MAX_PERSISTED_MESSAGES).map(msg => {
+            if (!msg.attachment) return msg;
+            // Strip PDB content from design_gallery attachments (can be huge with 200+ designs)
+            if (msg.attachment.type === 'design_gallery') {
+              return {
+                ...msg,
+                attachment: {
+                  ...msg.attachment,
+                  designs: msg.attachment.designs.map(d => ({
+                    ...d,
+                    pdbContent: undefined, // strip large PDB strings
+                  })),
+                },
+              };
+            }
+            // Strip large step_result data
+            if (msg.attachment.type === 'step_result') {
+              return {
+                ...msg,
+                attachment: {
+                  ...msg.attachment,
+                  result: {
+                    ...msg.attachment.result,
+                    pdbOutputs: undefined,
+                    sequenceOutputs: undefined,
+                  },
+                },
+              };
+            }
+            return msg;
+          }),
+          context: {
+            ...p.context,
+            pdbContent: null, // too large — don't persist
+            analysisResult: null,
+            pipelineResults: {}, // strip large step results
+          },
+        })),
+        activeProjectId: state.activeProjectId,
       }),
       migrate: (persistedState: unknown, version: number) => {
         // Handle migrations from older versions
@@ -1265,6 +1391,13 @@ export const useStore = create<AppState>()(
           }
         }
 
+        if (version < 4) {
+          // v3 -> v4: Initialize projects array and activeProjectId
+          const s = state as Record<string, unknown>;
+          if (!s.projects) s.projects = [];
+          if (!s.activeProjectId) s.activeProjectId = null;
+        }
+
         // Enforce max job limit on load
         if (state.jobs && state.jobs.length > MAX_JOB_HISTORY) {
           state.jobs = state.jobs.slice(0, MAX_JOB_HISTORY);
@@ -1282,6 +1415,9 @@ export const useStore = create<AppState>()(
           ...currentState,
           ...persisted,
           aiCaseStudy: mergedAiCaseStudy,
+          // Ensure projects is always an array
+          projects: persisted.projects || [],
+          activeProjectId: persisted.activeProjectId ?? null,
         };
       },
     }

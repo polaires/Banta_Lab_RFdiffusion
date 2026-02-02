@@ -112,9 +112,10 @@ const BINDER_INTERVIEW_STEPS: InterviewStep[] = [
     description: 'More designs give better chance of finding high-affinity binders',
     icon: 'content_copy',
     options: [
-      { id: '3', label: '3 designs', description: 'Quick exploration (~3 min)' },
-      { id: '5', label: '5 designs (Recommended)', description: 'Good coverage (~5 min)' },
-      { id: '10', label: '10 designs', description: 'Thorough search (~10 min)' },
+      { id: '5', label: '5 designs', description: 'Quick exploration' },
+      { id: '10', label: '10 designs (Recommended)', description: 'Good coverage' },
+      { id: '50', label: '50 designs', description: 'Thorough search' },
+      { id: '200', label: '200 designs (Production)', description: 'Full production run' },
     ]
   },
   {

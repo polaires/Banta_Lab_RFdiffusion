@@ -82,7 +82,7 @@ function PipelineRunnerInner({
   onDesignSelected,
   onCancel,
 }: PipelineRunnerProps) {
-  const { setSelectedPdb, addJob } = useStore();
+  const { setSelectedPdb, addJob, updateJob } = useStore();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
   const [autoRun, setAutoRun] = useState(false);
@@ -91,6 +91,12 @@ function PipelineRunnerInner({
   const pipelineCallbacks: PipelineCallbacks = {
     onPdbUpdate: (pdb) => setSelectedPdb(pdb),
     onJobCreated: (job) => addJob(job as any),
+    onJobCompleted: (jobId, status) => {
+      updateJob(jobId, {
+        status,
+        completedAt: new Date().toISOString(),
+      });
+    },
   };
 
   const pipeline = usePipeline(pipelineCallbacks);

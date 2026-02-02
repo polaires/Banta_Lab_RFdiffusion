@@ -11,7 +11,7 @@ import { ViewerPanel } from '@/components/layout/ViewerPanel';
 import { ConnectionSheet } from '@/components/connection/ConnectionSheet';
 
 // Existing panels
-import { AIDesignAssistantPanel } from '@/components/AIDesignAssistantPanel';
+import { ChatPanel } from '@/components/chat';
 import { TaskPanel } from '@/components/TaskPanel';
 import { RFD3Panel } from '@/components/RFD3Panel';
 import { RF3Panel } from '@/components/RF3Panel';
@@ -50,6 +50,10 @@ export default function Home() {
     ligandData,
     pharmacophoreFeatures,
     showPharmacophores3D,
+    // Project state
+    activeProjectId,
+    createProject,
+    setActiveProject,
   } = useStore();
 
   const [isSpinning, setIsSpinning] = useState(false);
@@ -129,14 +133,14 @@ export default function Home() {
 
   // Render main content based on mode and active tab
   const renderMainContent = () => {
-    // AI mode (manualMode OFF) - show AI assistant for most tabs
+    // AI mode (manualMode OFF) - show chat panel for most tabs
     if (!manualMode) {
       // Jobs panel is always accessible
       if (activeTab === 'jobs') {
         return <DesignHistoryPanel />;
       }
-      // Everything else shows AI assistant
-      return <AIDesignAssistantPanel />;
+      // Chat panel keyed by project ID — remounts on project switch for fresh state
+      return <ChatPanel key={activeProjectId ?? 'empty'} />;
     }
 
     // Manual mode (manualMode ON) - show form panels
@@ -171,9 +175,10 @@ export default function Home() {
             onManualModeChange={handleManualModeChange}
             onStageClick={(stage) => setActiveTab(stage)}
             onNewDesign={() => {
+              const id = createProject();
+              setActiveProject(id);
               setManualMode(false); // Switch to AI mode
               setActiveTab('ai');
-              // Could also clear state here
             }}
             onHistoryClick={(id) => {
               // Navigate to jobs and select the job

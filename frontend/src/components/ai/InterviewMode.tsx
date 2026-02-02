@@ -70,9 +70,10 @@ const INTERVIEW_STEPS: InterviewStep[] = [
     description: 'More variants increase chances of finding an optimal solution',
     icon: 'content_copy',
     options: [
-      { id: '3', label: '3 designs', description: 'Quick exploration' },
-      { id: '5', label: '5 designs (Recommended)', description: 'Balanced approach' },
-      { id: '10', label: '10 designs', description: 'Thorough search' }
+      { id: '5', label: '5 designs', description: 'Quick exploration' },
+      { id: '10', label: '10 designs (Recommended)', description: 'Balanced approach' },
+      { id: '50', label: '50 designs', description: 'Thorough search' },
+      { id: '200', label: '200 designs (Production)', description: 'Full production run' }
     ]
   },
   {

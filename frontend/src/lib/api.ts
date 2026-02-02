@@ -2245,8 +2245,16 @@ class FoundryAPI {
     if (result.output?.status === 'failed') {
       throw new Error(result.output.error || 'Ligand feature analysis failed');
     }
+    if (result.status === 'failed') {
+      throw new Error(result.error || 'Ligand feature analysis failed');
+    }
 
-    return result.output?.result || result.result;
+    const data = result.output?.result || result.result;
+    if (!data) {
+      console.warn('[API] analyzeLigandFeatures: unexpected response shape:', JSON.stringify(result).slice(0, 200));
+      throw new Error('Backend returned unexpected response format for ligand feature analysis');
+    }
+    return data;
   }
 
   /**

@@ -114,7 +114,8 @@ const METAL_SCAFFOLD_INTERVIEW_STEPS: InterviewStep[] = [
     options: [
       { id: '5', label: '5 designs', description: 'Quick test (for sweep: 45 total)' },
       { id: '10', label: '10 designs (Recommended)', description: 'Balanced (for sweep: 90 total)' },
-      { id: '20', label: '20 designs', description: 'Thorough (for sweep: 180 total)' },
+      { id: '25', label: '25 designs', description: 'Thorough (for sweep: 225 total)' },
+      { id: '50', label: '50 designs (Production)', description: 'Full production run (for sweep: 450 total)' },
     ],
   },
 ];

@@ -1,0 +1,88 @@
+{
+  "ligand_id": "citrate",
+  "smiles": "OC(=O)CC(O)(CC(O)=O)C(O)=O",
+  "aliases": [
+    "cit",
+    "citric acid",
+    "FLC"
+  ],
+  "pdb_codes": [
+    "CIT",
+    "FLC"
+  ],
+  "heavy_atom_count": 13,
+  "hsab_character": "hard",
+  "pharmacophore_features": [
+    {
+      "atom_idx": 1,
+      "atom_name": "O1",
+      "element": "O",
+      "type": "acceptor"
+    },
+    {
+      "atom_idx": 2,
+      "atom_name": "O2",
+      "element": "O",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 5,
+      "atom_name": "O3",
+      "element": "O",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 8,
+      "atom_name": "O5",
+      "element": "O",
+      "type": "acceptor"
+    },
+    {
+      "atom_idx": 9,
+      "atom_name": "O6",
+      "element": "O",
+      "type": "donor"
+    },
+    {
+      "atom_idx": 11,
+      "atom_name": "O7",
+      "element": "O",
+      "type": "acceptor"
+    },
+    {
+      "atom_idx": 12,
+      "atom_name": "O8",
+      "element": "O",
+      "type": "donor"
+    }
+  ],
+  "coordination_summary": {
+    "TB": {
+      "donors": [
+        "O2",
+        "O5",
+        "O7"
+      ],
+      "denticity": 3,
+      "evidence_count": 1
+    },
+    "CA": {
+      "donors": [
+        "O2",
+        "O5"
+      ],
+      "denticity": 2,
+      "evidence_count": 1
+    },
+    "LA": {
+      "donors": [
+        "O2",
+        "O5",
+        "O7"
+      ],
+      "denticity": 3,
+      "evidence_count": 1
+    }
+  },
+  "notes": "Tricarboxylate chelator, common lanthanide binder"
+}

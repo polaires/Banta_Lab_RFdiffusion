@@ -1,0 +1,86 @@
+{
+  "version": "1.0.0",
+  "created": "2026-02-01T22:30:28.121858",
+  "ligands": {
+    "pqq": {
+      "smiles": "OC(=O)c1cc2c(O)c3[nH]c(C(O)=O)c(=O)c3c(C(O)=O)c2[nH]1",
+      "aliases": [
+        "pyrroloquinoline quinone",
+        "methoxatin"
+      ],
+      "pdb_codes": [
+        "PQQ"
+      ],
+      "evidence_count": 2,
+      "metals_observed": [
+        "CA"
+      ],
+      "last_updated": "2026-02-01T22:30:28.122544"
+    },
+    "citrate": {
+      "smiles": "OC(=O)CC(O)(CC(O)=O)C(O)=O",
+      "aliases": [
+        "cit",
+        "citric acid",
+        "FLC"
+      ],
+      "pdb_codes": [
+        "CIT",
+        "FLC"
+      ],
+      "evidence_count": 3,
+      "metals_observed": [
+        "TB",
+        "CA",
+        "LA"
+      ],
+      "last_updated": "2026-02-01T22:30:28.123084"
+    },
+    "atp": {
+      "smiles": "c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N",
+      "aliases": [
+        "adenosine triphosphate"
+      ],
+      "pdb_codes": [
+        "ATP"
+      ],
+      "evidence_count": 3,
+      "metals_observed": [
+        "MG"
+      ],
+      "last_updated": "2026-02-01T22:30:28.123559"
+    },
+    "edta": {
+      "smiles": "OC(=O)CN(CCN(CC(O)=O)CC(O)=O)CC(O)=O",
+      "aliases": [
+        "ethylenediaminetetraacetic acid"
+      ],
+      "pdb_codes": [
+        "EDT"
+      ],
+      "evidence_count": 2,
+      "metals_observed": [
+        "CA",
+        "FE"
+      ],
+      "last_updated": "2026-02-01T22:30:28.124044"
+    },
+    "heme": {
+      "smiles": "",
+      "aliases": [
+        "hem",
+        "protoporphyrin IX",
+        "heme b"
+      ],
+      "pdb_codes": [
+        "HEM",
+        "HEB"
+      ],
+      "evidence_count": 100,
+      "metals_observed": [
+        "FE"
+      ],
+      "last_updated": "2026-02-01T22:30:28.124607"
+    }
+  }
+}

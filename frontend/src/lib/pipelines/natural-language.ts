@@ -1,12 +1,12 @@
 /**
  * Natural Language Pipeline
- * Steps: parse_intent → resolve_structure → scaffold_search → configure → structure_gen → mpnn_sequence → validation → analysis
+ * Steps: parse_intent → resolve_structure → ligand_features → scaffold_search → configure → structure_gen → mpnn_sequence → validation → analysis
  *
  * This pipeline handles free-form natural language requests by parsing user intent,
  * resolving the target structure, and configuring the appropriate design parameters.
  */
 
-import { MessageSquare, Search, Settings, Building2, Shield, Dna, BarChart3 } from 'lucide-react';
+import { MessageSquare, Search, Settings, Building2, Shield, Dna, BarChart3, FlaskConical } from 'lucide-react';
 import api from '@/lib/api';
 import { extractPdbContent } from '@/lib/workflowHandlers';
 import type { PipelineDefinition, PdbOutput, SequenceOutput } from '@/lib/pipeline-types';
@@ -20,13 +20,14 @@ import {
 } from './shared-steps';
 import { IntentResultPreview } from '@/components/pipeline/IntentResultPreview';
 import { SweepResultPreview } from '@/components/pipeline/SweepResultPreview';
+import { LigandFeaturesPreview } from '@/components/pipeline/LigandFeaturesPreview';
 
 // ============================================================================
 // AI Parse Helpers
 // ============================================================================
 
-/** SMILES lookup table for known ligands */
-const LIGAND_SMILES: Record<string, string> = {
+/** Fallback SMILES table (used when backend is unreachable) */
+const LIGAND_SMILES_FALLBACK: Record<string, string> = {
   citrate: 'OC(=O)CC(O)(CC(O)=O)C(O)=O',
   atp: 'c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N',
   glucose: 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O',
@@ -42,10 +43,36 @@ function mapDesignType(ai: { metal_type?: string; design_mode?: string; target_t
   return 'general';
 }
 
-/** Lookup SMILES for a ligand name */
-function lookupSmiles(name?: string): string {
+/** Resolve ligand SMILES via backend API, with sync fallback */
+async function resolveLigandSmiles(
+  name?: string,
+  metalType?: string,
+  isomerSpec?: string,
+): Promise<{ smiles: string; source: string }> {
+  if (!name) return { smiles: '', source: 'none' };
+
+  try {
+    const result = await api.resolveLigand({
+      ligand_name: name,
+      metal_type: metalType,
+      isomer_spec: isomerSpec,
+    });
+    if (result.success && result.smiles) {
+      return { smiles: result.smiles, source: result.source };
+    }
+  } catch (err) {
+    console.warn('[resolveLigandSmiles] Backend resolution failed, using fallback:', err);
+  }
+
+  // Sync fallback for offline/error
+  const fallback = LIGAND_SMILES_FALLBACK[name.toLowerCase()] || '';
+  return { smiles: fallback, source: fallback ? 'fallback' : 'none' };
+}
+
+/** Sync-only lookup for immediate use (no network) */
+function lookupSmilesFallback(name?: string): string {
   if (!name) return '';
-  return LIGAND_SMILES[name.toLowerCase()] || '';
+  return LIGAND_SMILES_FALLBACK[name.toLowerCase()] || '';
 }
 
 /** Build a human-readable description from AI parsed intent */
@@ -220,11 +247,22 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           // Try backend AI parser (Claude API or keyword fallback on server)
           const ai = await api.parseIntent(prompt);
           usedAI = true;
+
+          // Resolve ligand SMILES via backend (async, with isomer support)
+          const isomerSpec = ai.isomer_specification;
+          const ligandResolution = await resolveLigandSmiles(
+            ai.ligand_name,
+            ai.metal_type,
+            isomerSpec,
+          );
+
           intentData = {
             design_type: mapDesignType(ai),
             target_metal: ai.metal_type || '',
             ligand_name: ai.ligand_name || '',
-            ligand_smiles: lookupSmiles(ai.ligand_name),
+            ligand_smiles: ligandResolution.smiles,
+            ligand_smiles_source: ligandResolution.source,
+            isomer_specification: isomerSpec || null,
             pdb_id: ai.source_pdb_id || pdbId || 'Not specified',
             user_prompt: prompt,
             parsed_description: buildDescription(ai),
@@ -249,7 +287,19 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         } catch (err) {
           // Fallback: local keyword-based parsing (works without backend)
           console.warn('[parse_intent] AI parse unavailable, using keyword fallback:', err);
-          intentData = keywordFallbackParse(prompt, pdbId);
+          const fallback = keywordFallbackParse(prompt, pdbId);
+          // Try async ligand resolution even for fallback path
+          const fallbackLigand = fallback.ligand_name as string || '';
+          if (fallbackLigand) {
+            try {
+              const resolution = await resolveLigandSmiles(fallbackLigand, fallback.target_metal as string);
+              fallback.ligand_smiles = resolution.smiles;
+              fallback.ligand_smiles_source = resolution.source;
+            } catch {
+              // Keep existing fallback smiles
+            }
+          }
+          intentData = fallback;
         }
 
         ctx.onProgress(100, usedAI ? 'AI parsing complete' : 'Intent parsed (fallback)');
@@ -342,13 +392,93 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 3: Scaffold search — auto-discover PDB scaffolds for metal+ligand
+    // Step 3: Ligand feature analysis — identify coordination donors with KB/ChemicalFeatures
+    {
+      id: 'ligand_features_nl',
+      name: 'Ligand Features',
+      description: 'Identify coordination donors and pharmacophore features for the ligand',
+      icon: FlaskConical,
+      requiresReview: true,
+      supportsSelection: false,
+      optional: true,
+      defaultParams: {},
+      parameterSchema: [],
+      ResultPreview: LigandFeaturesPreview,
+
+      async execute(ctx) {
+        const { previousResults } = ctx;
+
+        // Get intent data
+        const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
+        const ligandName = intentResult?.data?.ligand_name as string || '';
+        const ligandSmiles = intentResult?.data?.ligand_smiles as string || '';
+        const targetMetal = intentResult?.data?.target_metal as string || '';
+
+        // Auto-skip if no ligand
+        if (!ligandName && !ligandSmiles) {
+          return {
+            id: `ligand-features-${Date.now()}`,
+            summary: 'No ligand — skipped',
+            data: { skipped: true, reason: 'No ligand specified in design intent' },
+          };
+        }
+
+        ctx.onProgress(20, `Analyzing ${ligandName || 'ligand'} features...`);
+
+        try {
+          const result = await api.analyzeLigandFeatures({
+            ligand_name: ligandName,
+            smiles: ligandSmiles || undefined,
+            metal_type: targetMetal || undefined,
+          });
+
+          if (!result) {
+            throw new Error('Backend returned empty result — task may not be deployed');
+          }
+
+          ctx.onProgress(100, 'Feature analysis complete');
+
+          const coordDonors = result.coordination_donors || [];
+          const source = result.source || 'unknown';
+          const sourceLabel = source === 'knowledge_base' ? 'KB' : source === 'chemicalfeatures' ? 'predicted' : 'geometry';
+          const summary = coordDonors.length > 0
+            ? `${ligandName}: ${coordDonors.length} coordination donor${coordDonors.length !== 1 ? 's' : ''} (${sourceLabel})`
+            : `${ligandName}: features identified (${sourceLabel})`;
+
+          // Pass ligand PDB for 3D viewing
+          const pdbOutputs: PdbOutput[] = [];
+          if (result.ligand_pdb_content) {
+            pdbOutputs.push({
+              id: 'ligand-structure',
+              label: ligandName || 'Ligand',
+              pdbContent: result.ligand_pdb_content,
+            });
+          }
+
+          return {
+            id: `ligand-features-${Date.now()}`,
+            summary,
+            pdbOutputs,
+            data: result,
+          };
+        } catch (err) {
+          console.warn('[ligand_features_nl] Analysis failed:', err);
+          return {
+            id: `ligand-features-${Date.now()}`,
+            summary: `Ligand feature analysis failed — continuing without`,
+            data: { skipped: true, reason: `Analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}` },
+          };
+        }
+      },
+    },
+
+    // Step 4: Scaffold search — auto-discover PDB scaffolds for metal+ligand
     createScaffoldSearchStep({
       id: 'scaffold_search_nl',
       description: 'Search RCSB PDB for structures with the target metal-ligand complex (auto-skipped if not applicable)',
     }),
 
-    // Step 4: Configure design parameters
+    // Step 5: Configure design parameters
     {
       id: 'configure',
       name: 'Configure Parameters',
@@ -359,8 +489,27 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       optional: false,
       defaultParams: {},
       parameterSchema: [
-        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 } },
+        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'For production runs use 50-200' },
         { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
+        {
+          id: 'design_goal', label: 'Design Goal', type: 'select' as const, required: false, defaultValue: 'binding',
+          options: [
+            { value: 'binding', label: 'Tight binding' },
+            { value: 'catalysis', label: 'Catalytic activity' },
+            { value: 'sensing', label: 'Sensing / detection' },
+            { value: 'structural', label: 'Structural role' },
+          ],
+          helpText: 'Affects binding site geometry — buried for binding, accessible for catalysis/sensing',
+        },
+        {
+          id: 'filter_tier', label: 'Quality Bar', type: 'select' as const, required: false, defaultValue: 'standard',
+          options: [
+            { value: 'relaxed', label: 'Exploratory' },
+            { value: 'standard', label: 'Standard' },
+            { value: 'strict', label: 'Strict' },
+          ],
+          helpText: 'Passed to analysis step for quality filtering',
+        },
       ],
 
       async execute(ctx) {
@@ -418,6 +567,39 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         // Bury ligand setting from AI parser (default: true)
         configData.bury_ligand = intentResult?.data?.bury_ligand ?? true;
 
+        // Design goal from wizard or configure step params → backend params
+        const designGoal = params.design_goal as string || initialParams.design_goal as string || '';
+        if (designGoal) {
+          configData.design_goal = designGoal;
+          if (designGoal === 'catalysis') {
+            configData.bury_ligand = false;
+          } else if (designGoal === 'sensing') {
+            configData.bury_ligand = false;
+          } else if (designGoal === 'structural') {
+            configData.bury_ligand = true;
+            configData.stability_focus = true;
+          }
+          // 'binding' → default (bury_ligand=true)
+        }
+
+        // Filter tier from wizard or configure step params → passed to analysis step
+        const filterTier = params.filter_tier as string || initialParams.filter_tier as string || '';
+        if (filterTier) {
+          configData.filter_tier = filterTier;
+        }
+
+        // Wire in ligand feature overrides (from ligand_features_nl step)
+        const featuresResult = previousResults['ligand_features_nl'];
+        const featuresData = featuresResult?.data as Record<string, unknown> | undefined;
+        const userOverrides = featuresData?.user_overrides as { active_donors: string[]; modified: boolean } | undefined;
+        if (userOverrides?.modified) {
+          configData.ligand_coordination_donors = userOverrides.active_donors;
+          configData.recommended_fixing_strategy = 'fix_coordination';
+        } else if (featuresData?.coordination_donors && !featuresData?.skipped) {
+          // Use KB/predicted donors even without user override
+          configData.ligand_coordination_donors = featuresData.coordination_donors;
+        }
+
         // De novo mode: set design-type-aware contig when no PDB is available
         const resolveResult = Object.values(previousResults).find(r => r.data?.source === 'de_novo');
         if (resolveResult || !pdbContent) {
@@ -463,7 +645,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 5: Backbone generation — single-run for metal, raw RFD3 for general
+    // Step 6: Backbone generation — single-run for metal, raw RFD3 for general
     {
       id: 'rfd3_nl',
       name: 'Backbone Generation',
@@ -478,7 +660,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         num_timesteps: 200,
       },
       parameterSchema: [
-        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 }, helpText: 'Total designs to generate' },
+        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'For production runs use 50-200 (per config if sweep enabled)' },
         { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
         { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3, step: 0.1 }, helpText: 'Higher = more designable, less diverse' },
         { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1, step: 0.05 }, helpText: 'Lower = more designable' },
@@ -784,16 +966,16 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 5.5: Scout filter (optional — validates 1 seq per backbone and filters)
+    // Step 6.5: Scout filter (optional — validates 1 seq per backbone and filters)
     createScoutFilterStep({ id: 'scout_filter_nl' }),
 
-    // Step 6: MPNN sequence design
+    // Step 7: MPNN sequence design
     createMpnnStep({ id: 'mpnn_nl' }),
 
-    // Step 7: RF3 validation
+    // Step 8: RF3 validation
     createRf3Step({ id: 'rf3_nl' }),
 
-    // Step 8: Final analysis — UnifiedDesignAnalyzer + FILTER_PRESETS
+    // Step 9: Final analysis — UnifiedDesignAnalyzer + FILTER_PRESETS
     {
       id: 'analysis',
       name: 'Final Analysis',
@@ -832,11 +1014,14 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         const validated = allPdbs.filter(p => p.id.startsWith('rf3-') || p.id.startsWith('validated-'));
         const toAnalyze = validated.length > 0 ? validated : allPdbs.slice(-8);
 
-        const filterTier = (params.filter_tier as string) || 'standard';
-        ctx.onProgress(10, `Analyzing ${toAnalyze.length} designs (${filterTier} tier)...`);
-
         // Gather context from previous steps
         const configResult = Object.values(previousResults).find(r => r.data?.design_type);
+
+        // filter_tier: step params (user override at review gate) → configure step data → default
+        const filterTier = (params.filter_tier as string)
+          || (configResult?.data?.filter_tier as string)
+          || 'standard';
+        ctx.onProgress(10, `Analyzing ${toAnalyze.length} designs (${filterTier} tier)...`);
         const designType = configResult?.data?.design_type as string || 'general';
         const targetMetal = configResult?.data?.target_metal as string || initialParams.target_metal as string || undefined;
         const ligandName = configResult?.data?.ligand_name as string || undefined;
@@ -923,10 +1108,10 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 9: Save to design history (automatic, no user interaction)
+    // Step 10: Save to design history (automatic, no user interaction)
     createSaveHistoryStep({ id: 'save_history_nl' }),
 
-    // Step 10: Check for lesson triggers (shows results if detected)
+    // Step 11: Check for lesson triggers (shows results if detected)
     createCheckLessonsStep({ id: 'check_lessons_nl' }),
   ],
 };

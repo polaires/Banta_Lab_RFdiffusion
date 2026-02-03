@@ -20,6 +20,7 @@ import { Switch } from '@/components/ui/switch';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { ProjectSidebar } from './ProjectSidebar';
 
 type WorkflowStage = 'task' | 'rfd3' | 'mpnn' | 'rf3';
 
@@ -99,47 +100,60 @@ export function Sidebar({
 
         <Separator />
 
-        {/* Workflow Steps */}
-        <div className="p-3">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-            Current Workflow
-          </div>
-          <div className="space-y-1">
-            {workflowSteps.map((step) => (
-              <WorkflowStepItem
-                key={step.id}
-                step={step}
-                isActive={currentStage === step.id}
-                manualMode={manualMode}
-                onClick={() => onStageClick(step.id)}
-              />
-            ))}
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* History */}
-        <div className="flex-1 p-3 overflow-hidden">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-            History
-          </div>
-          <ScrollArea className="h-[calc(100%-24px)]">
-            <div className="space-y-1">
-              {history.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => onHistoryClick(item.id)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-sidebar-accent text-left"
-                >
-                  <Check className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="flex-1 truncate">{item.name}</span>
-                  <span className="text-xs text-muted-foreground">{item.timestamp}</span>
-                </button>
-              ))}
+        {/* Workflow Steps / Project List */}
+        {!manualMode ? (
+          /* AI mode: Show project list */
+          <div className="flex-1 p-3 overflow-hidden">
+            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              Projects
             </div>
-          </ScrollArea>
-        </div>
+            <ProjectSidebar />
+          </div>
+        ) : (
+          <>
+            {/* Manual mode: Show workflow steps */}
+            <div className="p-3">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                Current Workflow
+              </div>
+              <div className="space-y-1">
+                {workflowSteps.map((step) => (
+                  <WorkflowStepItem
+                    key={step.id}
+                    step={step}
+                    isActive={currentStage === step.id}
+                    manualMode={manualMode}
+                    onClick={() => onStageClick(step.id)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* History */}
+            <div className="flex-1 p-3 overflow-hidden">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                History
+              </div>
+              <ScrollArea className="h-[calc(100%-24px)]">
+                <div className="space-y-1">
+                  {history.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => onHistoryClick(item.id)}
+                      className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm hover:bg-sidebar-accent text-left"
+                    >
+                      <Check className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="flex-1 truncate">{item.name}</span>
+                      <span className="text-xs text-muted-foreground">{item.timestamp}</span>
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          </>
+        )}
 
         <Separator />
 

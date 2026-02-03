@@ -142,6 +142,21 @@ LIGAND_TO_TEMPLATE: Dict[str, Dict[str, str]] = {
 }
 
 
+# Isomeric SMILES for ligands with known cis/trans variants
+ISOMERIC_SMILES: Dict[str, Dict[str, str]] = {
+    "azobenzene": {
+        "trans": "c1ccc(/N=N/c2ccccc2)cc1",
+        "cis": r"c1ccc(/N=N\c2ccccc2)cc1",
+        "default": "c1ccc(/N=N/c2ccccc2)cc1",
+    },
+    "stilbene": {
+        "trans": "C(/c1ccccc1)=C/c1ccccc1",
+        "cis": r"C(/c1ccccc1)=C\c1ccccc1",
+        "default": "C(/c1ccccc1)=C/c1ccccc1",
+    },
+}
+
+
 def get_template_name_for_ligand(ligand: str, metal: Optional[str] = None) -> Optional[str]:
     """
     Get template name for a ligand-metal combination.
@@ -356,6 +371,7 @@ class LigandResolver:
         ligand_name: str,
         metal_type: Optional[str] = None,
         center: Optional[Tuple[float, float, float]] = None,
+        isomer_spec: Optional[str] = None,
     ) -> ResolvedLigand:
         """
         Resolve a ligand by name, optionally with associated metal.
@@ -364,6 +380,7 @@ class LigandResolver:
             ligand_name: Ligand name (e.g., "citrate", "pqq")
             metal_type: Metal symbol (e.g., "TB", "CA")
             center: Coordinates for structure placement
+            isomer_spec: Isomer specification ("cis", "trans") for ligands with known variants
 
         Returns:
             ResolvedLigand with structure and chemistry
@@ -375,6 +392,9 @@ class LigandResolver:
             name=ligand_name.lower(),
             metal_type=metal_type.upper() if metal_type else None,
         )
+
+        # Store isomer spec for use in PubChem resolution
+        self._current_isomer_spec = isomer_spec
 
         # Try resolution sources in priority order
 
@@ -507,10 +527,66 @@ class LigandResolver:
         result: ResolvedLigand,
         center: Tuple[float, float, float],
     ) -> bool:
-        """Try to resolve from PubChem SMILES."""
-        # This would use the pubchem_adapter module
-        # For now, return False as this requires network access
-        return False
+        """Try to resolve from PubChem SMILES (with isomeric SMILES support)."""
+        ligand_lower = result.name.lower()
+        isomer_spec = getattr(self, '_current_isomer_spec', None)
+
+        # 1. Check ISOMERIC_SMILES table first (for known isomers)
+        if ligand_lower in ISOMERIC_SMILES:
+            isomer_table = ISOMERIC_SMILES[ligand_lower]
+            if isomer_spec and isomer_spec in isomer_table:
+                smiles = isomer_table[isomer_spec]
+                logger.info(f"Using {isomer_spec}-isomer SMILES for {ligand_lower}")
+            else:
+                smiles = isomer_table.get("default", "")
+                if isomer_spec:
+                    result.warnings.append(
+                        f"Isomer '{isomer_spec}' not found for {ligand_lower}, using default"
+                    )
+        else:
+            # 2. Try PubChem API (already returns IsomericSMILES)
+            smiles = None
+            try:
+                from database_adapters.pubchem_adapter import PubChemAdapter
+                adapter = PubChemAdapter()
+                smiles = adapter.get_smiles(result.name)
+            except Exception as e:
+                logger.debug(f"PubChem resolution failed for {result.name}: {e}")
+                return False
+
+        if not smiles:
+            return False
+
+        result.smiles = smiles
+
+        # 3. Generate 3D conformer from SMILES
+        try:
+            from conformer_utils import generate_conformer
+            pdb_content = generate_conformer(
+                smiles,
+                name=result.residue_code or "LIG",
+                center=center,
+            )
+            if pdb_content:
+                result.pdb_content = pdb_content
+        except Exception as e:
+            logger.warning(f"Conformer generation failed for {result.name}: {e}")
+            # Continue without 3D structure — SMILES alone is still useful
+
+        # 4. Analyze chemistry if we have PDB content
+        if result.pdb_content:
+            result.chemistry = analyze_ligand_chemistry(
+                result.pdb_content,
+                result.residue_code or "LIG",
+            )
+
+        # 5. Set recommended fixing strategy
+        # PubChem ligands have no metal coordination info, so default to diffuse_all
+        # (ISOMERIC_SMILES ligands are typically organic — same logic)
+        result.coordination["recommended_fixing_strategy"] = "diffuse_all"
+
+        logger.info(f"Resolved {result.name} via PubChem/isomeric table (SMILES: {smiles[:40]}...)")
+        return True
 
     def _try_calculated_fallback(
         self,
@@ -587,6 +663,7 @@ class LigandResolver:
 def resolve_ligand(
     ligand_name: str,
     metal_type: Optional[str] = None,
+    isomer_spec: Optional[str] = None,
 ) -> ResolvedLigand:
     """
     Convenience function to resolve a ligand.
@@ -594,12 +671,13 @@ def resolve_ligand(
     Args:
         ligand_name: Ligand name
         metal_type: Metal symbol
+        isomer_spec: Isomer specification ("cis", "trans")
 
     Returns:
         ResolvedLigand
     """
     resolver = LigandResolver()
-    return resolver.resolve(ligand_name, metal_type)
+    return resolver.resolve(ligand_name, metal_type, isomer_spec=isomer_spec)
 
 
 def get_recommended_rfd3_params(

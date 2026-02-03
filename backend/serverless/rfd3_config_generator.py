@@ -338,7 +338,13 @@ class RFD3ConfigGenerator:
         if intent.metal_type:
             metal_hsab = get_hsab_class_simple(intent.metal_type)
 
-        # 3. Call decision engine
+        # 3. Call decision engine (with ligand fixing strategy inputs)
+        ligand_coordination_donors = []
+        recommended_fixing_strategy = None
+        if ligand.coordination:
+            ligand_coordination_donors = ligand.coordination.get("ligand_metal_donors", [])
+            recommended_fixing_strategy = ligand.coordination.get("recommended_fixing_strategy")
+
         decisions = make_design_decisions(
             ligand_size=ligand_size,
             ligand_character=ligand_character,
@@ -348,6 +354,10 @@ class RFD3ConfigGenerator:
             design_goal=intent.design_goal or "binding",
             target_topology=intent.target_topology or "monomer",
             has_hbond_conditioning=has_hbond_conditioning,
+            ligand_coordination_donors=ligand_coordination_donors,
+            is_scaffolding=getattr(intent, 'is_scaffolding', False),
+            has_ligand=ligand.resolved,
+            recommended_fixing_strategy=recommended_fixing_strategy,
         )
 
         # === Apply Decisions to Config ===
@@ -374,8 +384,24 @@ class RFD3ConfigGenerator:
         # 8. Set burial from decisions
         config.select_buried = decisions.burial_target
 
-        # 9. Set fixed atoms (metal + ligand)
-        config.select_fixed_atoms = self._get_fixed_atoms(intent, ligand)
+        # 9. Set fixed atoms based on fixing strategy (metal + ligand)
+        config.select_fixed_atoms = self._get_fixed_atoms(intent, ligand, decisions)
+
+        # 9b. For diffused/partially-fixed ligands, ensure RASA burial is set
+        if decisions.ligand_fixing_strategy in ("diffuse_all", "fix_coordination"):
+            bury = getattr(intent, 'bury_ligand', True)
+            if bury and ligand.resolved:
+                # Ensure ligand is buried (RFD3 needs this when ligand isn't fully fixed)
+                if "L1" not in config.select_buried:
+                    config.select_buried["L1"] = "all"
+            # For fix_coordination: set hbond acceptor on non-coordinating polar atoms
+            if decisions.ligand_fixing_strategy == "fix_coordination" and ligand.chemistry:
+                non_coord_acceptors = [
+                    a for a in (ligand.chemistry.hbond_acceptors or [])
+                    if a not in decisions.coordination_fixed_atoms
+                ]
+                if non_coord_acceptors:
+                    config.select_hbond_acceptor["L1"] = ",".join(non_coord_acceptors)
 
         # 10. Set PDB content
         if ligand.pdb_content:
@@ -391,8 +417,21 @@ class RFD3ConfigGenerator:
         config.notes["contig"] = config.contig
         config.notes["ligand_size"] = ligand_size.value
         config.notes["metal_hsab"] = metal_hsab or "none"
+        config.notes["ligand_fixing"] = decisions.ligand_fixing_strategy
+        if decisions.coordination_fixed_atoms:
+            config.notes["coordination_atoms"] = ",".join(decisions.coordination_fixed_atoms)
 
-        # 12. Validate configuration
+        # 12. CFG safety net: guarantee CFG is on when any conditioning is active
+        has_conditioning = bool(
+            config.select_buried or config.select_exposed or
+            config.select_hbond_acceptor or config.select_hbond_donor or
+            config.select_hotspots or config.hotspots
+        )
+        if has_conditioning:
+            config.use_classifier_free_guidance = True
+            config.cfg_scale = max(config.cfg_scale, 2.0)
+
+        # 13. Validate configuration
         self._validate_config(config, intent, ligand)
 
         return config
@@ -523,17 +562,40 @@ class RFD3ConfigGenerator:
         self,
         intent: DesignIntent,
         ligand: ResolvedLigand,
+        decisions: Optional[DesignDecisions] = None,
     ) -> Dict[str, str]:
-        """Get fixed atoms selection."""
+        """
+        Get fixed atoms selection based on fixing strategy.
+
+        Strategies:
+        - fix_all: Fix all atoms on metal and ligand (default, current behavior)
+        - fix_coordination: Fix metal + only donor atoms on ligand
+        - diffuse_all: Don't fix anything — rely on RASA + CFG to position ligand
+        """
+        strategy = "fix_all"
+        coordination_atoms: List[str] = []
+
+        if decisions:
+            strategy = decisions.ligand_fixing_strategy
+            coordination_atoms = decisions.coordination_fixed_atoms
+
+        if strategy == "diffuse_all":
+            # Don't fix anything — RFD3 will diffuse the ligand
+            return {}
+
         fixed = {}
 
-        # Fix metal
+        # Always fix metal if present
         if intent.metal_type:
             fixed["X1"] = "all"
 
-        # Fix ligand
         if ligand.resolved:
-            fixed["L1"] = "all"
+            if strategy == "fix_coordination" and coordination_atoms:
+                # Fix only metal-coordinating atoms on the ligand
+                fixed["L1"] = ",".join(coordination_atoms)
+            else:
+                # fix_all: fix everything
+                fixed["L1"] = "all"
 
         return fixed
 

@@ -27,6 +27,7 @@ const TASK_MAP: Record<string, string> = {
   'validate/rmsd': 'rmsd',
   'health': 'health',
   'runsync': 'runsync', // Special: task comes from request body
+  'async': 'async',     // Special: async submit, frontend polls for result
 };
 
 // RunPod status to internal status mapping
@@ -95,6 +96,34 @@ export async function POST(request: NextRequest) {
 
       // Return full response for sync endpoint
       return NextResponse.json(data);
+    }
+
+    // Async submit — same body as runsync but uses /run (returns job ID immediately)
+    // Frontend polls /api/runpod/jobs/{id} for the result.
+    if (path === 'async') {
+      const runpodResponse = await fetch(
+        `https://api.runpod.ai/v2/${RUNPOD_ENDPOINT_ID}/run`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${RUNPOD_API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        }
+      );
+
+      if (!runpodResponse.ok) {
+        const errorText = await runpodResponse.text();
+        console.error('[RunPod Proxy] async submit error:', runpodResponse.status, errorText);
+        return NextResponse.json(
+          { error: `RunPod error: ${errorText}` },
+          { status: runpodResponse.status }
+        );
+      }
+
+      const data = await runpodResponse.json();
+      return NextResponse.json({ job_id: data.id, status: 'pending' });
     }
 
     // Submit to RunPod serverless (async)

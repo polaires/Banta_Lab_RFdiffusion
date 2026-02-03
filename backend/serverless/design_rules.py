@@ -7,9 +7,12 @@ Rules are derived from successful experiment scripts (Dy_TriNOx v11, ln_citrate 
 USAGE: Import DESIGN_RULES and pass to Claude for config generation context.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -318,6 +321,102 @@ def select_stability_profile(
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 6C. SASA-BASED CHAIN LENGTH ESTIMATION
+# ═══════════════════════════════════════════════════════════════════
+
+def estimate_chain_length(
+    smiles: Optional[str] = None,
+    heavy_atom_count: int = 0,
+    ligand_character: str = "polar",
+    target_topology: str = "monomer",
+    has_metal: bool = False,
+    ligand_size: Optional[LigandSize] = None,
+) -> str:
+    """
+    Estimate protein chain length needed to accommodate a ligand.
+
+    Uses TPSA (Topological Polar Surface Area) and molecular weight from RDKit
+    for a continuous estimate instead of discrete bins. Falls back to
+    CHAIN_LENGTH_RULES bins when SMILES is not available.
+
+    Formula:
+        interface_residues = TPSA / 15.0 + heavy_atom_count * 0.8
+        chain_length_base = interface_residues * 3.5
+        Then apply multipliers for burial, symmetry, metal.
+
+    Args:
+        smiles: SMILES string (enables TPSA-based calculation)
+        heavy_atom_count: Number of heavy atoms (fallback if no SMILES)
+        ligand_character: "polar", "hydrophobic", or "amphipathic"
+        target_topology: "monomer", "dimer", or "symmetric"
+        has_metal: Whether a metal ion is present
+        ligand_size: Fallback LigandSize enum if no SMILES
+
+    Returns:
+        Chain length range string like "130-150"
+    """
+    tpsa = None
+
+    # Try RDKit TPSA calculation
+    if smiles:
+        try:
+            from rdkit import Chem
+            from rdkit.Chem import Descriptors
+            mol = Chem.MolFromSmiles(smiles)
+            if mol:
+                tpsa = Descriptors.TPSA(mol)
+                if heavy_atom_count == 0:
+                    heavy_atom_count = mol.GetNumHeavyAtoms()
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"TPSA calculation failed: {e}")
+
+    # If we have TPSA, use continuous formula
+    if tpsa is not None and heavy_atom_count > 0:
+        interface_residues = tpsa / 15.0 + heavy_atom_count * 0.8
+        chain_length_base = interface_residues * 3.5
+        chain_length_base = max(70.0, min(220.0, chain_length_base))
+
+        # Apply multipliers
+        multiplier = 1.0
+        if ligand_character == "polar" and has_metal:
+            multiplier *= 1.2  # burial multiplier for metal-coordinating polar ligands
+        if target_topology == "symmetric":
+            multiplier *= 0.6  # per subunit
+        if has_metal:
+            multiplier *= 1.1  # extra residues for coordination sphere
+
+        chain_length = int(chain_length_base * multiplier)
+        chain_length = max(60, min(250, chain_length))
+
+        logger.info(
+            f"TPSA chain length: TPSA={tpsa:.1f}, heavy={heavy_atom_count}, "
+            f"interface_res={interface_residues:.1f}, base={chain_length_base:.0f}, "
+            f"mult={multiplier:.2f}, final={chain_length}"
+        )
+
+        return f"{chain_length - 10}-{chain_length + 10}"
+
+    # Fallback to bin-based rules
+    if ligand_size is None:
+        if heavy_atom_count < 10:
+            ligand_size = LigandSize.SMALL
+        elif heavy_atom_count <= 30:
+            ligand_size = LigandSize.MEDIUM
+        else:
+            ligand_size = LigandSize.LARGE
+
+    length_rule = CHAIN_LENGTH_RULES[ligand_size]
+    if target_topology == "symmetric":
+        return length_rule["symmetric"]
+    elif ligand_character == "hydrophobic":
+        return length_rule["with_burial"]
+    else:
+        return length_rule["base_range"]
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 7. DECISION ENGINE - Main Entry Point
 # ═══════════════════════════════════════════════════════════════════
 
@@ -371,19 +470,21 @@ def make_design_decisions(
     is_scaffolding: bool = False,         # Whether this is a scaffolding (motif) design
     has_ligand: bool = False,             # Whether a ligand is present
     recommended_fixing_strategy: Optional[str] = None,  # Strategy from ligand resolver
+    smiles: Optional[str] = None,         # Ligand SMILES for TPSA-based chain length
 ) -> DesignDecisions:
     """
     Central decision function that applies all rules.
     Returns complete DesignDecisions for RFD3 + MPNN configuration.
     """
-    # 1. Chain length
-    length_rule = CHAIN_LENGTH_RULES[ligand_size]
-    if target_topology == "symmetric":
-        chain_length = length_rule["symmetric"]
-    elif ligand_character == "hydrophobic":
-        chain_length = length_rule["with_burial"]
-    else:
-        chain_length = length_rule["base_range"]
+    # 1. Chain length (TPSA-based if SMILES available, else bin-based fallback)
+    chain_length = estimate_chain_length(
+        smiles=smiles,
+        heavy_atom_count=0,  # will be computed from SMILES if available
+        ligand_character=ligand_character,
+        target_topology=target_topology,
+        has_metal=metal_type is not None,
+        ligand_size=ligand_size,
+    )
 
     # 2. Hotspot strategy
     hotspot_strat = select_hotspot_strategy(ligand_character, metal_type is not None)

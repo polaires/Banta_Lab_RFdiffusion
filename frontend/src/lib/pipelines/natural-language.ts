@@ -29,6 +29,7 @@ import { LigandFeaturesPreview } from '@/components/pipeline/LigandFeaturesPrevi
 /** Fallback SMILES table (used when backend is unreachable) */
 const LIGAND_SMILES_FALLBACK: Record<string, string> = {
   citrate: 'OC(=O)CC(O)(CC(O)=O)C(O)=O',
+  pqq: 'OC(=O)c1[nH]c2c(c1)C(=O)C(=O)c3nc(cc(C(O)=O)c23)C(O)=O',
   atp: 'c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N',
   glucose: 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O',
   azobenzene: 'c1ccc(/N=N/c2ccccc2)cc1',
@@ -146,22 +147,87 @@ function keywordFallbackParse(prompt: string, pdbId?: string): Record<string, un
     description = 'Metal binding design (default: zinc)';
   }
 
-  // 2) Detect ligands
+  // 2) Detect ligands — known ligands with SMILES, then dynamic detection for unknowns
   const ligandMap: Record<string, { name: string; smiles: string }> = {
+    'pyrroloquinoline quinone': { name: 'PQQ', smiles: 'OC(=O)c1[nH]c2c(c1)C(=O)C(=O)c3nc(cc(C(O)=O)c23)C(O)=O' },
+    pyrroloquinoline: { name: 'PQQ', smiles: 'OC(=O)c1[nH]c2c(c1)C(=O)C(=O)c3nc(cc(C(O)=O)c23)C(O)=O' },
+    'citric acid': { name: 'citrate', smiles: 'OC(=O)CC(O)(CC(O)=O)C(O)=O' },
     citrate:  { name: 'citrate',  smiles: 'OC(=O)CC(O)(CC(O)=O)C(O)=O' },
     citric:   { name: 'citrate',  smiles: 'OC(=O)CC(O)(CC(O)=O)C(O)=O' },
+    pqq:      { name: 'PQQ',      smiles: 'OC(=O)c1[nH]c2c(c1)C(=O)C(=O)c3nc(cc(C(O)=O)c23)C(O)=O' },
     atp:      { name: 'ATP',      smiles: 'c1nc(c2c(n1)n(cn2)[C@@H]3[C@@H]([C@@H]([C@H](O3)COP(=O)(O)OP(=O)(O)OP(=O)(O)O)O)O)N' },
+    adp:      { name: 'ADP',      smiles: '' },
+    gtp:      { name: 'GTP',      smiles: '' },
     nad:      { name: 'NAD+',     smiles: '' },
+    nadh:     { name: 'NAD+',     smiles: '' },
+    nadp:     { name: 'NADP',     smiles: '' },
+    fad:      { name: 'FAD',      smiles: '' },
+    fmn:      { name: 'FMN',      smiles: '' },
     glucose:  { name: 'glucose',  smiles: 'OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O' },
     azobenzene: { name: 'azobenzene', smiles: 'c1ccc(/N=N/c2ccccc2)cc1' },
     heme:     { name: 'heme',     smiles: '' },
+    haem:     { name: 'heme',     smiles: '' },
   };
 
-  for (const [keyword, info] of Object.entries(ligandMap)) {
-    if (promptLower.includes(keyword)) {
-      ligandName = info.name;
-      ligandSmiles = info.smiles;
+  // Check known ligands first (longest match first via sorted keys)
+  const sortedLigandKeys = Object.keys(ligandMap).sort((a, b) => b.length - a.length);
+  for (const keyword of sortedLigandKeys) {
+    // Use word boundary matching for short keywords to avoid false matches
+    if (keyword.length <= 3) {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+      if (regex.test(promptLower)) {
+        ligandName = ligandMap[keyword].name;
+        ligandSmiles = ligandMap[keyword].smiles;
+        break;
+      }
+    } else if (promptLower.includes(keyword)) {
+      ligandName = ligandMap[keyword].name;
+      ligandSmiles = ligandMap[keyword].smiles;
       break;
+    }
+  }
+
+  // Dynamic ligand detection: catch unknown ligand-like terms (2-5 uppercase letters
+  // or short words near "bind" context) that aren't metals or common English words
+  if (!ligandName) {
+    const allMetals = new Set([
+      ...Object.values(metalNameMap),
+      ...Object.values(metalSymbolMap),
+      ...Object.keys(metalNameMap),
+      ...Object.keys(metalSymbolMap),
+    ]);
+    const stopWords = new Set([
+      'the', 'and', 'for', 'with', 'that', 'this', 'from', 'bind', 'binding',
+      'design', 'create', 'make', 'want', 'protein', 'metal', 'ligand',
+      'a', 'an', 'to', 'of', 'in', 'on', 'is', 'it', 'not', 'my', 'i',
+    ]);
+
+    // Look for 2-5 letter uppercase abbreviation-like words (PQQ, ATP, NAD, etc.)
+    const abbreviationMatch = prompt.match(/\b([A-Z][A-Z0-9]{1,4})\b/g);
+    if (abbreviationMatch) {
+      for (const abbr of abbreviationMatch) {
+        const abbrUpper = abbr.toUpperCase();
+        if (!allMetals.has(abbrUpper) && !allMetals.has(abbr.toLowerCase())) {
+          ligandName = abbrUpper;
+          break;
+        }
+      }
+    }
+
+    // Also look for unrecognized words adjacent to "bind" that could be ligand names
+    if (!ligandName) {
+      const bindContext = promptLower.match(/bind(?:ing|s)?\s+(\w+)/);
+      if (bindContext) {
+        const candidate = bindContext[1];
+        if (
+          !stopWords.has(candidate) &&
+          !allMetals.has(candidate) &&
+          !allMetals.has(candidate.toUpperCase()) &&
+          !Object.keys(metalNameMap).includes(candidate)
+        ) {
+          ligandName = candidate.toUpperCase();
+        }
+      }
     }
   }
 

@@ -31,11 +31,13 @@ FILTER_PRESETS = {
         "coordination_number": {"min": 6},
         "geometry_rmsd": {"max": 2.0},
         "plddt": {"min": 0.70},
+        "coordination_valid": {"equals": True},
     },
     "metal_binding_strict": {
         "coordination_number": {"min": 8},
         "geometry_rmsd": {"max": 0.8},
         "plddt": {"min": 0.85},
+        "coordination_valid": {"equals": True},
     },
     "dna_binder": {
         "dna_aligned_rmsd": {"max": 5.0},

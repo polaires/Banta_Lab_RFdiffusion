@@ -88,6 +88,9 @@ services:
       - PDB_MIRROR_PATH=/data/pdb
       # HBPLUS for hydrogen bond analysis (RFD3 design-time constraints)
       - HBPLUS_PATH=/usr/local/bin/hbplus
+      # Claude API key for NL intent parsing (yinli.one proxy)
+      # Set ANTHROPIC_API_KEY in your host environment or .env file
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     # Override command to start local API server
     command: ["python", "-u", "handler.py", "--rp_serve_api", "--rp_api_host", "0.0.0.0"]
     # GPU access - requires nvidia-docker2

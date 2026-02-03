@@ -36,6 +36,18 @@ from design_rules import (
     STEP_SCALE_DEFAULT,
 )
 
+# Import enzyme chemistry for catalytic H-bond network and substrate channel
+try:
+    from enzyme_chemistry import (
+        identify_catalytic_residues_from_pdb,
+        get_catalytic_hbond_network,
+        get_substrate_channel_atoms,
+        get_preservation_requirements,
+    )
+    HAS_ENZYME_CHEMISTRY = True
+except ImportError:
+    HAS_ENZYME_CHEMISTRY = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -358,6 +370,7 @@ class RFD3ConfigGenerator:
             is_scaffolding=getattr(intent, 'is_scaffolding', False),
             has_ligand=ligand.resolved,
             recommended_fixing_strategy=recommended_fixing_strategy,
+            smiles=ligand.smiles if hasattr(ligand, 'smiles') else None,
         )
 
         # === Apply Decisions to Config ===
@@ -409,8 +422,74 @@ class RFD3ConfigGenerator:
 
         # 11. Get H-bond conditioning from ligand chemistry
         if ligand.chemistry and ligand.chemistry.hbond_acceptors:
-            # H-bond acceptors for polar ligands
-            config.select_hbond_acceptor = {"L1": ",".join(ligand.chemistry.hbond_acceptors)}
+            # H-bond acceptors for polar ligands — merge, don't overwrite
+            # (step 9b may have already set filtered acceptors for fix_coordination)
+            existing_l1 = config.select_hbond_acceptor.get("L1", "")
+            if existing_l1:
+                # Merge: keep existing filtered set, don't overwrite with full set
+                pass
+            else:
+                config.select_hbond_acceptor["L1"] = ",".join(ligand.chemistry.hbond_acceptors)
+
+        # Enhancement 2: H-bond donors from SMILES-based classification
+        if ligand.chemistry and ligand.chemistry.hbond_donors:
+            config.select_hbond_donor["L1"] = ",".join(ligand.chemistry.hbond_donors)
+
+        # Enhancement 3: Catalytic H-bond network from enzyme_chemistry
+        # Only when enzyme_class is set AND PDB content is available
+        enzyme_class = getattr(intent, 'enzyme_class', None)
+        if enzyme_class and ligand.pdb_content and HAS_ENZYME_CHEMISTRY:
+            try:
+                catalytic_residues = identify_catalytic_residues_from_pdb(
+                    ligand.pdb_content,
+                    enzyme_class,
+                    metal_type=intent.metal_type,
+                    ligand_name=intent.ligand_name,
+                )
+                if catalytic_residues:
+                    hbond_network = get_catalytic_hbond_network(
+                        ligand.pdb_content, catalytic_residues
+                    )
+                    # Merge catalytic donors into select_hbond_donor (deduplicate)
+                    if hbond_network.get('donors'):
+                        for chain, residues in hbond_network['donors'].items():
+                            existing = config.select_hbond_donor.get(chain, "")
+                            merged = set(existing.split(",")) if existing else set()
+                            merged.update(residues.split(",") if isinstance(residues, str) else [str(residues)])
+                            merged.discard("")
+                            if merged:
+                                config.select_hbond_donor[chain] = ",".join(sorted(merged))
+
+                    # Merge catalytic acceptors into select_hbond_acceptor (deduplicate)
+                    if hbond_network.get('acceptors'):
+                        for chain, residues in hbond_network['acceptors'].items():
+                            existing = config.select_hbond_acceptor.get(chain, "")
+                            merged = set(existing.split(",")) if existing else set()
+                            merged.update(residues.split(",") if isinstance(residues, str) else [str(residues)])
+                            merged.discard("")
+                            if merged:
+                                config.select_hbond_acceptor[chain] = ",".join(sorted(merged))
+
+                    logger.info(
+                        f"Added catalytic H-bond network: {len(catalytic_residues)} residues, "
+                        f"enzyme_class={enzyme_class}"
+                    )
+
+                # Enhancement 4: Substrate channel → select_exposed
+                requirements = get_preservation_requirements(enzyme_class)
+                if requirements.get("substrate_access_required"):
+                    channel_atoms = get_substrate_channel_atoms(
+                        ligand.pdb_content, enzyme_class, ligand_name=intent.ligand_name
+                    )
+                    if channel_atoms:
+                        config.select_exposed = channel_atoms
+                        logger.info(
+                            f"Added substrate channel: {sum(len(v.split(',')) for v in channel_atoms.values())} "
+                            f"residues for select_exposed"
+                        )
+
+            except Exception as e:
+                logger.debug(f"Enzyme chemistry wiring failed: {e}")
 
         # === Store Decision Rationale ===
         config.notes = decisions.rationale.copy()
@@ -516,6 +595,7 @@ class RFD3ConfigGenerator:
             design_goal=intent.design_goal or "binding",
             target_topology=intent.target_topology or "monomer",
             has_hbond_conditioning=has_hbond,
+            smiles=ligand.smiles if hasattr(ligand, 'smiles') else None,
         )
 
         # 4. Apply decision engine's MPNN parameters

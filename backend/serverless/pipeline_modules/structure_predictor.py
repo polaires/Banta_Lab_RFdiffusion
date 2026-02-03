@@ -119,10 +119,31 @@ def _parse_rf3_result(
     predictions = result.get("predictions", [{}])
     pred = predictions[0] if predictions else {}
 
-    plddt = float(pred.get("mean_plddt", result.get("mean_plddt", 0.0)))
-    ptm = float(pred.get("ptm", result.get("ptm", 0.0)))
-    iptm = pred.get("iptm") or result.get("iptm")
-    pdb_content = pred.get("pdb_content", result.get("pdb_content"))
+    # RF3 stores confidences in result["confidences"], ESMFold may inline them
+    conf = result.get("confidences") or {}
+    summary = conf.get("summary_confidences", conf)
+
+    plddt = float(
+        summary.get("overall_plddt")
+        or pred.get("mean_plddt")
+        or result.get("mean_plddt")
+        or 0.0
+    )
+    ptm = float(
+        summary.get("ptm")
+        or pred.get("ptm")
+        or result.get("ptm")
+        or 0.0
+    )
+    iptm = summary.get("iptm") or pred.get("iptm") or result.get("iptm")
+
+    # RF3 returns "content" key; some paths use "pdb_content" — check both
+    pdb_content = (
+        pred.get("content")
+        or pred.get("pdb_content")
+        or result.get("pdb_content")
+        or result.get("content")
+    )
 
     # Determine pass/fail (basic thresholds, analyzer module does detailed filtering)
     passed = ptm >= 0.6 and plddt >= 0.65

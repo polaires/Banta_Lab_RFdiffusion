@@ -361,7 +361,9 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
         callbacksRef.current?.onJobCompleted?.(jobId, 'completed');
       }
 
-      if (stepDef.requiresReview) {
+      // Don't pause for review if the step auto-skipped (optional step with no work to review)
+      const skipped = !!(result.data && typeof result.data === 'object' && 'skipped' in result.data && (result.data as Record<string, unknown>).skipped);
+      if (stepDef.requiresReview && !skipped) {
         dispatch({ type: 'STEP_PAUSE', stepIndex });
 
         // Auto-select outputs when supportsSelection is true

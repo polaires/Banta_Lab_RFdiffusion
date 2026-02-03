@@ -36,20 +36,21 @@
 
 ## Parameter Evolution Tracker
 
-| Parameter | R1 | R2 | R7b | R8-NL (best) | Rationale |
-|-----------|-----|-----|-----|--------------|-----------|
-| approach | de novo + unindex | de novo + fixed metal | motif scaffolding | auto template (metal_binding_design) | Auto-template beats hand-crafted |
-| contig length | 80-140 | 80-110 | 110-150 | 110-150 | |
-| cfg_scale | none | none | 2.5 | 2.0 | 2.0 sufficient with other improvements |
-| fixed_atoms (TB) | ALL | ALL / "" | X1:all | auto (TB:all) | |
-| fixed_atoms (CIT) | "" | "" | L1:all | auto (CIT:all) | |
-| burial | TB:ALL | TB:ALL | X1:all (metal only) | TB+CIT (metal+ligand) | Burying both works fine |
-| hbond_acceptor | none | CIT:O1-O6 | L1:O1-O6 | auto: all O as acceptors | |
-| hbond_donor | none | none | L1:O7 | none | Missing donor didn't hurt |
-| MPNN temp | - | - | 0.2 | 0.1 | Lower temp + bias better |
-| MPNN bias | - | - | none | A:-2.0, omit C | Critical for Ala reduction |
-| RF3 context | - | - | seq only | seq + ligand + metal | Ligand-aware = uniform quality |
-| input type | motif+residues | just TB+CIT | hand-crafted motif PDB | auto citrate_tb template | Simpler is better |
+| Parameter | R1 | R2 | R7b | R8-NL (best) | Production B1-4 | Production B5+ | Rationale |
+|-----------|-----|-----|-----|--------------|------------------|----------------|-----------|
+| approach | de novo + unindex | de novo + fixed metal | motif scaffolding | auto template | auto template | auto template + partial co-diffusion | |
+| contig length | 80-140 | 80-110 | 110-150 | 110-150 | 100-130 | 100-130 | Exploration found shorter is better |
+| cfg_scale | none | none | 2.5 | 2.0 | 1.5 | 1.5 | 1.5 best in exploration |
+| fixed_atoms (TB) | ALL | ALL / "" | X1:all | auto (TB:all) | TB:all | TB:all | |
+| fixed_atoms (CIT) | "" | "" | L1:all | auto (CIT:all) | CIT:all | **CIT:O2,O5,O7** | Fix only coordinating O |
+| burial | TB:ALL | TB:ALL | X1:all | TB+CIT | TB+CIT | TB+CIT | |
+| hbond_acceptor | none | CIT:O1-O6 | L1:O1-O6 | auto: all O | all O (bug) | **O1,O3,O4,O6 only** | Exclude metal-coordinating O |
+| hbond_donor | none | none | L1:O7 | none | none | none | |
+| MPNN temp | - | - | 0.2 | 0.1 | 0.05 | 0.05 | Lower = more consistent |
+| MPNN bias | - | - | none | A:-2.0, omit C | A:-2.0, omit C | A:-2.0, omit C | |
+| RF3 context | - | - | seq only | seq + ligand + metal | seq + ligand + metal | seq + ligand + metal | |
+| num_timesteps | - | - | 50 | 200 | 200 | 200 | |
+| step_scale | - | - | 1.5 | 1.5 | 1.0 | 1.0 | 1.0 best in exploration |
 
 ---
 
@@ -904,3 +905,274 @@ Based on Round 8 findings, the NL pipeline should be the default for all Tb-citr
 - Raw outputs: `backend/serverless/output_nl_vs_r7b/`
 - Analysis JSON: `experiments/ln_citrate_scaffold/analysis/round_08_nl_vs_r7b.json`
 - Test script: `backend/serverless/test_nl_vs_r7b.py`
+
+## Production Batches 1-4 (2026-02-01 to 2026-02-02)
+
+### Overview
+
+First 4 production batches using locked best params from exploration rounds 1-5.
+
+**Parameters (best_params.json):**
+- cfg_scale: 1.5, contig: 100-130, bury_ligand: true
+- num_timesteps: 200, step_scale: 1.0
+- MPNN: temperature 0.05, bias_AA A:-2.0, omit_AA C
+- Batches 1-2: 4 seqs/backbone, Batches 3-4: 2 seqs/backbone
+
+### Pipeline Funnel
+
+| Metric | B1 | B2 | B3 | B4 | Cumulative |
+|--------|-----|-----|-----|-----|------------|
+| Backbones | 50 | 50 | 50 | 50 | 200 |
+| Sequences | 200 | 200 | 100 | 100 | 600 |
+| After stability | 98 | 105 | 50 | 49 | 302 |
+| Pass metal_binding | 18 | 22 | 10 | 15 | 65 |
+| Pass strict | 0 | 0 | 0 | 0 | 0 |
+| Pass rate | 18.4% | 21.0% | 20.0% | 30.6% | 21.5% |
+
+### CN=8 Designs (Target for Tb)
+
+| Batch | Count | Best |
+|-------|-------|------|
+| B1 | 1 | seq_0157 (score 0.556) |
+| B2 | 3 | seq_0180 (score 0.579), seq_0178, seq_0049 |
+| B3 | 1 | seq_0057 (score 0.525) |
+| B4 | 2 | seq_0096 (score 0.509), seq_0009 (score 0.495) |
+| **Total** | **7** | |
+
+### Key Production Findings
+
+1. **Chemistry-aware filtering active**: Uses `metal_tb_standard` preset with TB-specific thresholds (CN>=6, pTM>=0.60, pLDDT>=0.70, ligand_contacts>=3) instead of generic `metal_binding`.
+
+2. **Sub-batching solved timeout issue**: Original 50-backbone API calls exceeded 1800s HTTP timeout. Sub-batching at 10/call with 900s timeout works reliably.
+
+3. **2 seqs/bb vs 4 seqs/bb**: Batch 3-4 used 2 seqs/bb. B4 had highest pass rate (30.6%) despite fewer sequences. Suggests backbone quality matters more than sequence sampling depth for metal binding. Reverted to 4 seqs/bb for batch 5+.
+
+4. **No strict filter passes**: All 65 passing designs fail strict tier. The strict preset (CN>=8, pLDDT>=0.80, pTM>=0.75, ligand_contacts>=5) is too stringent for current pipeline. The 7 CN=8 designs fail on other strict metrics (pTM or ligand_contacts).
+
+5. **Composite score ceiling ~0.62**: Top designs cluster at 0.60-0.62. Improving beyond this likely requires structural changes (partial ligand co-diffusion, different contig range).
+
+6. **H-bond acceptor conflict identified**: All citrate O atoms were set as H-bond acceptors, including O2/O5/O7 which coordinate the metal. These coordinating oxygens have lone pairs occupied by metal bonds and should NOT be H-bond acceptors. Fixed for batch 6+.
+
+7. **Partial ligand co-diffusion introduced (batch 5)**: `ligand_fix_atoms: "O2,O5,O7"` fixes only coordinating oxygens while letting non-coordinating atoms (O1,O3,O4,O6) and carbons co-diffuse. This allows RFD3 to optimize citrate orientation for protein H-bonds.
+
+### Parameter Evolution Update
+
+| Parameter | Exploration | Production B1-4 | Production B5+ | Rationale |
+|-----------|-------------|------------------|-----------------|-----------|
+| cfg_scale | 1.5 (best) | 1.5 | 1.5 | Stable |
+| contig | 100-130 | 100-130 | 100-130 | Stable |
+| bury_ligand | false (best) -> true | true | true | bury=true standard |
+| num_timesteps | 200 (best) | 200 | 200 | Stable |
+| step_scale | 1.0 (best) | 1.0 | 1.0 | Stable |
+| MPNN temp | 0.05 (best) | 0.05 | 0.05 | Stable |
+| ligand_fix_atoms | all (default) | all | **O2,O5,O7** | Partial co-diffusion |
+| hbond_acceptor | all O atoms | all O atoms | **O1,O3,O4,O6** | Exclude coordinating |
+| num_seqs | 4 | 4->2->4 | 4 | 4 better coverage |
+
+### Promising PDBs Location
+
+All 65 passing designs saved to: `experiments/ln_citrate_scaffold/final/promising/`
+- Files: `b{NN}_{seq_id}.pdb` + `b{NN}_{seq_id}_metrics.json`
+
+## Production Batch 5 (2026-02-02) - Partial Ligand Co-diffusion
+
+### Parameters Changed
+- `ligand_fix_atoms: "O2,O5,O7"` — fix only coordinating oxygens, let rest co-diffuse
+- `select_hbond_acceptor: all O atoms` — BUG: still included coordinating O2/O5/O7
+
+### Results
+
+| Metric | B5 | B1-B4 avg |
+|--------|-----|-----------|
+| Backbones | 50 | 50 |
+| Sequences | 200 | 150 |
+| After stability | 90 (45%) | 75.5 (50%) |
+| Pass metal_binding | 11 (12.2%) | 16.3 (21.5%) |
+| Pass strict | 0 | 0 |
+
+### Key Findings
+
+1. **Pass rate dropped to 12.2%** from 21.5% average. Partial co-diffusion + H-bond conflict likely caused this.
+
+2. **CN=10 design found**: seq_0197 (pTM=0.713, pLDDT=0.785, LC=19) — highest CN across all production batches. Co-diffusion allows more donors to organize around metal.
+
+3. **CN=8 design**: seq_0050 (pTM=0.695, CN=8, LC=13).
+
+4. **Lower stability rate**: 45% vs 50% average. Co-diffusion may produce less stable backbones since ligand position is partially uncertain.
+
+5. **H-bond acceptor bug impact**: Conditioning H-bonds on O2/O5/O7 (which are metal-coordinating) conflicts with metal coordination. The model tries to place protein H-bond donors near these atoms AND maintain metal-O bonds simultaneously. **Fixed for batch 6+** — only O1,O3,O4,O6 are H-bond acceptors.
+
+## Production Batch 6 (2026-02-02) - H-bond Fix + Partial Co-diffusion
+
+### Results
+
+| Metric | B6 | B5 | B1-4 avg |
+|--------|-----|-----|----------|
+| Pass metal_binding | 10 (9.7%) | 11 (12.2%) | 16.3 (21.5%) |
+| CN=8+ | 0 | 2 | ~2 |
+| Best score | 0.579 | 0.612 | 0.622 |
+
+### Conclusion: Partial ligand co-diffusion HURTS pass rate
+
+The H-bond acceptor fix did NOT recover pass rate — it dropped further from 12.2% to 9.7%. This confirms **partial co-diffusion itself is the problem**, not the H-bond conflict.
+
+When non-coordinating citrate atoms diffuse freely:
+- Citrate position becomes less deterministic
+- MPNN gets a less stable reference for sequence design
+- RF3 sees more positional uncertainty
+- Result: lower CN (max 7 vs 10 in B5), lower pTM, fewer passing designs
+
+### Action: Reverted to all-fixed ligand for B7+
+
+Removed `ligand_fix_atoms` from best_params.json. B7+ returns to fully fixed citrate (the B1-B4 approach with ~21.5% pass rate).
+
+## Production Batch 7 (2026-02-02) - Reverted to All-Fixed
+
+### Results
+
+| Metric | B7 | B5-B6 avg | B1-B4 avg |
+|--------|-----|-----------|-----------|
+| Pass metal_binding | 21 (19.4%) | 10.5 (11.0%) | 16.3 (21.5%) |
+| CN=8+ | 1 | 1 | ~2 |
+| Best score | 0.604 | 0.596 | 0.622 |
+
+**Pass rate recovered to 19.4%** — confirms all-fixed ligand is the correct approach.
+
+Notable: seq_0196 (CN=8, LC=26, pTM=0.827) — backbone b07_048 produced 3 top-10 designs.
+
+## Production Batch 8 (2026-02-02)
+
+- Pass: 16/91 (17.6%), Best score: 0.585
+- 2 CN=8 designs (seq_0178: pTM=0.815, seq_0102: pTM=0.700)
+- Stable in expected range, no anomalies
+
+## Production Batch 9 (2026-02-02)
+
+- Pass: 20/101 (20.0%), Best score: 0.620
+- Top design: seq_0138 (pTM=0.901, pLDDT=0.864, CN=7, LC=13) — 2nd best across all batches
+- Consistent with B7-B8, confirms all-fixed approach is stable
+
+## Production Batch 10 (2026-02-02) - Best Batch
+
+- Pass: 30/104 (28.8%), Best score: 0.604
+- **Highest pass rate across all 10 batches**
+- Natural variance — same params as B7-B9 but happened to get better backbones
+- Notable: seq_0065 had pTM=0.892 but only CN=4 (failed filter)
+
+## Final Production Summary (B1-B10)
+
+### Full Funnel
+
+| Stage | Count | Rate |
+|-------|-------|------|
+| Backbones generated | 500 | — |
+| Sequences designed | 1,800 | 3.6 seq/bb avg |
+| After stability | 899 | 50.0% |
+| Pass metal_binding | 173 | 19.2% |
+| Pass strict | 0 | 0% |
+
+### Per-Batch Summary
+
+| Batch | Pass | Rate | CN=8+ | Best Score | Notes |
+|-------|------|------|-------|------------|-------|
+| B1 | 18 | 18.4% | 1 | 0.622 | Baseline |
+| B2 | 22 | 21.0% | 3 | 0.616 | — |
+| B3 | 10 | 20.0% | 1 | 0.614 | 2 seq/bb test |
+| B4 | 15 | 30.6% | 2 | 0.610 | — |
+| B5 | 11 | 12.2% | 2 | 0.612 | Partial co-diffusion (harmful) |
+| B6 | 10 | 9.7% | 0 | 0.579 | Co-diffusion + H-bond fix |
+| B7 | 21 | 19.4% | 1 | 0.604 | Reverted to all-fixed |
+| B8 | 16 | 17.6% | 2 | 0.585 | — |
+| B9 | 20 | 20.0% | 0 | 0.620 | — |
+| B10 | 30 | 28.8% | 0 | 0.604 | Best batch |
+
+### CN Distribution (173 passing designs)
+
+| CN | Count | % |
+|----|-------|---|
+| 6 | 92 | 53.2% |
+| 7 | 62 | 35.8% |
+| 8 | 16 | 9.2% |
+| 9 | 2 | 1.2% |
+| 10 | 1 | 0.6% |
+
+### Top 10 Candidates (for AF3 cross-validation)
+
+| Rank | Design | pTM | pLDDT | CN | Score |
+|------|--------|-----|-------|----|-------|
+| 1 | b01_seq_0180 | 0.908 | 0.864 | 7 | 0.622 |
+| 2 | b09_seq_0138 | 0.901 | 0.864 | 7 | 0.620 |
+| 3 | b01_seq_0094 | 0.895 | 0.867 | 6 | 0.618 |
+| 4 | b09_seq_0016 | 0.893 | 0.868 | 6 | 0.617 |
+| 5 | b02_seq_0177 | 0.904 | 0.849 | 7 | 0.616 |
+| 6 | b01_seq_0176 | 0.884 | 0.871 | 7 | 0.615 |
+| 7 | b03_seq_0079 | 0.894 | 0.855 | 7 | 0.614 |
+| 8 | b01_seq_0096 | 0.885 | 0.861 | 6 | 0.613 |
+| 9 | b05_seq_0114 | 0.878 | 0.869 | 7 | 0.612 |
+| 10 | b02_seq_0130 | 0.888 | 0.853 | 7 | 0.611 |
+
+### Key Lessons from Full Production Run
+
+1. **All-fixed ligand is optimal**: Partial co-diffusion (B5-B6) dropped pass rate from ~21% to ~10%. Reversion confirmed (~20% for B7-B10).
+
+2. **Pass rate variance is natural**: Range 17.6-30.6% across batches with same params. Mean ~19% excluding B5-B6 experiment.
+
+3. **Strict filter is unreachable**: 0/173 pass strict (CN>=8, pLDDT>=0.80, pTM>=0.75). The CN>=8 threshold is too high for monomeric Tb-citrate designs where CN=6-7 is the empirical optimum.
+
+4. **Score ceiling is ~0.62**: Top designs cluster at 0.61-0.62 composite score. This appears to be a ceiling for current pipeline + params.
+
+5. **B1 produced the best design**: b01_seq_0180 (score 0.622) has held as #1 across all 10 batches. Early batches are not worse than later ones.
+
+6. **CN=7 dominates top designs**: 7 of top 10 have CN=7, suggesting this is the sweet spot for monomeric Tb-citrate binding (3 from citrate + 4 from protein sidechains).
+
+### Recommended Final Configuration
+
+```json
+{
+  "cfg_scale": 1.5,
+  "contig": "100-130",
+  "bury_ligand": true,
+  "num_timesteps": 200,
+  "step_scale": 1.0,
+  "mpnn_temperature": 0.05,
+  "mpnn_bias_AA": "A:-2.0",
+  "mpnn_omit_AA": "C",
+  "filter_preset": "metal_tb_standard"
+}
+```
+
+### Next Steps
+
+1. **AF3 Cross-Validation**: Run top 10 with Ca-citrate (primary) and Tb-citrate (secondary) in AlphaFold3
+2. **Experimental Testing**: Gene synthesis for top candidates
+3. **Strict Filter Revision**: Consider relaxing CN threshold to >=6 for Tb-specific strict preset
+
+---
+
+## AF3 Cross-Validation Phase 1 Results (2026-02-02)
+
+### Screening Summary
+- **All 173 RF3-passing designs** screened through AF3 v3.0.1 (1 seed, noMSA, Ca+Tb variants)
+- Runtime: 46.9 min batch mode (--input_dir), ~8.3s/job on RTX 5090
+- **Ca-citrate pass (iPTM>=0.8, pTM>=0.7):** 42/172 = 24.4%
+- **Tb-citrate pass (iPTM>=0.6, pTM>=0.5):** 132/172 = 76.7%
+- **Both pass:** 41/172 = 23.8%
+
+### Key Findings
+
+1. **RF3 composite score moderately predicts AF3 success**: r=0.40 (Ca) and r=0.42 (Tb)
+2. **Ca and Tb iPTM distributions are nearly identical**: mean 0.703 vs 0.705, avg diff -0.002
+   - Contrary to expectation, Ca (16K training structures) is NOT consistently higher than Tb (62 structures)
+   - AF3 may use the same metal coordination model for both ions given similar ionic radii
+3. **CN does NOT correlate with AF3 performance**: CN=6 has highest Ca pass rate (27%), CN=8 only 19%
+   - High RF3 CN may reflect RF3's own biases rather than ground truth
+   - AF3 evaluates coordination independently
+4. **76.7% Tb pass rate is inflated**: Relaxed Tb threshold (iPTM>=0.6) is too permissive
+   - Tightening to iPTM>=0.8 gives 29 designs — more selective
+5. **Phase 2 candidates**: 65 designs (Ca>=0.8 OR Tb>=0.8), ~81 min for 3-seed validation
+
+### Technical Lessons
+- AF3 noMSA mode requires THREE fields: `unpairedMsa`, `pairedMsa`, `templates` (not just unpairedMsa)
+- JAX 0.5.3 + triton 3.6.0 + `--flash_attention_implementation=xla` for RTX 5090 Blackwell
+- `--input_dir` flag loads model once for all JSONs — 10x faster than per-job invocations
+- UNC paths (`//wsl.localhost/Ubuntu/...`) work for cross-OS Python Path operations

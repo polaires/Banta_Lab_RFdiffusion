@@ -65,6 +65,12 @@ export function ProjectSidebar() {
               tabIndex={0}
               onClick={() => setActiveProject(project.id)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveProject(project.id); }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (window.confirm(`Delete project "${project.name}"?`)) {
+                  deleteProject(project.id);
+                }
+              }}
               className={cn(
                 'w-full flex items-center gap-2 px-2 py-2 rounded text-sm hover:bg-sidebar-accent text-left group transition-colors cursor-pointer',
                 isActive && 'bg-sidebar-accent'

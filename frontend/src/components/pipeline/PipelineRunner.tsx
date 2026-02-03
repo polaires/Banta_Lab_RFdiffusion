@@ -105,25 +105,30 @@ function PipelineRunnerInner({
   const notifiedStepsRef = useRef<Set<string>>(new Set());
   const notifiedCompleteRef = useRef(false);
   const notifiedFailedRef = useRef(false);
+  const restoringRef = useRef(false);
 
   // FIX #14: Try to restore saved state, otherwise initialize fresh
   useEffect(() => {
+    restoringRef.current = true;
     const restored = pipeline.restore(definition);
     if (!restored) {
       pipeline.initialize(definition, initialParams);
       notifiedStepsRef.current = new Set();
     } else {
-      // Pre-populate notified sets so restored steps don't fire duplicate messages
-      const alreadyNotified = new Set<string>();
-      for (const s of pipeline.runtime.steps) {
-        if (s.result && (s.status === 'completed' || s.status === 'paused')) {
-          alreadyNotified.add(s.stepId);
-        }
-      }
-      notifiedStepsRef.current = alreadyNotified;
+      notifiedStepsRef.current = new Set();
     }
     notifiedCompleteRef.current = false;
     notifiedFailedRef.current = false;
+    // Allow one render cycle for restore dispatches to settle before enabling notifications
+    requestAnimationFrame(() => {
+      // After restore settles, mark all currently completed/paused steps as notified
+      for (const s of pipeline.runtime.steps) {
+        if (s.result && (s.status === 'completed' || s.status === 'paused' || s.status === 'skipped')) {
+          notifiedStepsRef.current.add(s.stepId);
+        }
+      }
+      restoringRef.current = false;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definition.id]);
 
@@ -167,8 +172,9 @@ function PipelineRunnerInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRun, pipeline.runtime.status]);
 
-  // FIX #6: Notify on step completion — only once per step
+  // FIX #6: Notify on step completion — only once per step, skip during restore
   useEffect(() => {
+    if (restoringRef.current) return;
     for (const stepState of pipeline.runtime.steps) {
       if (stepState.status === 'paused' && stepState.result && !notifiedStepsRef.current.has(stepState.stepId)) {
         notifiedStepsRef.current.add(stepState.stepId);

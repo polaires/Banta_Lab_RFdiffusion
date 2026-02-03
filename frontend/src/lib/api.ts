@@ -2245,8 +2245,16 @@ class FoundryAPI {
     if (result.output?.status === 'failed') {
       throw new Error(result.output.error || 'Ligand feature analysis failed');
     }
+    if (result.status === 'failed') {
+      throw new Error(result.error || 'Ligand feature analysis failed');
+    }
 
-    return result.output?.result || result.result;
+    const data = result.output?.result || result.result;
+    if (!data) {
+      console.warn('[API] analyzeLigandFeatures: unexpected response shape:', JSON.stringify(result).slice(0, 200));
+      throw new Error('Backend returned unexpected response format for ligand feature analysis');
+    }
+    return data;
   }
 
   /**
@@ -2279,17 +2287,15 @@ class FoundryAPI {
     typo_corrections: string[];
     parser_type: 'ai' | 'fallback';
   }> {
-    const endpoint = this.getRunsyncEndpoint();
-    console.log('[API] Parsing intent with AI:', query.substring(0, 80), '| mode:', this.mode, '| endpoint:', endpoint);
+    // Call the Vercel edge function directly — no RunPod / GPU needed
+    const endpoint = '/api/ai-parse';
+    console.log('[API] Parsing intent with AI:', query.substring(0, 80), '| endpoint:', endpoint);
 
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        input: {
-          task: 'ai_parse',
-          query,
-        }
+        input: { query },
       }),
     });
 
@@ -2300,7 +2306,15 @@ class FoundryAPI {
     }
 
     const result = await response.json();
+    console.log('[API] AI parse response status:', result.output?.status, '| has result:', !!result.output?.result);
+
+    if (result.error) {
+      console.error('[API] AI parse error in response:', result.error);
+      throw new Error(`AI parse failed: ${result.error}`);
+    }
+
     if (result.output?.status === 'failed') {
+      console.error('[API] AI parse output failed:', result.output.error);
       throw new Error(result.output.error || 'AI parse failed');
     }
 

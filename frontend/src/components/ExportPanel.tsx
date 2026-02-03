@@ -19,6 +19,9 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
 
   if (!pdbContent) return null;
 
+  // Detect if "pdbContent" is actually CIF format (RF3 CLI may return CIF)
+  const isCifContent = pdbContent.trimStart().startsWith('data_');
+
   const downloadBlob = (content: string, name: string, type: string) => {
     const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
@@ -32,10 +35,20 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
   };
 
   const handleExportPdb = () => {
+    if (isCifContent) {
+      // Content is actually CIF — download with correct extension
+      downloadBlob(pdbContent, `${filename}.cif`, 'text/plain');
+      return;
+    }
     downloadBlob(pdbContent, `${filename}.pdb`, 'text/plain');
   };
 
   const handleExportCif = async () => {
+    // If pdbContent is already CIF, use it directly
+    if (isCifContent) {
+      downloadBlob(pdbContent, `${filename}.cif`, 'text/plain');
+      return;
+    }
     // If we already have CIF content, use it
     if (cifContent) {
       downloadBlob(cifContent, `${filename}.cif`, 'text/plain');
@@ -77,13 +90,13 @@ export function ExportPanel({ pdbContent, cifContent, source, filename = 'struct
       </h4>
 
       <div className="flex flex-wrap gap-2">
-        {/* PDB Export */}
+        {/* PDB Export — label reflects actual format */}
         <button
           onClick={handleExportPdb}
           className="px-3 py-1.5 bg-card border border-border hover:bg-muted rounded-lg text-sm text-foreground flex items-center gap-1.5 transition-colors"
         >
           <FileText className="w-3.5 h-3.5 text-muted-foreground" />
-          PDB
+          {isCifContent ? 'CIF' : 'PDB'}
         </button>
 
         {/* CIF Export */}

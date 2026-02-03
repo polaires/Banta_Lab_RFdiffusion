@@ -149,6 +149,10 @@ RUN pip install --upgrade --pre torch torchvision --index-url https://download.p
 # Install RDKit for SMILES-to-SDF conversion (needed for GNINA)
 RUN uv pip install rdkit
 
+# Install Dimorphite-DL for pH-aware protonation state prediction
+# Used by ligand_donors.py to determine correct protonation at physiological pH
+RUN uv pip install dimorphite-dl
+
 # Install PyRosetta for structure refinement (FastRelax)
 # Requires academic license - register at https://www.pyrosetta.org/home/licensing-pyrosetta
 # Using pyrosetta-installer for automatic installation
@@ -215,6 +219,23 @@ COPY ligand_resolver.py /app/
 COPY rfd3_config_generator.py /app/
 COPY scaffolding_workflow.py /app/
 COPY scaffold_search.py /app/
+
+# Copy NL pipeline core modules (parser, rules, config, filters)
+COPY nl_design_parser.py /app/
+COPY design_rules.py /app/
+COPY filter_evaluator.py /app/
+COPY enzyme_chemistry.py /app/
+
+# Copy modular pipeline system
+COPY pipeline_types.py /app/
+COPY pipeline_modules/ /app/pipeline_modules/
+COPY workflow_runner.py /app/
+COPY iteration_strategies.py /app/
+COPY inference_backend.py /app/
+
+# Copy design history and lesson detection
+COPY design_history.py /app/
+COPY lesson_detector.py /app/
 
 # Copy utils package (SASA calculator, DSSP for secondary structure)
 COPY utils/ /app/utils/

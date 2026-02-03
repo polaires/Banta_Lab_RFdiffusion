@@ -94,6 +94,7 @@ class MetalBindingConfig:
     num_timesteps: Optional[int] = None   # Default 200 in build_rfd3_params
     step_scale: Optional[float] = None    # Default 1.5 in build_rfd3_params
     gamma_0: Optional[float] = None       # RFD3 gamma_0 param
+    ligand_fix_atoms: Optional[str] = None  # Partial ligand fixing: "O2,O5,O7" or None for "all"
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -383,12 +384,17 @@ def build_rfd3_params(
     # Default fixed atoms: fix metal and ligand completely
     # Use RESIDUE NAMES (e.g., "TB", "CIT") not chain+resnum ("X1", "L1")
     # Foundry SDK resolves components by residue name from the atom array
+    #
+    # Partial ligand fixing: config.ligand_fix_atoms can specify which atoms
+    # to fix (e.g., "O2,O5,O7" for coordinating oxygens only). Non-listed
+    # atoms co-diffuse with the protein, allowing optimal H-bond contacts.
     if fixed_atoms is None:
         fixed_atoms = {
-            config.metal.upper(): "all",  # Fix metal position
+            config.metal.upper(): "all",  # Metal center: always fully fixed
         }
         if config.ligand:
-            fixed_atoms[config.ligand.upper()] = "all"  # Fix ligand position
+            ligand_fix = getattr(config, "ligand_fix_atoms", None) or "all"
+            fixed_atoms[config.ligand.upper()] = ligand_fix
 
     # Default buried atoms: bury metal AND ligand for pocket formation
     # Both must be buried so RFD3 wraps protein around the entire complex
@@ -398,8 +404,18 @@ def build_rfd3_params(
             buried_atoms[config.ligand.upper()] = "all"
 
     # Default H-bond acceptors — extracted dynamically from ligand atoms in PDB
+    # IMPORTANT: Exclude coordinating atoms (those in ligand_fix_atoms) from H-bond
+    # acceptors. Their lone pairs are occupied by metal coordination bonds, so
+    # conditioning H-bonds on them conflicts with the metal binding geometry.
     if hbond_acceptors is None and config.ligand:
-        hbond_acceptors = get_ligand_hbond_atoms(config.ligand, motif_pdb=motif_pdb)
+        ligand_fix = getattr(config, "ligand_fix_atoms", None)
+        coordinating_atoms = set()
+        if ligand_fix and ligand_fix != "all":
+            coordinating_atoms = {a.strip() for a in ligand_fix.split(",")}
+        hbond_acceptors = get_ligand_hbond_atoms(
+            config.ligand, motif_pdb=motif_pdb,
+            exclude_atoms=coordinating_atoms,
+        )
 
     params = {
         "pdb_content": motif_pdb,
@@ -434,7 +450,11 @@ def build_rfd3_params(
     return params
 
 
-def get_ligand_hbond_atoms(ligand: str, motif_pdb: Optional[str] = None) -> Optional[Dict[str, str]]:
+def get_ligand_hbond_atoms(
+    ligand: str,
+    motif_pdb: Optional[str] = None,
+    exclude_atoms: Optional[set] = None,
+) -> Optional[Dict[str, str]]:
     """
     Get H-bond acceptor atoms for a ligand by extracting O/N atoms from the PDB.
 
@@ -444,11 +464,14 @@ def get_ligand_hbond_atoms(ligand: str, motif_pdb: Optional[str] = None) -> Opti
     Args:
         ligand: Ligand code (CIT, PQQ, etc.)
         motif_pdb: PDB content containing the ligand (optional)
+        exclude_atoms: Set of atom names to exclude (e.g. coordinating atoms
+            whose lone pairs are occupied by metal bonds)
 
     Returns:
         Dict for select_hbond_acceptor parameter, or None
     """
     ligand_upper = ligand.upper()
+    exclude = exclude_atoms or set()
 
     # Extract O and N atoms from ligand HETATM records in the PDB
     if motif_pdb:
@@ -463,7 +486,11 @@ def get_ligand_hbond_atoms(ligand: str, motif_pdb: Optional[str] = None) -> Opti
             element = line[76:78].strip() if len(line) >= 78 else ""
             # H-bond acceptors are O and N atoms
             if element in ("O", "N") or atom_name.startswith("O") or atom_name.startswith("N"):
-                acceptor_atoms.append(atom_name)
+                if atom_name not in exclude:
+                    acceptor_atoms.append(atom_name)
+                else:
+                    print(f"[HBond] Excluding {atom_name} from acceptors "
+                          f"(metal-coordinating)")
 
         if acceptor_atoms:
             atoms_str = ",".join(sorted(set(acceptor_atoms)))

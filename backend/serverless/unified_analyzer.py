@@ -52,6 +52,12 @@ def sanitize_pdb(pdb_content: str, remove_duplicates: bool = True) -> tuple:
     """
     import math
 
+    # Guard: detect CIF content that was accidentally passed as PDB
+    if pdb_content and pdb_content.strip().startswith("data_"):
+        import logging as _log
+        _log.getLogger(__name__).warning("sanitize_pdb received CIF content instead of PDB — skipping sanitization")
+        return pdb_content, ["warning: content is CIF format, not PDB"]
+
     lines = pdb_content.split('\n')
     result_lines = []
     issues_fixed = []
@@ -203,6 +209,113 @@ def sanitize_pdb(pdb_content: str, remove_duplicates: bool = True) -> tuple:
         issues_fixed.insert(0, f"renumbered {atom_serial - 1} atoms sequentially")
 
     return '\n'.join(result_lines), issues_fixed
+
+
+def validate_metal_coordination(
+    pdb_content: str,
+    metal: str,
+    expected_cn: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Validate metal coordination geometry in a predicted structure.
+
+    Parses PDB for metal HETATM position, finds coordinating atoms within 3.0A,
+    and calls metal_chemistry.validate_coordination() to check bond distances,
+    coordination number, and geometry.
+
+    Args:
+        pdb_content: PDB file content (e.g., RF3 prediction output)
+        metal: Metal element symbol (e.g., "TB", "ZN", "CA")
+        expected_cn: Expected coordination number (auto-detected if None)
+
+    Returns:
+        Dict with keys:
+            - valid: bool - whether coordination geometry is acceptable
+            - coordination_number: int - actual CN found
+            - distances: List[float] - metal-ligand distances
+            - geometry_match: str or None - best matching ideal geometry
+            - issues: List[str] - list of detected problems
+    """
+    import math
+
+    metal_upper = metal.upper()
+
+    # Find metal position
+    metal_pos = None
+    for line in pdb_content.split('\n'):
+        if not line.startswith('HETATM'):
+            continue
+        try:
+            res_name = line[17:20].strip()
+            element = line[76:78].strip() if len(line) >= 78 else line[12:16].strip()
+            if res_name.upper() == metal_upper or element.upper() == metal_upper:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                metal_pos = (x, y, z)
+                break
+        except (ValueError, IndexError):
+            continue
+
+    if metal_pos is None:
+        return {
+            "valid": False,
+            "coordination_number": 0,
+            "distances": [],
+            "geometry_match": None,
+            "issues": [f"Metal {metal_upper} not found in PDB"],
+        }
+
+    # Find coordinating atoms within 3.0A (O, N, S atoms)
+    coord_positions = []
+    coord_atoms = []
+    mx, my, mz = metal_pos
+
+    for line in pdb_content.split('\n'):
+        if not (line.startswith('ATOM') or line.startswith('HETATM')):
+            continue
+        try:
+            element = line[76:78].strip() if len(line) >= 78 else line[12:16].strip()[0]
+            if element.upper() not in ('O', 'N', 'S'):
+                continue
+            x = float(line[30:38])
+            y = float(line[38:46])
+            z = float(line[46:54])
+            dist = math.sqrt((x - mx)**2 + (y - my)**2 + (z - mz)**2)
+            if dist < 3.0 and dist > 0.5:  # Within coordination distance
+                coord_positions.append((x, y, z))
+                atom_name = line[12:16].strip()
+                res_name = line[17:20].strip()
+                res_num = line[22:26].strip()
+                coord_atoms.append(f"{res_name}{res_num}:{atom_name}")
+        except (ValueError, IndexError):
+            continue
+
+    # Call metal_chemistry.validate_coordination if available
+    try:
+        from metal_chemistry import validate_coordination
+        result = validate_coordination(coord_positions, metal_pos, metal_upper, expected_cn)
+        result["coordinating_atoms"] = coord_atoms
+        return result
+    except ImportError:
+        # Fallback: basic validation
+        actual_cn = len(coord_positions)
+        distances = [
+            math.sqrt((x - mx)**2 + (y - my)**2 + (z - mz)**2)
+            for x, y, z in coord_positions
+        ]
+        issues = []
+        if expected_cn and actual_cn < expected_cn:
+            issues.append(f"Low CN: found {actual_cn}, expected {expected_cn}")
+
+        return {
+            "valid": len(issues) == 0 and actual_cn >= 3,
+            "coordination_number": actual_cn,
+            "distances": distances,
+            "geometry_match": None,
+            "issues": issues,
+            "coordinating_atoms": coord_atoms,
+        }
 
 
 class UnifiedDesignAnalyzer:

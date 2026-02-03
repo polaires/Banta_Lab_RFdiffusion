@@ -2505,6 +2505,7 @@ def run_rf3_python_api(
                     pred = {
                         "filename": f"{name}_{idx}.pdb" if len(results) > 1 else f"{name}.pdb",
                         "content": pdb_out,
+                        "format": "pdb",
                     }
 
                     try:
@@ -2642,13 +2643,46 @@ def run_rf3_cli(
                     if filename.endswith((".pdb", ".cif")):
                         with open(filepath) as f:
                             content = f.read()
-                            predictions.append({"filename": filename, "content": content})
-                            # Extract pLDDT from CIF B-factors
-                            if filename.endswith(".cif"):
-                                plddt_values = extract_plddt_from_cif(content)
-                                if plddt_values:
-                                    confidences["plddt_per_residue"] = plddt_values
-                                    confidences["mean_plddt"] = sum(plddt_values) / len(plddt_values)
+
+                        pred = {"filename": filename, "content": content}
+
+                        # CIF files: convert to PDB so downstream consumers get standard PDB format
+                        if filename.endswith(".cif"):
+                            plddt_values = extract_plddt_from_cif(content)
+                            if plddt_values:
+                                confidences["plddt_per_residue"] = plddt_values
+                                confidences["mean_plddt"] = sum(plddt_values) / len(plddt_values)
+                            # Store original CIF, convert content to PDB
+                            pred["cif_content"] = content
+                            try:
+                                from biotite.structure.io.pdb import PDBFile as BiotitePDBFile
+                                try:
+                                    # Biotite >= 1.0 API
+                                    from biotite.structure.io.pdbx import CIFFile as BiotiteCIFFile
+                                    cif_file = BiotiteCIFFile.read(filepath)
+                                    block = list(cif_file.values())[0]
+                                    from biotite.structure.io.pdbx import get_structure as pdbx_get_structure
+                                    atom_array = pdbx_get_structure(block, model=1)
+                                except ImportError:
+                                    # Biotite < 1.0 API
+                                    from biotite.structure.io.pdbx import PDBxFile, get_structure as pdbx_get_structure
+                                    cif_file = PDBxFile.read(filepath)
+                                    atom_array = pdbx_get_structure(cif_file, model=1)
+                                pdb_file = BiotitePDBFile()
+                                pdb_file.set_structure(atom_array)
+                                buf = io.StringIO()
+                                pdb_file.write(buf)
+                                pred["content"] = buf.getvalue()
+                                pred["filename"] = filename.replace(".cif", ".pdb")
+                            except Exception as e:
+                                print(f"[RF3] CIF→PDB conversion failed ({e}), keeping CIF as content")
+                                pred["format"] = "cif"  # Flag so consumers know content is CIF
+                            else:
+                                pred["format"] = "pdb"
+                        else:
+                            pred["format"] = "pdb"
+
+                        predictions.append(pred)
                     elif filename.endswith(".json"):
                         # Check for confidence JSON files
                         try:

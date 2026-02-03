@@ -176,6 +176,25 @@ class Analyzer:
                 detailed = self._run_unified_analysis(context, pred)
                 if detailed:
                     result["detailed_analysis"] = detailed
+
+                    # Enhancement 7: Extract coordination validation for filtering
+                    coord_val = detailed.get("coordination_validation")
+                    if coord_val:
+                        result["coordination_valid"] = coord_val.get("valid", True)
+                        result["coordination_number"] = coord_val.get("coordination_number", 0)
+                        # Re-check coordination_valid against thresholds
+                        if "coordination_valid" in thresholds:
+                            thresh = thresholds["coordination_valid"]
+                            if isinstance(thresh, dict) and "equals" in thresh:
+                                if result["coordination_valid"] != thresh["equals"]:
+                                    passed = False
+                                    failed_filters.append(
+                                        f"coordination_valid={result['coordination_valid']}, "
+                                        f"expected {thresh['equals']}"
+                                    )
+                                    result["passed"] = passed
+                                    result["failed_filters"] = failed_filters
+
             except Exception as e:
                 logger.debug(f"Unified analysis failed: {e}")
         else:
@@ -201,16 +220,48 @@ class Analyzer:
             from unified_analyzer import UnifiedDesignAnalyzer
             analyzer = UnifiedDesignAnalyzer()
 
-            # Get reference PDB for RMSD
-            ref_pdb = None
-            if context.backbone_pdbs and pred.backbone_index < len(context.backbone_pdbs):
-                ref_pdb = context.backbone_pdbs[pred.backbone_index]
+            # Get metal type from intent for analysis
+            intent = context.design_intent
+            metal_type = getattr(intent, 'metal_type', None) if intent else None
 
-            return analyzer.analyze(
-                predicted_pdb=pred.predicted_pdb,
-                reference_pdb=ref_pdb,
-                sequence=pred.sequence,
+            # Build design_params dict from context
+            design_params = dict(context.params) if context.params else {}
+
+            result = analyzer.analyze(
+                pdb_content=pred.predicted_pdb,
+                design_params=design_params,
+                metal_type=metal_type,
             )
+
+            # Enhancement 7: Post-design coordination validation
+            if metal_type and pred.predicted_pdb:
+                try:
+                    from unified_analyzer import validate_metal_coordination
+                    from metal_chemistry import get_coordination_number_range, METAL_DATABASE
+
+                    expected_cn = None
+                    metal_upper = metal_type.upper()
+                    if metal_upper in METAL_DATABASE:
+                        default_ox = METAL_DATABASE[metal_upper].get("default_oxidation", 2)
+                        cn_min, cn_max = get_coordination_number_range(metal_upper, default_ox)
+                        expected_cn = cn_min
+
+                    coord_result = validate_metal_coordination(
+                        pred.predicted_pdb, metal_type, expected_cn
+                    )
+                    if result is None:
+                        result = {}
+                    result["coordination_validation"] = coord_result
+
+                    if not coord_result.get("valid", True):
+                        logger.info(
+                            f"Coordination validation failed for backbone {pred.backbone_index}: "
+                            f"{coord_result.get('issues', [])}"
+                        )
+                except Exception as e:
+                    logger.debug(f"Coordination validation failed: {e}")
+
+            return result
         except ImportError:
             return None
         except Exception as e:

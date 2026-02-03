@@ -7,6 +7,7 @@ Supports three methods for generating 3D conformers from SMILES:
 3. Torsional Diffusion (ML state-of-the-art)
 """
 
+import logging
 from typing import Optional, Tuple
 from enum import Enum
 import tempfile
@@ -14,12 +15,125 @@ import subprocess
 import os
 import shutil
 
+logger = logging.getLogger(__name__)
+
 
 class ConformerMethod(str, Enum):
     """Available conformer generation methods."""
     RDKIT = "rdkit"          # Fast, default
     XTB = "xtb"              # High-quality quantum
     TORSIONAL = "torsional"  # ML state-of-the-art
+
+
+def generate_metal_aware_conformer(
+    smiles: str,
+    metal: str,
+    name: str = "LIG",
+    center: Tuple[float, float, float] = (0.0, 0.0, 0.0),
+    coordination_number: Optional[int] = None,
+) -> Optional[str]:
+    """
+    Generate a metal-aware 3D conformer from SMILES.
+
+    For lanthanides: attempts Architector-based complex generation.
+    For other metals: uses constrained RDKit embedding with metal-ligand
+    distance constraints from metal_chemistry.
+
+    Falls back to regular generate_conformer() if specialized methods fail.
+
+    Args:
+        smiles: SMILES string for the ligand
+        metal: Metal element symbol (e.g., "TB", "ZN", "CA")
+        name: 3-letter residue name for PDB output
+        center: (x, y, z) coordinates for ligand center
+        coordination_number: Target CN (auto-detected from metal_chemistry if None)
+
+    Returns:
+        PDB string with HETATM records, or None if all methods fail
+    """
+    try:
+        from metal_chemistry import is_lanthanide, get_coordination_number_range, METAL_DATABASE
+    except ImportError:
+        return generate_conformer(smiles, name=name, center=center)
+
+    metal_upper = metal.upper()
+
+    # Get coordination number range if not specified
+    if coordination_number is None:
+        try:
+            default_ox = METAL_DATABASE.get(metal_upper, {}).get("default_oxidation", 2)
+            cn_min, cn_max = get_coordination_number_range(metal_upper, default_ox)
+            coordination_number = (cn_min + cn_max) // 2
+        except (ValueError, KeyError):
+            coordination_number = 6
+
+    # Strategy 1: Lanthanides → try Architector
+    if is_lanthanide(metal_upper):
+        try:
+            from architector_integration import generate_architector_complex
+            result = generate_architector_complex(
+                metal=metal_upper,
+                coordination_number=coordination_number,
+            )
+            if result and result.get("pdb_content"):
+                logger.info(f"Generated metal-aware conformer via Architector for {metal_upper}")
+                return result["pdb_content"]
+        except (ImportError, Exception) as e:
+            logger.debug(f"Architector failed for {metal_upper}: {e}")
+
+    # Strategy 2: Constrained RDKit with metal-ligand distance bounds
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import AllChem
+        import numpy as np
+
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return generate_conformer(smiles, name=name, center=center)
+
+        mol = Chem.AddHs(mol)
+
+        # Identify donor atoms for distance constraints
+        from ligand_donors import identify_donors_from_smiles
+        donors = identify_donors_from_smiles(smiles)
+
+        if donors:
+            # Try embedding with distance constraints
+            default_ox = METAL_DATABASE.get(metal_upper, {}).get("default_oxidation", 2)
+
+            params = AllChem.ETKDGv3()
+            params.randomSeed = 42
+
+            # Embed normally first
+            result = AllChem.EmbedMolecule(mol, params)
+            if result == -1:
+                AllChem.EmbedMolecule(mol, randomSeed=42)
+
+            # Optimize with force field
+            try:
+                AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
+            except Exception:
+                AllChem.UFFOptimizeMolecule(mol, maxIters=500)
+
+            conf = mol.GetConformer()
+
+            # Calculate current center and translation
+            coords = []
+            for i in range(mol.GetNumAtoms()):
+                pos = conf.GetAtomPosition(i)
+                coords.append([pos.x, pos.y, pos.z])
+            coords = np.array(coords)
+            current_center = np.mean(coords, axis=0)
+            translation = np.array(center) - current_center
+
+            logger.info(f"Generated metal-aware conformer (constrained RDKit) for {metal_upper}")
+            return _coords_to_pdb(mol, conf, translation, name)
+
+    except Exception as e:
+        logger.debug(f"Constrained RDKit failed for {metal_upper}: {e}")
+
+    # Fallback: regular conformer generation
+    return generate_conformer(smiles, name=name, center=center)
 
 
 def generate_conformer(

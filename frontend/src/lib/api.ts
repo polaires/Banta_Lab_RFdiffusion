@@ -629,6 +629,72 @@ class FoundryAPI {
     return `/api/traditional/runsync?url=${encodeURIComponent(this.baseUrl)}`;
   }
 
+  /**
+   * Submit a task to RunPod asynchronously and poll for the result.
+   * Avoids Vercel function timeout on Hobby plan by splitting the
+   * blocking runsync call into: async submit (fast) + client-side polling (fast per request).
+   * Falls back to runsync in traditional (local) mode where there is no timeout issue.
+   */
+  private async runpodAsync(input: Record<string, unknown>): Promise<any> {
+    if (this.mode !== 'serverless') {
+      // Traditional mode: runsync works fine (no Vercel timeout)
+      const response = await fetch(this.getRunsyncEndpoint(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input }),
+      });
+      if (!response.ok) {
+        const errText = await response.text().catch(() => response.statusText);
+        throw new Error(`Backend error (${response.status}): ${errText}`);
+      }
+      return response.json();
+    }
+
+    // Serverless mode: async submit + poll
+    const submitRes = await fetch('/api/runpod/async', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input }),
+    });
+    if (!submitRes.ok) {
+      const errText = await submitRes.text().catch(() => submitRes.statusText);
+      throw new Error(`Async submit failed (${submitRes.status}): ${errText}`);
+    }
+    const { job_id } = await submitRes.json();
+    console.log('[API] Async job submitted:', job_id, '| task:', input.task);
+
+    // Poll for result
+    const maxPollTime = 5 * 60 * 1000; // 5 minutes
+    const pollInterval = 2000;
+    const start = Date.now();
+
+    while (Date.now() - start < maxPollTime) {
+      await new Promise(r => setTimeout(r, pollInterval));
+
+      const statusRes = await fetch(`/api/runpod/jobs/${job_id}`);
+      if (!statusRes.ok) {
+        console.warn('[API] Poll error for', job_id, statusRes.status);
+        continue;
+      }
+
+      const status = await statusRes.json();
+      if (status.status === 'completed' || status.status === 'failed') {
+        // Re-wrap into the same shape runsync returns: { output: { status, result, error } }
+        return {
+          id: job_id,
+          status: status.status === 'completed' ? 'COMPLETED' : 'FAILED',
+          output: {
+            status: status.status,
+            result: status.result,
+            error: status.error,
+          },
+        };
+      }
+    }
+
+    throw new Error(`Job ${job_id} timed out after ${Math.round(maxPollTime / 60000)} minutes`);
+  }
+
   // Health check
   async checkHealth(): Promise<HealthResponse> {
     if (this.mode === 'serverless') {
@@ -2159,26 +2225,13 @@ class FoundryAPI {
     ligand_fixing_strategy?: string;
     coordination_donors?: string[];
   }> {
-    const endpoint = this.getRunsyncEndpoint();
     console.log('[API] Resolving ligand:', request.ligand_name, '| metal:', request.metal_type || 'none');
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        input: {
-          task: 'resolve_ligand',
-          ...request,
-        }
-      }),
+    const result = await this.runpodAsync({
+      task: 'resolve_ligand',
+      ...request,
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      throw new Error(`Ligand resolution failed (${response.status}): ${errorBody || response.statusText}`);
-    }
-
-    const result = await response.json();
     if (result.output?.status === 'failed') {
       throw new Error(result.output.error || 'Ligand resolution failed');
     }
@@ -2222,36 +2275,30 @@ class FoundryAPI {
     pdb_evidence: string[];
     ligand_pdb_content: string | null;
   }> {
-    const endpoint = this.getRunsyncEndpoint();
     console.log('[API] Analyzing ligand features:', request.ligand_name, '| metal:', request.metal_type || 'none');
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        input: {
-          task: 'analyze_ligand_features',
-          ...request,
-        }
-      }),
+    const result = await this.runpodAsync({
+      task: 'analyze_ligand_features',
+      ...request,
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text().catch(() => '');
-      throw new Error(`Ligand feature analysis failed (${response.status}): ${errorBody || response.statusText}`);
+    console.log('[API] analyzeLigandFeatures response:', JSON.stringify(result).slice(0, 300));
+
+    // Check for top-level failure (traditional backend format)
+    if (result.status === 'FAILED' || result.status === 'failed') {
+      console.error('[API] analyzeLigandFeatures backend error:', result.error);
+      throw new Error(result.error || 'Ligand feature analysis failed');
     }
 
-    const result = await response.json();
+    // Check for nested failure (RunPod serverless format)
     if (result.output?.status === 'failed') {
+      console.error('[API] analyzeLigandFeatures backend error:', result.output.error);
       throw new Error(result.output.error || 'Ligand feature analysis failed');
-    }
-    if (result.status === 'failed') {
-      throw new Error(result.error || 'Ligand feature analysis failed');
     }
 
     const data = result.output?.result || result.result;
     if (!data) {
-      console.warn('[API] analyzeLigandFeatures: unexpected response shape:', JSON.stringify(result).slice(0, 200));
+      console.warn('[API] analyzeLigandFeatures: unexpected response shape:', JSON.stringify(result).slice(0, 300));
       throw new Error('Backend returned unexpected response format for ligand feature analysis');
     }
     return data;

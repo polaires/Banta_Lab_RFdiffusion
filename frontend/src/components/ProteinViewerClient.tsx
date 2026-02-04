@@ -79,6 +79,8 @@ let globalContainer: HTMLDivElement | null = null;
 let globalStructureRef: StateObjectRef | null = null;
 let globalErrorHandler: ((event: ErrorEvent) => void) | null = null;
 let globalUnhandledRejectionHandler: ((event: PromiseRejectionEvent) => void) | null = null;
+// Mutex to prevent concurrent Molstar state operations (load/reset/focus)
+let globalOperationInProgress: Promise<void> | null = null;
 
 export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewerClientProps>(
   function ProteinViewerClient(
@@ -137,6 +139,19 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
     // Focus on a metal site
     const focusOnMetal = useCallback(async (index: number) => {
       if (!globalPlugin || !metalCoordination || !metalCoordination[index] || !pdbContent) return;
+
+      // Wait for any in-progress operation to complete
+      if (globalOperationInProgress) {
+        console.log('[ProteinViewer] focusOnMetal waiting for previous operation...');
+        try {
+          await globalOperationInProgress;
+        } catch {
+          // Previous operation failed, continue anyway
+        }
+      }
+
+      let resolveOperation: () => void;
+      globalOperationInProgress = new Promise(resolve => { resolveOperation = resolve; });
 
       const plugin = globalPlugin;
       const metal = metalCoordination[index];
@@ -276,6 +291,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
       } catch (err) {
         console.error('[ProteinViewer] Failed to focus on metal:', err);
+      } finally {
+        resolveOperation!();
+        globalOperationInProgress = null;
       }
     }, [pdbContent, metalCoordination, focusSettings]);
 
@@ -288,6 +306,19 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
     // Focus on a ligand site
     const focusOnLigand = useCallback(async (index: number) => {
       if (!globalPlugin || !ligandData || !ligandData.ligandDetails[index] || !pdbContent) return;
+
+      // Wait for any in-progress operation to complete
+      if (globalOperationInProgress) {
+        console.log('[ProteinViewer] focusOnLigand waiting for previous operation...');
+        try {
+          await globalOperationInProgress;
+        } catch {
+          // Previous operation failed, continue anyway
+        }
+      }
+
+      let resolveOperation: () => void;
+      globalOperationInProgress = new Promise(resolve => { resolveOperation = resolve; });
 
       const plugin = globalPlugin;
       const ligand = ligandData.ligandDetails[index];
@@ -442,6 +473,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
 
       } catch (err) {
         console.error('[ProteinViewer] Failed to focus on ligand:', err);
+      } finally {
+        resolveOperation!();
+        globalOperationInProgress = null;
       }
     }, [pdbContent, ligandData, focusSettings, renderInteractionLines]);
 
@@ -541,6 +575,19 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
     const resetView = useCallback(async () => {
       if (!globalPlugin || !pdbContent) return;
 
+      // Wait for any in-progress operation to complete (prevents race conditions)
+      if (globalOperationInProgress) {
+        console.log('[ProteinViewer] resetView waiting for previous operation...');
+        try {
+          await globalOperationInProgress;
+        } catch {
+          // Previous operation failed, continue anyway
+        }
+      }
+
+      let resolveOperation: () => void;
+      globalOperationInProgress = new Promise(resolve => { resolveOperation = resolve; });
+
       try {
         await globalPlugin.clear();
 
@@ -560,6 +607,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         console.log('[ProteinViewer] View reset to default');
       } catch (err) {
         console.error('[ProteinViewer] Failed to reset view:', err);
+      } finally {
+        resolveOperation!();
+        globalOperationInProgress = null;
       }
     }, [pdbContent]);
 
@@ -791,6 +841,19 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       const plugin = globalPlugin;
 
       const loadStructure = async () => {
+        // Wait for any in-progress operation to complete (prevents race conditions)
+        if (globalOperationInProgress) {
+          console.log('[ProteinViewer] Waiting for previous operation to complete...');
+          try {
+            await globalOperationInProgress;
+          } catch {
+            // Previous operation failed, continue anyway
+          }
+        }
+
+        let resolveOperation: () => void;
+        globalOperationInProgress = new Promise(resolve => { resolveOperation = resolve; });
+
         setLoading(true);
         setError(null);
         setFocusMode('none');
@@ -865,6 +928,8 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           setError(`Failed to load structure: ${err instanceof Error ? err.message : 'Unknown error'}`);
         } finally {
           setLoading(false);
+          resolveOperation!();
+          globalOperationInProgress = null;
         }
       };
 
@@ -896,10 +961,19 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           console.log(`[ProteinViewer] Auto-focusing on ligand index ${focusedLigandIndex}`);
           await focusOnLigand(focusedLigandIndex);
         }
-        // Focus cleared - reset to default view
-        else if (focusedMetalIndex === null || focusedLigandIndex === null) {
-          console.log('[ProteinViewer] Focus cleared, resetting view');
-          await resetView();
+        // Focus cleared - reset to default view only if we were previously focused
+        // (prev.metalIndex or prev.ligandIndex was a valid number, now both are null/undefined)
+        else if (
+          (prev.metalIndex !== null && prev.metalIndex !== undefined) ||
+          (prev.ligandIndex !== null && prev.ligandIndex !== undefined)
+        ) {
+          // Only reset if current focus is explicitly cleared (both null/undefined)
+          const currentMetalCleared = focusedMetalIndex === null || focusedMetalIndex === undefined;
+          const currentLigandCleared = focusedLigandIndex === null || focusedLigandIndex === undefined;
+          if (currentMetalCleared && currentLigandCleared) {
+            console.log('[ProteinViewer] Focus cleared, resetting view');
+            await resetView();
+          }
         }
       };
 

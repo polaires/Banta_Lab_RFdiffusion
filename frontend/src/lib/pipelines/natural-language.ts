@@ -6,10 +6,11 @@
  * resolving the target structure, and configuring the appropriate design parameters.
  */
 
-import { MessageSquare, Search, Settings, Building2, Shield, Dna, BarChart3, FlaskConical } from 'lucide-react';
+import { MessageSquare, Search, Settings, Building2, Shield, Dna, BarChart3, FlaskConical, Atom } from 'lucide-react';
 import api from '@/lib/api';
 import { extractPdbContent } from '@/lib/workflowHandlers';
 import type { PipelineDefinition, PdbOutput, SequenceOutput } from '@/lib/pipeline-types';
+import type { LigandCoordinationFeature, ProteinDonor } from '@/lib/store';
 import {
   createMpnnStep,
   createRf3Step,
@@ -20,7 +21,7 @@ import {
 } from './shared-steps';
 import { IntentResultPreview } from '@/components/pipeline/IntentResultPreview';
 import { SweepResultPreview } from '@/components/pipeline/SweepResultPreview';
-import { LigandFeaturesPreview } from '@/components/pipeline/LigandFeaturesPreview';
+import { CoordinationAnalysisPreview } from '@/components/pipeline/CoordinationAnalysisPreview';
 
 // ============================================================================
 // AI Parse Helpers
@@ -458,21 +459,28 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       },
     },
 
-    // Step 3: Ligand feature analysis — identify coordination donors with KB/ChemicalFeatures
+    // Step 3: Scaffold search — auto-discover PDB scaffolds for metal+ligand
+    // MOVED UP: Now runs before coordination analysis so scaffold data is available
+    createScaffoldSearchStep({
+      id: 'scaffold_search_nl',
+      description: 'Search RCSB PDB for structures with the target metal-ligand complex (auto-skipped if not applicable)',
+    }),
+
+    // Step 4: Coordination Analysis — combined protein + ligand donor identification
     {
-      id: 'ligand_features_nl',
-      name: 'Ligand Features',
-      description: 'Identify coordination donors and pharmacophore features for the ligand',
-      icon: FlaskConical,
+      id: 'coordination_analysis_nl',
+      name: 'Coordination Analysis',
+      description: 'Analyze coordination sphere: ligand donors + protein catalytic residues',
+      icon: Atom,
       requiresReview: true,
       supportsSelection: false,
       optional: true,
       defaultParams: {},
       parameterSchema: [],
-      ResultPreview: LigandFeaturesPreview,
+      ResultPreview: CoordinationAnalysisPreview,
 
       async execute(ctx) {
-        const { previousResults } = ctx;
+        const { previousResults, selectedItems } = ctx;
 
         // Get intent data
         const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
@@ -480,69 +488,237 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         const ligandSmiles = intentResult?.data?.ligand_smiles as string || '';
         const targetMetal = intentResult?.data?.target_metal as string || '';
 
-        // Auto-skip if no ligand
-        if (!ligandName && !ligandSmiles) {
+        // Skip if no metal/ligand
+        if (!targetMetal && !ligandName) {
           return {
-            id: `ligand-features-${Date.now()}`,
-            summary: 'No ligand — skipped',
-            data: { skipped: true, reason: 'No ligand specified in design intent' },
+            id: `coordination-${Date.now()}`,
+            summary: 'Skipped: no metal-ligand specified',
+            data: { skipped: true, reason: 'No metal or ligand in design intent' },
           };
         }
 
-        ctx.onProgress(20, `Analyzing ${ligandName || 'ligand'} features...`);
+        // Get scaffold results (now available from prior step)
+        const scaffoldResult = previousResults['scaffold_search_nl'];
+        const candidates = scaffoldResult?.data?.candidates as Array<Record<string, unknown>> | undefined;
 
-        try {
-          const result = await api.analyzeLigandFeatures({
-            ligand_name: ligandName,
-            smiles: ligandSmiles || undefined,
-            metal_type: targetMetal || undefined,
-          });
+        // Check if user selected a specific scaffold (selectedItems from context: ['scaffold-4CVB'])
+        const scaffoldSelections = selectedItems.filter(id => id.startsWith('scaffold-'));
+        let selectedCandidate: Record<string, unknown> | undefined;
+        let scaffoldPdb: string | undefined;
 
-          if (!result) {
-            throw new Error('Backend returned empty result — task may not be deployed');
+        if (scaffoldSelections.length > 0 && candidates) {
+          // User selected a specific scaffold - use that one
+          const selectedPdbId = scaffoldSelections[0].replace('scaffold-', '');
+          selectedCandidate = candidates.find(c => c.pdb_id === selectedPdbId);
+          const pdbOutput = scaffoldResult?.pdbOutputs?.find(
+            p => p.id === scaffoldSelections[0]
+          );
+          scaffoldPdb = pdbOutput?.pdbContent;
+          console.log('[coordination_analysis] Using user-selected scaffold:', selectedPdbId);
+        } else {
+          // No selection - use best_candidate (first/default)
+          selectedCandidate = scaffoldResult?.data?.best_candidate as Record<string, unknown> | undefined;
+          scaffoldPdb = scaffoldResult?.pdbOutputs?.[0]?.pdbContent;
+        }
+
+        // Get the actual PDB ligand code from scaffold (e.g., "CIT" for citrate)
+        // This is critical for Molstar selection - it needs the PDB residue code, not user's query string
+        const scaffoldLigandCode = (selectedCandidate?.ligand_code as string) ||
+                                    (scaffoldResult?.data?.ligand_code as string) || '';
+
+        console.log('[coordination_analysis] scaffoldResult:', scaffoldResult ? 'present' : 'missing');
+        console.log('[coordination_analysis] selectedCandidate:', selectedCandidate?.pdb_id);
+        console.log('[coordination_analysis] scaffoldPdb available:', scaffoldPdb ? 'yes' : 'no');
+        console.log('[coordination_analysis] scaffoldLigandCode:', scaffoldLigandCode);
+        console.log('[coordination_analysis] protein_donors from scaffold:', selectedCandidate?.protein_donors);
+        console.log('[coordination_analysis] ligand_donors from scaffold:', selectedCandidate?.ligand_donors);
+
+        ctx.onProgress(20, 'Analyzing ligand features...');
+
+        // Part 1: Get ligand features from backend
+        let ligandFeatures: Record<string, unknown> | null = null;
+        if (ligandName || ligandSmiles) {
+          try {
+            ligandFeatures = await api.analyzeLigandFeatures({
+              ligand_name: ligandName,
+              smiles: ligandSmiles || undefined,
+              metal_type: targetMetal || undefined,
+            }) as Record<string, unknown>;
+          } catch (err) {
+            console.warn('[coordination_analysis] Ligand features failed:', err);
           }
+        }
 
-          ctx.onProgress(100, 'Feature analysis complete');
+        ctx.onProgress(60, 'Merging coordination data...');
 
-          const coordDonors = result.coordination_donors || [];
-          const source = result.source || 'unknown';
-          const sourceLabel = source === 'knowledge_base' ? 'KB' : source === 'chemicalfeatures' ? 'predicted' : 'geometry';
-          const summary = coordDonors.length > 0
-            ? `${ligandName}: ${coordDonors.length} coordination donor${coordDonors.length !== 1 ? 's' : ''} (${sourceLabel})`
-            : `${ligandName}: features identified (${sourceLabel})`;
+        // Part 2: Parse protein donors from scaffold search result
+        const proteinDonors: ProteinDonor[] = [];
+        const scaffoldProteinDonors = selectedCandidate?.protein_donors as string[] | undefined;
 
-          // Pass ligand PDB for 3D viewing
-          const pdbOutputs: PdbOutput[] = [];
-          if (result.ligand_pdb_content) {
-            pdbOutputs.push({
-              id: 'ligand-structure',
-              label: ligandName || 'Ligand',
-              pdbContent: result.ligand_pdb_content,
+        console.log('[coordination_analysis] Raw protein_donors:', scaffoldProteinDonors);
+
+        if (scaffoldProteinDonors && Array.isArray(scaffoldProteinDonors)) {
+          for (const donorStr of scaffoldProteinDonors) {
+            // Try multiple patterns to handle format variations
+            // Pattern 1: "A26:SER O@2.29A" or "A26:SER OG@2.29"
+            let match = donorStr.match(/([A-Z])(\d+):(\w+)\s+(\w+)@([\d.]+)/);
+
+            // Pattern 2: "A:26:SER:O@2.29" (colon-separated)
+            if (!match) {
+              match = donorStr.match(/([A-Z]):(\d+):(\w+):(\w+)@([\d.]+)/);
+            }
+
+            // Pattern 3: More lenient - just grab key parts
+            if (!match) {
+              match = donorStr.match(/([A-Z]+)[\s:]+(\d+)[\s:]+(\w{3})\s+(\w+)@([\d.]+)/);
+            }
+
+            if (match) {
+              proteinDonors.push({
+                chain: match[1],
+                residue: parseInt(match[2], 10),
+                name: match[3],
+                atomName: match[4],
+                distance: parseFloat(match[5]),
+                enabled: true,
+                source: 'scaffold',
+              });
+              console.log('[coordination_analysis] Parsed donor:', match[0]);
+            } else {
+              console.warn('[coordination_analysis] Failed to parse donor string:', donorStr);
+            }
+          }
+        }
+
+        console.log('[coordination_analysis] Final proteinDonors:', proteinDonors.length);
+
+        // Part 3: Build ligand donors from scaffold data (primary source for visualization)
+        // and enrich with KB features (for HSAB, type info)
+        const ligandDonors: LigandCoordinationFeature[] = [];
+
+        // Use scaffold ligand code for Molstar selection (PDB residue code like "CIT"),
+        // falling back to user's ligand name if no scaffold data
+        const pdbLigandCode = scaffoldLigandCode || ligandName.toUpperCase().slice(0, 3);
+
+        // Parse scaffold ligand donors - these have the ACTUAL atom names from PDB
+        const scaffoldLigandDonorsRaw = selectedCandidate?.ligand_donors as string[] | undefined;
+        const scaffoldLigandAtoms: Array<{ atomName: string; distance: number }> = [];
+        if (scaffoldLigandDonorsRaw) {
+          for (const donorStr of scaffoldLigandDonorsRaw) {
+            // Format: "O1@2.29" or "O1@2.29Å" or "O7@2.15"
+            const match = donorStr.match(/(\w+)@([\d.]+)/);
+            if (match) {
+              scaffoldLigandAtoms.push({
+                atomName: match[1],
+                distance: parseFloat(match[2]),
+              });
+            }
+          }
+        }
+
+        // Get KB features for enrichment (HSAB, type info)
+        const features = ligandFeatures?.features as Array<Record<string, unknown>> | undefined;
+        const kbByElement: Record<string, Record<string, unknown>> = {};
+        if (features) {
+          for (const f of features) {
+            if (f.is_coordination_donor && f.element) {
+              const elem = (f.element as string).toUpperCase();
+              // Store first KB entry for each element (for HSAB/type lookup)
+              if (!kbByElement[elem]) {
+                kbByElement[elem] = f;
+              }
+            }
+          }
+        }
+
+        console.log('[coordination_analysis] scaffoldLigandAtoms:', scaffoldLigandAtoms);
+        console.log('[coordination_analysis] kbByElement:', Object.keys(kbByElement));
+
+        // Build ligand donors from scaffold atoms (prioritized for correct visualization)
+        if (scaffoldLigandAtoms.length > 0) {
+          for (const { atomName, distance } of scaffoldLigandAtoms) {
+            // Extract element from atom name (e.g., "O1" -> "O", "N2" -> "N")
+            const element = atomName.replace(/\d+/g, '').toUpperCase();
+            // Look up KB data for this element
+            const kbData = kbByElement[element];
+
+            ligandDonors.push({
+              atom_idx: 0,
+              atom_name: atomName, // Use actual PDB atom name
+              element,
+              type: (kbData?.type as string) || 'donor',
+              is_coordination_donor: true,
+              coords: null,
+              hsab: (kbData?.hsab as string) || null,
+              enabled: true,
+              ligand_name: pdbLigandCode, // Use PDB residue code for Molstar selection
+              distance,
             });
           }
-
-          return {
-            id: `ligand-features-${Date.now()}`,
-            summary,
-            pdbOutputs,
-            data: result,
-          };
-        } catch (err) {
-          console.warn('[ligand_features_nl] Analysis failed:', err);
-          return {
-            id: `ligand-features-${Date.now()}`,
-            summary: `Ligand feature analysis failed — continuing without`,
-            data: { skipped: true, reason: `Analysis failed: ${err instanceof Error ? err.message : 'Unknown error'}` },
-          };
+        } else if (features) {
+          // No scaffold data - fall back to KB features (won't work for visualization
+          // but at least shows something in the UI)
+          for (const f of features) {
+            if (f.is_coordination_donor) {
+              const atomName = f.atom_name as string;
+              ligandDonors.push({
+                atom_idx: f.atom_idx as number || 0,
+                atom_name: atomName,
+                element: f.element as string || '',
+                type: f.type as string || 'donor',
+                is_coordination_donor: true,
+                coords: f.coords as [number, number, number] | null,
+                hsab: f.hsab as string | null,
+                enabled: true,
+                ligand_name: pdbLigandCode, // Use PDB code for Molstar selection
+              });
+            }
+          }
         }
+
+        // Build PDB outputs (pass scaffold PDB + ligand PDB)
+        const pdbOutputs: PdbOutput[] = [];
+        if (scaffoldPdb) {
+          pdbOutputs.push({
+            id: 'coordination-scaffold',
+            label: (selectedCandidate?.pdb_id as string) || 'Scaffold',
+            pdbContent: scaffoldPdb,
+          });
+        }
+        const ligandPdbContent = ligandFeatures?.ligand_pdb_content as string | undefined;
+        if (ligandPdbContent) {
+          pdbOutputs.push({
+            id: 'coordination-ligand',
+            label: ligandName || 'Ligand',
+            pdbContent: ligandPdbContent,
+          });
+        }
+
+        ctx.onProgress(100, 'Coordination analysis complete');
+
+        const coordNum = (selectedCandidate?.coordination_number as number) || ligandDonors.length;
+        const summary = proteinDonors.length > 0
+          ? `${targetMetal}: ${proteinDonors.length} protein + ${ligandDonors.length} ligand donors`
+          : `${ligandName}: ${ligandDonors.length} coordination donors`;
+
+        return {
+          id: `coordination-${Date.now()}`,
+          summary,
+          pdbOutputs,
+          data: {
+            metal: targetMetal,
+            ligand_name: ligandName,
+            coordination_number: coordNum,
+            scaffold_pdb_id: selectedCandidate?.pdb_id,
+            protein_donors: proteinDonors,
+            ligand_donors: ligandDonors,
+            ligand_features_raw: ligandFeatures,
+            has_scaffold_data: !!selectedCandidate,
+            has_ligand_kb_data: ligandFeatures?.source === 'knowledge_base',
+          },
+        };
       },
     },
-
-    // Step 4: Scaffold search — auto-discover PDB scaffolds for metal+ligand
-    createScaffoldSearchStep({
-      id: 'scaffold_search_nl',
-      description: 'Search RCSB PDB for structures with the target metal-ligand complex (auto-skipped if not applicable)',
-    }),
 
     // Step 5: Configure design parameters
     {
@@ -654,16 +830,47 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           configData.filter_tier = filterTier;
         }
 
-        // Wire in ligand feature overrides (from ligand_features_nl step)
-        const featuresResult = previousResults['ligand_features_nl'];
-        const featuresData = featuresResult?.data as Record<string, unknown> | undefined;
-        const userOverrides = featuresData?.user_overrides as { active_donors: string[]; modified: boolean } | undefined;
-        if (userOverrides?.modified) {
-          configData.ligand_coordination_donors = userOverrides.active_donors;
-          configData.recommended_fixing_strategy = 'fix_coordination';
-        } else if (featuresData?.coordination_donors && !featuresData?.skipped) {
-          // Use KB/predicted donors even without user override
-          configData.ligand_coordination_donors = featuresData.coordination_donors;
+        // Wire in coordination analysis results (from coordination_analysis_nl step)
+        const coordResult = previousResults['coordination_analysis_nl'];
+        const coordData = coordResult?.data as Record<string, unknown> | undefined;
+
+        if (coordData && !coordData.skipped) {
+          // Check for user overrides
+          const userOverrides = coordData.user_overrides as {
+            active_protein_donors?: string[];
+            active_ligand_donors?: string[];
+            modified: boolean;
+          } | undefined;
+
+          // Ligand coordination donors
+          if (userOverrides?.modified && userOverrides.active_ligand_donors) {
+            configData.ligand_coordination_donors = userOverrides.active_ligand_donors;
+            configData.recommended_fixing_strategy = 'fix_coordination';
+          } else {
+            // Use all enabled ligand donors from analysis
+            const ligandDonors = coordData.ligand_donors as Array<{ atom_name: string; enabled: boolean }> | undefined;
+            if (ligandDonors) {
+              const activeLigandDonors = ligandDonors.filter(d => d.enabled).map(d => d.atom_name);
+              if (activeLigandDonors.length > 0) {
+                configData.ligand_coordination_donors = activeLigandDonors;
+              }
+            }
+          }
+
+          // Protein catalytic residues (from scaffold search)
+          if (userOverrides?.modified && userOverrides.active_protein_donors) {
+            configData.fixed_catalytic_residues = userOverrides.active_protein_donors;
+            configData.recommended_fixing_strategy = 'fix_coordination';
+          } else {
+            const proteinDonors = coordData.protein_donors as Array<{ chain: string; residue: number; enabled: boolean }> | undefined;
+            if (proteinDonors) {
+              const activeProtein = proteinDonors.filter(d => d.enabled).map(d => `${d.chain}${d.residue}`);
+              if (activeProtein.length > 0) {
+                configData.fixed_catalytic_residues = activeProtein;
+                configData.recommended_fixing_strategy = 'fix_coordination';
+              }
+            }
+          }
         }
 
         // De novo mode: set design-type-aware contig when no PDB is available

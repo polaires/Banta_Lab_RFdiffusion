@@ -396,7 +396,7 @@ export function CollapsibleViewer() {
                 <div className="h-[520px] flex flex-col items-center justify-center bg-muted rounded-xl border-2 border-dashed border-border">
                   <Box className="w-10 h-10 text-muted-foreground mb-3" />
                   <p className="text-sm font-medium text-muted-foreground">No structure to display</p>
-                  <p className="text-xs text-muted-foreground mt-1">Run a design job to visualize structures</p>
+                  <p className="text-xs text-muted-foreground mt-1">Click &quot;View&quot; on a pipeline step to load structure</p>
                 </div>
               )}
             </div>

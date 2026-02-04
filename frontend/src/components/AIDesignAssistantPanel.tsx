@@ -507,6 +507,14 @@ export function AIDesignAssistantPanel() {
     addAiMessage({ role: 'user', content: query });
     addAiMessage({ role: 'assistant', content: 'Starting the design pipeline for your request...' });
 
+    // FIX: Clear old pipeline state BEFORE setting new params
+    // This prevents race condition where restore() sees old state
+    try {
+      sessionStorage.removeItem('pipeline-runtime-state');
+    } catch {
+      // Ignore sessionStorage errors (e.g., in SSR)
+    }
+
     // Route through the modular pipeline system instead of legacy useAIDesign hook
     setAiCaseStudy({
       workflowPhase: 'pipeline_active',

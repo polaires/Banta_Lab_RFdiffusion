@@ -212,6 +212,7 @@ COPY metal_chemistry.py /app/
 COPY metal_site_fetcher.py /app/
 COPY metal_ligand_templates.py /app/
 COPY ligand_donors.py /app/
+COPY ligand_features.py /app/
 
 # Copy metal binding pipeline and supporting modules
 COPY metal_binding_pipeline.py /app/
@@ -225,6 +226,8 @@ COPY nl_design_parser.py /app/
 COPY design_rules.py /app/
 COPY filter_evaluator.py /app/
 COPY enzyme_chemistry.py /app/
+COPY backbone_pre_filter.py /app/
+COPY conservation_analyzer.py /app/
 
 # Copy modular pipeline system
 COPY pipeline_types.py /app/

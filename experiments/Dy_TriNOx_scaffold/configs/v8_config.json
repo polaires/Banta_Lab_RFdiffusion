@@ -1,0 +1,40 @@
+{
+  "name": "v8_above_approach",
+  "description": "Dy-TriNOx scaffold - force protein approach from above (+Z) through open coordination site",
+  "notes": {
+    "v6_v7_analysis": [
+      "v6 (peripheral hotspots): Contacts ligand (2.4-3.1A), metal 5-6A",
+      "v7 (inner hotspots O1,O2,O3,N2): Slightly worse (3.6-4.3A inner), metal still 5-6A",
+      "Problem: Phenoxide O's already coordinate Dy - protein can't squeeze between them",
+      "Open coordination site is ABOVE metal in +Z direction"
+    ],
+    "trinox_geometry": {
+      "dy_position": [0, 7.8, 3.1],
+      "open_site": [0, 7.8, 5.5],
+      "approach_direction": "+Z (above metal)"
+    },
+    "v8_strategy": [
+      "Use v6-style peripheral hotspots (proven to work)",
+      "Strong +Z ori_token to force protein formation ABOVE the complex",
+      "Protein should wrap over the top and coordinate through open site",
+      "Higher cfg_scale=3.0 for stronger guidance"
+    ]
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 3.0,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {"X1": "all", "L1": "all"},
+    "select_hotspots": {"L1": "C4,C5,C15,C16,C26,C27,N1,N3,N4"},
+    "select_buried": {"L1": "all"},
+    "select_hbond_acceptor": {"L1": "O1,O2,O3"},
+    "ori_token": [0.0, 8.0, 15.0]
+  },
+  "test_config": {
+    "name": "v8_large_test",
+    "contig": "X1,L1,/0,120-140",
+    "num_designs": 10,
+    "description": "Force protein approach from +Z (above) with strong ori_token"
+  }
+}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import { Check, X, Loader2, Pause, ChevronDown, ChevronRight, RotateCcw, SkipForward, ArrowRight, Info } from 'lucide-react';
+import { Check, X, Loader2, Pause, ChevronDown, ChevronRight, RotateCcw, SkipForward, ArrowRight, Info, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -24,6 +24,8 @@ interface StepCardProps {
   isActive: boolean;
   /** Allow expanding completed steps to review results (FIX #18) */
   allowExpand?: boolean;
+  /** Whether a go back action is allowed (non-active completed steps) */
+  canGoBack?: boolean;
   /** Next step's parameter schema (to show editor for upcoming step) */
   nextStepSchema?: PipelineStepDefinition['parameterSchema'];
   nextStepParams?: Record<string, unknown>;
@@ -31,6 +33,7 @@ interface StepCardProps {
   onConfirm: () => void;
   onRetry: () => void;
   onSkip: () => void;
+  onGoBack?: () => void;
   onSelectionChange: (ids: string[]) => void;
   onViewDesign?: (pdbContent: string) => void;
 }
@@ -95,12 +98,14 @@ export function StepCard({
   state,
   isActive,
   allowExpand,
+  canGoBack,
   nextStepSchema,
   nextStepParams,
   onNextStepParamsChange,
   onConfirm,
   onRetry,
   onSkip,
+  onGoBack,
   onSelectionChange,
   onViewDesign,
 }: StepCardProps) {
@@ -305,7 +310,7 @@ export function StepCard({
           </CardContent>
 
           {/* Action buttons — outside scrollable area so they're always visible */}
-          {(isPaused || isFailed) && (
+          {(isPaused || isFailed || (isDone && canGoBack)) && (
             <>
               <Separator />
               <div className="flex items-center gap-2 px-3 py-2.5">
@@ -342,6 +347,19 @@ export function StepCard({
                   >
                     <SkipForward className="h-3.5 w-3.5 mr-1" />
                     Skip
+                  </Button>
+                )}
+                {/* Edit button — shown on completed steps to go back and modify */}
+                {canGoBack && onGoBack && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => debounceAction(onGoBack)}
+                    className="h-8 text-xs"
+                    title="Edit this step and re-run from here"
+                  >
+                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                    Edit
                   </Button>
                 )}
                 {/* FIX #4: Show hint when selection is required */}

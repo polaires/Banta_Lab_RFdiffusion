@@ -1,0 +1,39 @@
+{
+  "name": "v11_hydrophobic_packing",
+  "description": "Optimize hydrophobic contacts around TriNOx aromatic rings and tert-butyls",
+  "notes": {
+    "trinox_structure": {
+      "core": "Tripodal ligand with 3 phenol arms",
+      "hydrophobic": ["3x aromatic rings", "3x tert-butyl groups"],
+      "polar": ["3x N-OH (hydroxylamine) - O's coordinate Dy"]
+    },
+    "binding_strategy": [
+      "TriNOx is mostly HYDROPHOBIC",
+      "Good contacts = hydrophobic packing around aromatics/tBu",
+      "H-bonds to N are NOT the goal - N-OH groups face metal",
+      "v6-v10 already achieved good hydrophobic contacts (2.5-3A)",
+      "Need to OPTIMIZE these contacts, not change strategy"
+    ],
+    "v11_strategy": [
+      "Hotspots on aromatic C's and tert-butyl C's",
+      "select_buried to ensure tight packing",
+      "NO hbond conditioning (wrong for hydrophobic ligand)",
+      "Moderate cfg_scale for burial conditioning"
+    ]
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.5,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {"X1": "all", "L1": "all"},
+    "select_hotspots": {"L1": "C4,C5,C6,C7,C8,C9,C10,C15,C16,C17,C18,C19,C20,C21,C26,C27,C28,C29,C30,C31,C32"},
+    "select_buried": {"L1": "all"}
+  },
+  "test_config": {
+    "name": "v11_hydrophobic",
+    "contig": "X1,L1,/0,120-140",
+    "num_designs": 10,
+    "description": "Maximize hydrophobic packing around aromatic rings and tert-butyls"
+  }
+}

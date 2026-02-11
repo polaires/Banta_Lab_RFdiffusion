@@ -74,6 +74,7 @@ type PipelineAction =
   | { type: 'SET_SELECTION'; stepId: string; outputIds: string[] }
   | { type: 'CONFIRM'; stepIndex: number }
   | { type: 'SKIP'; stepIndex: number }
+  | { type: 'GO_BACK'; stepIndex: number }
   | { type: 'CANCEL' }
   | { type: 'RESET' };
 
@@ -194,6 +195,44 @@ function pipelineReducer(state: PipelineRuntimeState, action: PipelineAction): P
       };
     }
 
+    case 'GO_BACK': {
+      // Reset the target step and all subsequent steps to pending
+      // Preserve the result of the target step so user can see previous output
+      const steps = state.steps.map((s, i) => {
+        if (i === action.stepIndex) {
+          // Target step: set to paused so user can review/modify before re-running
+          return {
+            ...s,
+            status: 'paused' as StepStatus,
+            progress: 100,
+            error: undefined,
+            // Keep result so user can see what was produced before
+          };
+        } else if (i > action.stepIndex) {
+          // Subsequent steps: reset to pending, clear results
+          return {
+            ...s,
+            status: 'pending' as StepStatus,
+            progress: 0,
+            result: undefined,
+            error: undefined,
+            selectedOutputIds: [],
+            startedAt: undefined,
+            completedAt: undefined,
+            progressMessage: undefined,
+          };
+        }
+        return s;
+      });
+      return {
+        ...state,
+        status: 'paused',
+        activeStepIndex: action.stepIndex,
+        steps,
+        completedAt: undefined,
+      };
+    }
+
     case 'CANCEL':
       return { ...state, status: 'cancelled', completedAt: Date.now() };
 
@@ -226,10 +265,12 @@ export interface UsePipelineReturn {
 
   initialize: (definition: PipelineDefinition, initialParams: Record<string, unknown>) => void;
   /** FIX #14: Restore pipeline state from session storage. Returns true if restored. */
-  restore: (definition: PipelineDefinition) => boolean;
+  restore: (definition: PipelineDefinition, currentInitialParams?: Record<string, unknown>) => boolean;
   runNextStep: () => Promise<void>;
   retryStep: (newParams?: Record<string, unknown>) => Promise<void>;
   skipStep: () => void;
+  /** Go back to a previous step, resetting all subsequent steps to pending */
+  goBack: (stepIndex: number) => void;
   updateStepParams: (stepId: string, params: Record<string, unknown>) => void;
   setSelectedOutputs: (stepId: string, outputIds: string[]) => void;
   confirmAndContinue: () => void;
@@ -259,6 +300,10 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
   const isExecuting = runtime.status === 'running' && activeStepState?.status === 'running';
 
   const initialize = useCallback((def: PipelineDefinition, initialParams: Record<string, unknown>) => {
+    // Clear any stale pipeline state from sessionStorage before initializing
+    // This prevents old state from being restored when starting a new design
+    clearPipelineState();
+
     definitionRef.current = def;
     abortRef.current = new AbortController();
     executingRef.current = false;
@@ -449,6 +494,20 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
     }
   }, []);
 
+  const goBack = useCallback((stepIndex: number) => {
+    // Can only go back to completed/skipped/paused steps that are before current position
+    const current = runtimeRef.current;
+    if (stepIndex < 0 || stepIndex >= current.steps.length) return;
+    const targetStep = current.steps[stepIndex];
+    if (!targetStep) return;
+    // Only allow going back to steps that have been executed
+    if (targetStep.status === 'pending') return;
+    // Prevent going back while a step is running
+    if (executingRef.current) return;
+
+    dispatch({ type: 'GO_BACK', stepIndex });
+  }, []);
+
   const updateStepParams = useCallback((stepId: string, params: Record<string, unknown>) => {
     dispatch({ type: 'SET_PARAMS', stepId, params });
   }, []);
@@ -482,7 +541,7 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
   }, [runtime.status, runtime.activeStepIndex]);
 
   // FIX #14: Restore from session storage — returns saved state if available
-  const restore = useCallback((def: PipelineDefinition): boolean => {
+  const restore = useCallback((def: PipelineDefinition, currentInitialParams?: Record<string, unknown>): boolean => {
     const saved = loadPipelineState();
     if (!saved || saved.pipelineId !== def.id) return false;
 
@@ -490,6 +549,27 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
     if (saved.status !== 'paused' && saved.status !== 'completed' && saved.status !== 'failed') {
       clearPipelineState();
       return false;
+    }
+
+    // FIX: Check if this is the same design request by comparing user_prompt
+    // If the user started a new design, don't restore old state
+    if (currentInitialParams) {
+      const savedPrompt = saved.initialParams?.user_prompt;
+      const currentPrompt = currentInitialParams.user_prompt;
+      if (savedPrompt !== currentPrompt) {
+        console.log('[usePipeline] Different user_prompt detected, clearing old state');
+        clearPipelineState();
+        return false;
+      }
+    }
+
+    // Note: Some PDB content may have been truncated (> 100KB) during save.
+    // We still restore progress - user can re-view structures by clicking view buttons.
+    const hasTruncatedPdb = saved.steps.some(step =>
+      step.result?.pdbOutputs?.some(p => p.pdbContent === '')
+    );
+    if (hasTruncatedPdb) {
+      console.log('[usePipeline] Some PDB content was truncated - 3D viewer may be empty but progress is preserved');
     }
 
     definitionRef.current = def;
@@ -544,6 +624,7 @@ export function usePipeline(callbacks?: PipelineCallbacks): UsePipelineReturn {
     runNextStep,
     retryStep,
     skipStep,
+    goBack,
     updateStepParams,
     setSelectedOutputs,
     confirmAndContinue,

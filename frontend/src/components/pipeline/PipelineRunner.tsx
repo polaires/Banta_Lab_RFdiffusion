@@ -107,18 +107,23 @@ function PipelineRunnerInner({
   const notifiedFailedRef = useRef(false);
   const restoringRef = useRef(false);
 
-  // FIX #14: Try to restore saved state, otherwise initialize fresh
+  // Try to restore from session storage first, otherwise initialize fresh
+  // restore() checks user_prompt to ensure we don't restore old state for new designs
   useEffect(() => {
     restoringRef.current = true;
-    const restored = pipeline.restore(definition);
-    if (!restored) {
-      pipeline.initialize(definition, initialParams);
-      notifiedStepsRef.current = new Set();
-    } else {
-      notifiedStepsRef.current = new Set();
-    }
+    notifiedStepsRef.current = new Set();
     notifiedCompleteRef.current = false;
     notifiedFailedRef.current = false;
+
+    // Try to restore existing pipeline state (same user_prompt = same design session)
+    // restore() returns false if: no saved state, different pipeline, or different user_prompt
+    const restored = pipeline.restore(definition, initialParams);
+
+    if (!restored) {
+      // No valid restore - initialize fresh
+      pipeline.initialize(definition, initialParams);
+    }
+
     // Allow one render cycle for restore dispatches to settle before enabling notifications
     requestAnimationFrame(() => {
       // After restore settles, mark all currently completed/paused steps as notified
@@ -129,8 +134,9 @@ function PipelineRunnerInner({
       }
       restoringRef.current = false;
     });
+    // Re-run when definition changes OR when user_prompt changes (new design request)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [definition.id]);
+  }, [definition.id, initialParams.user_prompt]);
 
   // FIX #7: Cancel on unmount to prevent memory leaks
   useEffect(() => {
@@ -320,6 +326,12 @@ function PipelineRunnerInner({
             const nextStep = definition.steps[selectedStepIndex + 1];
             const nextState = pipeline.runtime.steps[selectedStepIndex + 1];
 
+            // Allow going back to completed/skipped steps that aren't the current active step
+            // Also allow when pipeline is paused (user is reviewing) or failed
+            const canGoBackToStep = (state.status === 'completed' || state.status === 'skipped')
+              && !isActive
+              && !pipeline.isExecuting;
+
             return (
               <StepCard
                 key={step.id}
@@ -327,6 +339,7 @@ function PipelineRunnerInner({
                 state={state}
                 isActive={isActive}
                 allowExpand
+                canGoBack={canGoBackToStep}
                 nextStepSchema={
                   // Show next step's params for review — but skip optional steps
                   // (e.g. scout filter thresholds shouldn't appear in backbone gen
@@ -344,6 +357,7 @@ function PipelineRunnerInner({
                 onConfirm={() => pipeline.confirmAndContinue()}
                 onRetry={() => pipeline.retryStep()}
                 onSkip={() => pipeline.skipStep()}
+                onGoBack={() => pipeline.goBack(selectedStepIndex)}
                 onSelectionChange={(ids) => pipeline.setSelectedOutputs(step.id, ids)}
                 onViewDesign={onDesignSelected}
               />

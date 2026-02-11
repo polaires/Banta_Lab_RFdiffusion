@@ -236,6 +236,20 @@ COPY workflow_runner.py /app/
 COPY iteration_strategies.py /app/
 COPY inference_backend.py /app/
 
+# Copy pipeline sweep orchestration (pipeline_design/status/cancel/export tasks)
+COPY pipeline_handler.py /app/
+COPY pipeline_session.py /app/
+
+# Copy minimal motif selector (multi-source evidence-based motif extraction)
+COPY minimal_motif_selector.py /app/
+COPY mcsa_client_lite.py /app/
+
+# Copy database adapters (PubChem SMILES resolution used by ligand_resolver)
+COPY database_adapters/ /app/database_adapters/
+
+# Copy extracted handler modules (history, utility, esm3, ligand)
+COPY handlers/ /app/handlers/
+
 # Copy design history and lesson detection
 COPY design_history.py /app/
 COPY lesson_detector.py /app/
@@ -250,7 +264,7 @@ COPY shared/ /app/shared/
 COPY validation_pipeline/ /app/validation_pipeline/
 
 # Copy test input for local testing mode
-COPY test_input.json /app/test_input.json
+COPY tests/fixtures/test_input.json /app/test_input.json
 
 # Environment variables
 # These can be overridden at runtime or in RunPod console

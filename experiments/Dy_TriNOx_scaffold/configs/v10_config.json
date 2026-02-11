@@ -1,0 +1,35 @@
+{
+  "name": "v10_closer_to_N",
+  "description": "Position protein closer to ligand N atoms with smaller Z offset",
+  "notes": {
+    "v9_analysis": [
+      "Protein Z-offset: -6.4 to -9.2A (too far below)",
+      "Ligand N atoms at Z: -0.7 to -2.8A below Dy",
+      "Closest N-protein: 4.1A (N2 in design 006)",
+      "Need protein ~2-3A below metal, not 6-9A"
+    ],
+    "v10_strategy": [
+      "Smaller negative Z ori_token: [0, 8, -2] instead of [0, 8, -5]",
+      "Focus hotspots ONLY on N atoms (remove aromatic C's)",
+      "Higher cfg_scale (3.0) for stronger N-targeting",
+      "Keep hbond_donor on N atoms"
+    ]
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 3.0,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {"X1": "all", "L1": "all"},
+    "select_hotspots": {"L1": "N1,N2,N3,N4"},
+    "select_buried": {"L1": "all"},
+    "select_hbond_acceptor": {"L1": "N1,N2,N3,N4"},
+    "ori_token": [0.0, 8.0, -2.0]
+  },
+  "test_config": {
+    "name": "v10_N_focus",
+    "contig": "X1,L1,/0,120-140",
+    "num_designs": 10,
+    "description": "Focus on N atoms only, position closer to ligand plane"
+  }
+}

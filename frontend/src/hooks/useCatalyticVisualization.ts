@@ -32,6 +32,8 @@ export function useCatalyticVisualization(plugin: PluginUIContext | null) {
   const catalyticSuggestions = useStore((s) => s.catalyticSuggestions);
   const enzymeCatalyticResidues = useStore((s) => s.enzymeCatalyticResidues);
   const hoveredCatalyticSuggestion = useStore((s) => s.hoveredCatalyticSuggestion);
+  const shouldFocusCoordinationSphere = useStore((s) => s.shouldFocusCoordinationSphere);
+  const setShouldFocusCoordinationSphere = useStore((s) => s.setShouldFocusCoordinationSphere);
   const previousSelectedRef = useRef<string>('');
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -60,9 +62,16 @@ export function useCatalyticVisualization(plugin: PluginUIContext | null) {
 
   // Create highlight for selected residues
   const highlightSelectedResidues = useCallback(async (retryCount = 0) => {
-    if (!plugin) return;
+    console.log('[CatalyticVisualization] highlightSelectedResidues called, retryCount:', retryCount);
+    if (!plugin) {
+      console.log('[CatalyticVisualization] No plugin in highlightSelectedResidues');
+      return;
+    }
 
     const structure = plugin.managers.structure.hierarchy.current.structures[0];
+    console.log('[CatalyticVisualization] structure:', structure ? 'found' : 'not found');
+    console.log('[CatalyticVisualization] structure.cell?.obj?.data:', structure?.cell?.obj?.data ? 'present' : 'missing');
+
     if (!structure?.cell?.obj?.data) {
       // Structure not ready, retry after delay (max 5 retries)
       if (retryCount < 5 && enzymeCatalyticResidues.length > 0) {
@@ -143,7 +152,10 @@ export function useCatalyticVisualization(plugin: PluginUIContext | null) {
     }
   }, [plugin, enzymeCatalyticResidues, clearHighlightComponents]);
 
-  // Update highlights when selected residues change
+  // Track structure changes to force re-highlighting
+  const structureIdRef = useRef<string>('');
+
+  // Update highlights when selected residues change OR when structure changes
   useEffect(() => {
     // Clean up any pending retry
     if (retryTimeoutRef.current) {
@@ -151,17 +163,40 @@ export function useCatalyticVisualization(plugin: PluginUIContext | null) {
       retryTimeoutRef.current = null;
     }
 
-    if (!plugin) return;
+    if (!plugin) {
+      console.log('[CatalyticVisualization] No plugin available');
+      return;
+    }
+
+    // Check if structure has changed by comparing model URL/id
+    const structure = plugin.managers.structure.hierarchy.current.structures[0];
+    const currentStructureId = structure?.cell?.obj?.id || '';
+
+    const structureChanged = currentStructureId !== structureIdRef.current;
+    if (structureChanged && currentStructureId) {
+      console.log('[CatalyticVisualization] Structure changed, resetting previousSelectedRef');
+      structureIdRef.current = currentStructureId;
+      previousSelectedRef.current = ''; // Force re-highlight on structure change
+    }
 
     // Create a stable string representation to check for changes
     const currentSelected = JSON.stringify(
       enzymeCatalyticResidues.map((r) => `${r.chain}${r.residue}`).sort()
     );
 
-    // Skip if selection hasn't changed
-    if (currentSelected === previousSelectedRef.current) return;
+    console.log('[CatalyticVisualization] enzymeCatalyticResidues changed:', enzymeCatalyticResidues.length, 'residues');
+    console.log('[CatalyticVisualization] currentSelected:', currentSelected);
+    console.log('[CatalyticVisualization] previousSelected:', previousSelectedRef.current);
+    console.log('[CatalyticVisualization] structureChanged:', structureChanged);
+
+    // Skip if selection hasn't changed (and structure hasn't changed)
+    if (currentSelected === previousSelectedRef.current) {
+      console.log('[CatalyticVisualization] Selection unchanged, skipping');
+      return;
+    }
     previousSelectedRef.current = currentSelected;
 
+    console.log('[CatalyticVisualization] Triggering highlightSelectedResidues');
     highlightSelectedResidues();
 
     return () => {
@@ -217,6 +252,45 @@ export function useCatalyticVisualization(plugin: PluginUIContext | null) {
       console.warn('[CatalyticVisualization] Hover highlight error:', err);
     }
   }, [plugin, hoveredCatalyticSuggestion]);
+
+  // Handle auto-focus on coordination sphere when flag is set
+  useEffect(() => {
+    if (!plugin || !shouldFocusCoordinationSphere || enzymeCatalyticResidues.length === 0) return;
+
+    const structure = plugin.managers.structure.hierarchy.current.structures[0];
+    if (!structure?.cell?.obj?.data) return;
+
+    try {
+      // Build combined expression for all selected residues
+      const groups = enzymeCatalyticResidues.map((r) =>
+        MS.struct.generator.atomGroups({
+          'chain-test': MS.core.rel.eq([
+            MS.struct.atomProperty.macromolecular.auth_asym_id(),
+            r.chain,
+          ]),
+          'residue-test': MS.core.rel.eq([
+            MS.struct.atomProperty.macromolecular.auth_seq_id(),
+            r.residue,
+          ]),
+        })
+      );
+
+      const expression = MS.struct.combinator.merge(groups);
+      const structureData = structure.cell.obj.data;
+      const selection = Script.getStructureSelection(expression, structureData);
+
+      if (!StructureSelection.isEmpty(selection)) {
+        const loci = StructureSelection.toLociWithSourceUnits(selection);
+        console.log('[CatalyticVisualization] Auto-focusing on coordination sphere');
+        plugin.managers.camera.focusLoci(loci, { durationMs: 400 });
+      }
+    } catch (err) {
+      console.warn('[CatalyticVisualization] Auto-focus error:', err);
+    }
+
+    // Reset the flag
+    setShouldFocusCoordinationSphere(false);
+  }, [plugin, shouldFocusCoordinationSphere, enzymeCatalyticResidues, setShouldFocusCoordinationSphere]);
 
   return { catalyticSuggestions, enzymeCatalyticResidues, hoveredCatalyticSuggestion };
 }

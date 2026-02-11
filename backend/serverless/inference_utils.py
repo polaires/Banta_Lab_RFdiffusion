@@ -2656,24 +2656,50 @@ def run_rf3_cli(
                             pred["cif_content"] = content
                             try:
                                 from biotite.structure.io.pdb import PDBFile as BiotitePDBFile
-                                try:
-                                    # Biotite >= 1.0 API
-                                    from biotite.structure.io.pdbx import CIFFile as BiotiteCIFFile
-                                    cif_file = BiotiteCIFFile.read(filepath)
-                                    block = list(cif_file.values())[0]
-                                    from biotite.structure.io.pdbx import get_structure as pdbx_get_structure
-                                    atom_array = pdbx_get_structure(block, model=1)
-                                except ImportError:
-                                    # Biotite < 1.0 API
-                                    from biotite.structure.io.pdbx import PDBxFile, get_structure as pdbx_get_structure
-                                    cif_file = PDBxFile.read(filepath)
-                                    atom_array = pdbx_get_structure(cif_file, model=1)
+                                from biotite.structure.io.pdbx import CIFFile as BiotiteCIFFile
+                                from biotite.structure.io.pdbx import get_structure as pdbx_get_structure
+
+                                # RF3 CIF may lack pdbx_PDB_model_num - add it if missing
+                                cif_content_fixed = content
+                                if "_atom_site.pdbx_PDB_model_num" not in content and "loop_" in content and "_atom_site." in content:
+                                    # Find the atom_site loop and add model_num column
+                                    lines = content.split("\n")
+                                    fixed_lines = []
+                                    in_atom_site_loop = False
+                                    atom_site_cols = []
+                                    for line in lines:
+                                        if line.strip().startswith("_atom_site."):
+                                            in_atom_site_loop = True
+                                            atom_site_cols.append(line.strip())
+                                        elif in_atom_site_loop and line.strip() and not line.strip().startswith("_"):
+                                            # First data line - add model_num column header and value
+                                            if "_atom_site.pdbx_PDB_model_num" not in "\n".join(fixed_lines):
+                                                fixed_lines.append("_atom_site.pdbx_PDB_model_num")
+                                            # Add "1" at end of each atom line
+                                            fixed_lines.append(line.rstrip() + " 1")
+                                            in_atom_site_loop = "data"  # Mark we're in data section
+                                            continue
+                                        elif in_atom_site_loop == "data":
+                                            if line.strip() and not line.strip().startswith("#") and not line.strip().startswith("_"):
+                                                fixed_lines.append(line.rstrip() + " 1")
+                                                continue
+                                            else:
+                                                in_atom_site_loop = False
+                                        fixed_lines.append(line)
+                                    cif_content_fixed = "\n".join(fixed_lines)
+                                    print("[RF3] Added missing pdbx_PDB_model_num column to CIF")
+
+                                cif_file = BiotiteCIFFile.read(io.StringIO(cif_content_fixed))
+                                block = list(cif_file.values())[0]
+                                atom_array = pdbx_get_structure(block, model=1)
+
                                 pdb_file = BiotitePDBFile()
                                 pdb_file.set_structure(atom_array)
                                 buf = io.StringIO()
                                 pdb_file.write(buf)
                                 pred["content"] = buf.getvalue()
                                 pred["filename"] = filename.replace(".cif", ".pdb")
+                                print(f"[RF3] CIF→PDB conversion: {len(atom_array)} atoms, chains={set(atom_array.chain_id)}")
                             except Exception as e:
                                 print(f"[RF3] CIF→PDB conversion failed ({e}), keeping CIF as content")
                                 pred["format"] = "cif"  # Flag so consumers know content is CIF

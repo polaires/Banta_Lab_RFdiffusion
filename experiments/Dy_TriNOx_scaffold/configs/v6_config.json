@@ -1,0 +1,41 @@
+{
+  "name": "v6_trinox_hotspots",
+  "description": "Dy-TriNOx scaffold with hotspots on TriNOx ligand (not metal) + better origin",
+  "notes": {
+    "v5_problems": [
+      "Hotspot was on metal (X1) but protein doesn't directly contact metal",
+      "Protein formed 6-10A from metal/ligand",
+      "Metal position shifted during diffusion - select_fixed_atoms may not work as expected",
+      "ori_token didn't bring protein close enough"
+    ],
+    "v6_fixes": [
+      "Add hotspots on TriNOx ligand peripheral atoms (aromatic carbons + tert-butyl)",
+      "Priority: bind TriNOx first, which brings protein close to metal naturally",
+      "Use multiple hotspot atoms spread across the ligand",
+      "Stronger burial conditioning on entire ligand"
+    ]
+  },
+  "trinox_hotspot_atoms": {
+    "description": "Peripheral atoms on TriNOx for protein contact",
+    "aromatic_carbons": ["C4", "C5", "C15", "C16", "C26", "C27"],
+    "tert_butyl_carbons": ["C10", "C21", "C32"],
+    "amide_nitrogens": ["N1", "N3", "N4"]
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.5,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {"X1": "all", "L1": "all"},
+    "select_hotspots": {"L1": "C4,C5,C15,C16,C26,C27,N1,N3,N4"},
+    "select_buried": {"L1": "all"},
+    "select_hbond_acceptor": {"L1": "O1,O2,O3,N1,N3,N4"},
+    "ori_token": [0.0, 5.0, 0.0]
+  },
+  "test_config": {
+    "name": "v6_large_test",
+    "contig": "X1,L1,/0,120-140",
+    "num_designs": 10,
+    "description": "Test with hotspots on TriNOx ligand"
+  }
+}

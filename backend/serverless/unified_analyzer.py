@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 from analysis_types import (
     AnalysisResult,
     AnalysisStatus,
-    DesignType,
+    StructureType,
     detect_design_type,
     detect_metal_from_pdb,
     detect_ligand_from_pdb,
@@ -413,7 +413,7 @@ class UnifiedDesignAnalyzer:
         Detect design type from PDB content with auto-detection of metal/ligand.
 
         Returns:
-            Tuple of (DesignType, DetectedMetal or None, DetectedLigand or None)
+            Tuple of (StructureType, DetectedMetal or None, DetectedLigand or None)
         """
         # Count protein chains
         chains = set()
@@ -443,7 +443,7 @@ class UnifiedDesignAnalyzer:
 
         return design_type, detected_metal, detected_ligand
 
-    def _generate_design_id(self, design_type: DesignType) -> str:
+    def _generate_design_id(self, design_type: StructureType) -> str:
         """Generate unique design ID."""
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         type_short = design_type.value.replace("_", "-")
@@ -545,8 +545,8 @@ class UnifiedDesignAnalyzer:
 
         # Run interface analysis (for dimers only)
         monomer_types = {
-            DesignType.MONOMER, DesignType.METAL_MONOMER,
-            DesignType.LIGAND_MONOMER, DesignType.METAL_LIGAND_MONOMER
+            StructureType.MONOMER, StructureType.METAL_MONOMER,
+            StructureType.LIGAND_MONOMER, StructureType.METAL_LIGAND_MONOMER
         }
         if design_type not in monomer_types:
             result["analyses"]["interface_quality"] = self._analyze_interface(

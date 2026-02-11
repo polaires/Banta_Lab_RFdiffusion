@@ -444,6 +444,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
         {activePipelineId && (
           <div className="pl-11">
             <PipelineCard
+              key={`${activeProjectId}-${activePipelineId}`}
               pipelineId={activePipelineId}
               initialParams={pipelineInitialParams}
               onSelectDesign={handleSelectDesign}

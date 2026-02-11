@@ -1,0 +1,35 @@
+{
+  "name": "v5_hotspot_positioning",
+  "description": "Dy-TriNOx scaffold with hotspot on metal + explicit origin at open coordination site",
+  "notes": {
+    "v4_problems": [
+      "Protein was 8-11Å from metal - no coordination",
+      "Missing hotspot conditioning on Dy metal",
+      "select_buried was on metal (X1) instead of ligand (L1)",
+      "infer_ori_strategy=com didn't position protein close enough"
+    ],
+    "v5_fixes": [
+      "Add select_hotspots on Dy metal to force protein contact",
+      "Use explicit ori_token at open coordination site (+Z direction)",
+      "Move select_buried to ligand (L1) to create binding pocket",
+      "Increase cfg_scale to 2.5 for stronger adherence"
+    ]
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.5,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {"X1": "all", "L1": "all"},
+    "select_hotspots": {"X1": "1"},
+    "select_buried": {"L1": "all"},
+    "select_hbond_acceptor": {"L1": "O1,O2,O3"},
+    "ori_token": [0.0, 7.8, 5.5]
+  },
+  "test_config": {
+    "name": "v5_large_test",
+    "contig": "X1,L1,/0,120-140",
+    "num_designs": 10,
+    "description": "Test with large scaffold (120-140 res) before expanding"
+  }
+}

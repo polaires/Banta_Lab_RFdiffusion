@@ -4,8 +4,8 @@
 outputs/
 *.pdb
 
-# Analysis JSON files (can be large)
-analysis/*.json
+# Analysis JSON files (can be large, recursive)
+analysis/**/*.json
 
 # Python cache
 __pycache__/
@@ -15,11 +15,20 @@ __pycache__/
 *.tmp
 *.bak
 
+# Per-design metrics (large number of small files)
+final/promising/*_metrics.json
+final/top_candidates/*/metrics.json
+
+# Scaffolding batch outputs
+scaffolding_3c9h/exploration/
+scaffolding_3c9h/production/
+scaffolding_3c9h/final/
+
 # Keep these tracked:
-# - DESIGN_PLAN.md
+# - DESIGN_PLAN.md, SCAFFOLDING_3C9H_PLAN.md, PRODUCTION_REPORT.md
 # - configs/**/*.json
 # - scripts/*.py
 # - analysis/cumulative_lessons.md
-# - final/production_config.json
+# - final/production_config.json, top_10_summary.json
 !analysis/cumulative_lessons.md
 !final/production_config.json

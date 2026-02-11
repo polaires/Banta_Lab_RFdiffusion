@@ -312,6 +312,12 @@ export function ScaffoldSearchResultPreview({
     const outputId = `scaffold-${pdbId}`;
     // Radio-style: select only this one
     onSelectionChange([outputId]);
+
+    // Also auto-view the selected scaffold in 3D viewer
+    const pdbOut = result.pdbOutputs?.find(p => p.id === outputId);
+    if (pdbOut && onSelectDesign) {
+      onSelectDesign(pdbOut.pdbContent);
+    }
   };
 
   return (

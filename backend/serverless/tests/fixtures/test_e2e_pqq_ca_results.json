@@ -1,0 +1,242 @@
+{
+  "E1": {
+    "donor_count": 10,
+    "donor_elements": [
+      "O",
+      "O",
+      "N",
+      "O",
+      "O",
+      "N",
+      "O",
+      "O",
+      "O",
+      "O"
+    ],
+    "donor_types": [
+      "carboxylate",
+      "carboxylate",
+      "pyridine",
+      "carbonyl",
+      "carbonyl",
+      "pyridine",
+      "carboxylate",
+      "carboxylate",
+      "carboxylate",
+      "carboxylate"
+    ],
+    "geometry_filtered_count": 3,
+    "coordination_mode": "polydentate",
+    "compatibility_score": 0.9538461538461539,
+    "recommended_donors": 3
+  },
+  "E2": {
+    "hbond_donors": [
+      "X0",
+      "X18",
+      "X22"
+    ],
+    "hbond_acceptors": [
+      "X0",
+      "X2",
+      "X9",
+      "X11",
+      "X13",
+      "X18",
+      "X19",
+      "X22",
+      "X23"
+    ]
+  },
+  "E3": {
+    "enzyme_class": "quinoprotein",
+    "confidence": 1.05
+  },
+  "E4": {
+    "substrate_access_required": true
+  },
+  "E5": {
+    "has_dimorphite": false,
+    "protonated_smiles": "OC(=O)c1[nH]c2c(c1)C(=O)C(=O)c3nc(cc(C(O)=O)c23)C(O)=O"
+  },
+  "E6": {
+    "regular_conformer": true,
+    "regular_hetatm_count": 30,
+    "metal_conformer": true,
+    "metal_hetatm_count": 30
+  },
+  "E7": {
+    "validation_result": {
+      "valid": false,
+      "coordination_number": 9,
+      "issues": [
+        "coordination_number: expected 6, found 9",
+        "coordination_number: 9 above maximum 8",
+        "distance: ligand 0 at 1.00A is too close (min 2.10A)",
+        "distance: ligand 1 at 1.00A is too close (min 2.10A)",
+        "distance: ligand 2 at 2.00A is too close (min 2.10A)",
+        "distance: ligand 3 at 2.00A is too close (min 2.10A)",
+        "distance: ligand 4 at 2.00A is too close (min 2.10A)",
+        "distance: ligand 5 at 2.00A is too close (min 2.10A)"
+      ],
+      "distances": [
+        1.0,
+        1.0,
+        2.0,
+        2.0,
+        2.0,
+        2.0,
+        2.2,
+        2.3,
+        2.2
+      ],
+      "geometry_match": "tricapped_trigonal_prism",
+      "coordinating_atoms": [
+        "ASP10:OD1",
+        "ASP10:OD2",
+        "GLU11:N",
+        "GLU11:OE1",
+        "GLU11:OE2",
+        "GLU12:OE1",
+        "PQQ1:O5",
+        "PQQ1:N6",
+        "PQQ1:O7A"
+      ]
+    }
+  },
+  "E7_filters": {
+    "metal_has_coord": true,
+    "strict_has_coord": true
+  },
+  "E8": {
+    "ml_stub_returned": true,
+    "ml_donor_count": 10,
+    "ml_class_stub": true
+  },
+  "GEOMETRY_FILTER": {
+    "PQQ_raw": 10,
+    "PQQ_filtered": 3,
+    "Citrate_raw": 7,
+    "Citrate_filtered": 5,
+    "Caffeine_raw": 6,
+    "Caffeine_filtered": 5,
+    "ATP_raw": 21,
+    "ATP_filtered": 8
+  },
+  "CHAIN_LENGTH": {
+    "Caffeine_range": "60-80",
+    "Caffeine_mid": 70.0,
+    "Citrate_range": "82-102",
+    "Citrate_mid": 92.0,
+    "PQQ_range": "132-152",
+    "PQQ_mid": 142.0,
+    "ATP_range": "190-210",
+    "ATP_mid": 200.0
+  },
+  "MULTI_LIGAND": {
+    "PQQ": {
+      "heavy_atoms": 24,
+      "tpsa": 174.7,
+      "raw_donors": 10,
+      "filtered_donors": 3,
+      "chain_length": "132-152",
+      "metal": "CA"
+    },
+    "Citrate": {
+      "heavy_atoms": 13,
+      "tpsa": 132.1,
+      "raw_donors": 7,
+      "filtered_donors": 5,
+      "chain_length": "82-102",
+      "metal": "TB"
+    },
+    "Caffeine": {
+      "heavy_atoms": 14,
+      "tpsa": 61.8,
+      "raw_donors": 6,
+      "filtered_donors": 5,
+      "chain_length": "60-80",
+      "metal": "none"
+    },
+    "ATP": {
+      "heavy_atoms": 31,
+      "tpsa": 279.1,
+      "raw_donors": 21,
+      "filtered_donors": 8,
+      "chain_length": "190-210",
+      "metal": "MG"
+    }
+  },
+  "INTEGRATION": {
+    "intent_metal": "CA",
+    "intent_ligand": "pqq",
+    "intent_enzyme_class": "quinoprotein",
+    "resolved": true,
+    "source": "template",
+    "template_name": "pqq_ca",
+    "chem_donors": [
+      "O5",
+      "N6",
+      "O7A"
+    ],
+    "chem_hbond_donors": [
+      "O1",
+      "O19",
+      "O23"
+    ],
+    "chem_hbond_acceptors": [
+      "O1",
+      "O3",
+      "N5",
+      "O10",
+      "O12",
+      "N14",
+      "O19",
+      "O20",
+      "O23",
+      "O24"
+    ],
+    "coord_donors": [
+      "O5",
+      "N6",
+      "O7A"
+    ],
+    "coord_cn": 6,
+    "rfd3_contig": "X1,L1,/0,108-128",
+    "rfd3_cfg": true,
+    "rfd3_cfg_scale": 3.0,
+    "rfd3_select_buried": {
+      "X1": "all",
+      "L1": "all"
+    },
+    "rfd3_select_hbond_donor": {
+      "L1": "O1,O19,O23"
+    },
+    "rfd3_select_hbond_acceptor": {
+      "L1": "O1,O3,N5,O10,O12,N14,O19,O20,O23,O24"
+    },
+    "rfd3_select_fixed_atoms": {
+      "X1": "all",
+      "L1": "O5,N6,O7A"
+    },
+    "rfd3_select_exposed": {},
+    "mpnn_temperature": 0.1,
+    "mpnn_bias": "E:3.0,D:3.0,N:2.4,Q:2.4",
+    "api_params_keys": [
+      "task",
+      "contig",
+      "num_designs",
+      "num_timesteps",
+      "use_classifier_free_guidance",
+      "cfg_scale",
+      "step_scale",
+      "infer_ori_strategy",
+      "select_fixed_atoms",
+      "select_hotspots",
+      "select_buried",
+      "select_hbond_acceptor",
+      "select_hbond_donor",
+      "pdb_content"
+    ]
+  }
+}

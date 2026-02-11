@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { StepResult } from '@/lib/pipeline-types';
+import { useStore } from '@/lib/store';
 
 interface LigandFeaturesPreviewProps {
   result: StepResult;
@@ -86,6 +87,9 @@ export function LigandFeaturesPreview({
   result,
   onSelectDesign,
 }: LigandFeaturesPreviewProps) {
+  const setLigandCoordinationFeatures = useStore(s => s.setLigandCoordinationFeatures);
+  const setShowLigandFeatures3D = useStore(s => s.setShowLigandFeatures3D);
+
   const data = result.data || {};
 
   // Handle skipped states
@@ -115,27 +119,26 @@ export function LigandFeaturesPreview({
   const sourceBadge = getSourceBadge(source);
   const SourceIcon = sourceBadge.icon;
 
-  // Track user overrides for coordination donors
+  // Track user overrides for all features (coordination donors start enabled, others disabled)
   const [overrides, setOverrides] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     features.forEach(f => {
-      if (f.is_coordination_donor) {
-        initial[f.atom_name] = f.enabled;
-      }
+      // Coordination donors default to enabled, others to disabled
+      initial[f.atom_name] = f.is_coordination_donor ? (f.enabled !== false) : false;
     });
     return initial;
   });
 
-  const handleToggleDonor = useCallback((atomName: string) => {
+  const handleToggleFeature = useCallback((atomName: string) => {
     setOverrides(prev => {
       const next = { ...prev, [atomName]: !prev[atomName] };
       // Store overrides in result data for downstream steps
-      const activeDonors = Object.entries(next)
+      const activeFeatures = Object.entries(next)
         .filter(([, enabled]) => enabled)
         .map(([name]) => name);
       if (result.data) {
         (result.data as Record<string, unknown>).user_overrides = {
-          active_donors: activeDonors,
+          active_features: activeFeatures,
           modified: true,
         };
       }
@@ -143,7 +146,7 @@ export function LigandFeaturesPreview({
     });
   }, [result]);
 
-  const activeDonors = useMemo(() =>
+  const activeFeatureNames = useMemo(() =>
     Object.entries(overrides)
       .filter(([, enabled]) => enabled)
       .map(([name]) => name),
@@ -151,9 +154,10 @@ export function LigandFeaturesPreview({
   );
 
   const hasOverride = useMemo(() => {
-    return features.some(f =>
-      f.is_coordination_donor && overrides[f.atom_name] !== f.enabled
-    );
+    return features.some(f => {
+      const defaultEnabled = f.is_coordination_donor ? (f.enabled !== false) : false;
+      return overrides[f.atom_name] !== defaultEnabled;
+    });
   }, [features, overrides]);
 
   // Separate coordination donors and other features
@@ -212,15 +216,15 @@ export function LigandFeaturesPreview({
                     key={`${f.atom_idx}-${f.type}`}
                     className={cn(
                       'border-b transition-colors',
-                      overrides[f.atom_name] !== false
+                      overrides[f.atom_name]
                         ? 'bg-primary/5'
                         : 'opacity-50',
                     )}
                   >
                     <td className="px-2 py-1">
                       <Checkbox
-                        checked={overrides[f.atom_name] !== false}
-                        onCheckedChange={() => handleToggleDonor(f.atom_name)}
+                        checked={overrides[f.atom_name] === true}
+                        onCheckedChange={() => handleToggleFeature(f.atom_name)}
                         className="h-3.5 w-3.5"
                       />
                     </td>
@@ -236,17 +240,28 @@ export function LigandFeaturesPreview({
                     </td>
                     <td className="px-2 py-1 text-muted-foreground">{getHsabLabel(f.hsab)}</td>
                     <td className="px-2 py-1 text-center">
-                      <span className="text-emerald-600 dark:text-emerald-400 font-medium">Yes</span>
+                      <span className="text-primary font-medium">Yes</span>
                     </td>
                   </tr>
                 ))}
-                {/* Non-coordination features */}
+                {/* Non-coordination features (can now be toggled) */}
                 {otherFeatures.map((f) => (
                   <tr
                     key={`${f.atom_idx}-${f.type}`}
-                    className="border-b opacity-60"
+                    className={cn(
+                      'border-b transition-colors',
+                      overrides[f.atom_name]
+                        ? 'bg-primary/5'
+                        : 'opacity-60',
+                    )}
                   >
-                    <td className="px-2 py-1"></td>
+                    <td className="px-2 py-1">
+                      <Checkbox
+                        checked={overrides[f.atom_name] === true}
+                        onCheckedChange={() => handleToggleFeature(f.atom_name)}
+                        className="h-3.5 w-3.5"
+                      />
+                    </td>
                     <td className="px-2 py-1 font-mono">{f.atom_name}</td>
                     <td className="px-2 py-1 font-mono">{f.element}</td>
                     <td className="px-2 py-1">
@@ -279,9 +294,9 @@ export function LigandFeaturesPreview({
             Max denticity: <span className="font-mono font-medium">{maxDenticity}</span>
           </span>
         )}
-        {activeDonors.length > 0 && (
+        {activeFeatureNames.length > 0 && (
           <span className="text-muted-foreground">
-            Active donors: <span className="font-mono font-medium">{activeDonors.length}</span>
+            Selected: <span className="font-mono font-medium">{activeFeatureNames.length}</span>
           </span>
         )}
       </div>
@@ -312,7 +327,20 @@ export function LigandFeaturesPreview({
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => onSelectDesign(ligandPdbContent)}
+            onClick={() => {
+              // Filter to all user-selected features and include ligand name for specific selection
+              const activeFeatures = features
+                .filter(f => overrides[f.atom_name] === true)
+                .map(f => ({
+                  ...f,
+                  enabled: true,
+                  ligand_name: ligandName, // Include ligand name for specific atom selection
+                }));
+
+              setLigandCoordinationFeatures(activeFeatures);
+              setShowLigandFeatures3D(true);
+              onSelectDesign(ligandPdbContent);
+            }}
           >
             <Eye className="h-3.5 w-3.5" />
             View 3D
@@ -322,9 +350,9 @@ export function LigandFeaturesPreview({
 
       {/* Override indicator */}
       {hasOverride && (
-        <div className="flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded px-2 py-1">
+        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground bg-muted rounded px-2 py-1">
           <AlertTriangle className="h-3 w-3 shrink-0" />
-          Override applied: {activeDonors.length} active donor{activeDonors.length !== 1 ? 's' : ''}
+          Selection modified: {activeFeatureNames.length} feature{activeFeatureNames.length !== 1 ? 's' : ''} selected
         </div>
       )}
     </div>

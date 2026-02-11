@@ -1,0 +1,68 @@
+{
+  "name": "metal_binding_strict",
+  "description": "S/A tier metal binding (Round 7b style) - for high-quality monomer scaffolds",
+  "version": "1.0.0",
+  "created": "2026-01-23",
+  "filters": {
+    "structure_confidence": {
+      "plddt": {"min": 0.80, "description": "BindCraft standard threshold"},
+      "ptm": {"min": 0.75, "description": "Template modeling confidence"},
+      "pae": {"max": 5.0, "description": "Predicted aligned error (Angstrom)"}
+    },
+    "metal_coordination": {
+      "coordination_number": {"min": 8, "description": "Target 8-fold coordination for lanthanides"},
+      "geometry_rmsd": {"max": 1.2, "description": "RMSD to ideal geometry (Angstrom)"},
+      "metal_sasa": {"max": 5.0, "description": "Solvent accessible surface area (Angstrom^2)"},
+      "ligand_contacts": {"min": 3, "description": "Minimum contacts with organic ligand"}
+    },
+    "hsab_compliance": {
+      "preferred_donors": ["E", "D", "N", "Q"],
+      "forbidden_donors": ["C"],
+      "notes": "Hard Lewis acid donors for lanthanides (Glu, Asp, Asn, Gln)"
+    }
+  },
+  "tier_thresholds": {
+    "S": {
+      "plddt": 0.85,
+      "ptm": 0.80,
+      "coordination_number": 8,
+      "geometry_rmsd": 0.8
+    },
+    "A": {
+      "plddt": 0.80,
+      "ptm": 0.75,
+      "coordination_number": 8,
+      "geometry_rmsd": 1.2
+    },
+    "B": {
+      "plddt": 0.75,
+      "ptm": 0.70,
+      "coordination_number": 7,
+      "geometry_rmsd": 1.5
+    },
+    "C": {
+      "plddt": 0.70,
+      "ptm": 0.65,
+      "coordination_number": 6,
+      "geometry_rmsd": 2.0
+    }
+  },
+  "proceed_criteria": {
+    "min_tier": "B",
+    "min_pass_rate": 0.30,
+    "min_tier_a_count": 3,
+    "notes": "Proceed to MPNN if at least 30% pass and at least 3 A-tier designs"
+  },
+  "contig_ranges": {
+    "small": "100-120",
+    "medium": "110-130",
+    "large": "130-150",
+    "notes": "Monomer-appropriate sizes (larger than dimer chains)"
+  },
+  "cfg_scale_recommendations": {
+    "low": 1.5,
+    "medium": 2.0,
+    "high": 2.5,
+    "notes": "2.0 recommended for RASA + H-bond conditioning per RFD3 docs"
+  }
+}

@@ -1,0 +1,15 @@
+# Dy-TriNOx Scaffold Experiment - Generated outputs
+
+# All versioned output directories
+outputs/
+outputs_v*/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Keep tracked:
+# - README.md
+# - configs/*.json
+# - inputs/TriNOx.sdf (source ligand)
+# - scripts/*.py

@@ -1,0 +1,177 @@
+{
+  "Dy_TriNOx_scaffold": {
+    "description": "De novo protein design to coordinate Dy-TriNOx complex at open apical site",
+    "rationale": "TriNOx already provides 7 coordination donors (3×O-phenolate + 3×N-amine + 1×N-apical). Only 1-2 additional donors needed from protein at the single open coordination site.",
+
+    "input": "inputs/Dy_TriNOx_clean.pdb",
+
+    "chemistry_notes": {
+      "metal": "Dysprosium (Dy3+)",
+      "coordination_number": "8-9 typical for Dy3+",
+      "trinox_provides": {
+        "O_phenolate": 3,
+        "N_amine": 3,
+        "N_apical": 1,
+        "total": 7
+      },
+      "protein_needed": "1-2 O/N donors",
+      "target_bond_length": "2.2-2.5 Å (Dy-O) or 2.4-2.7 Å (Dy-N)",
+      "open_site_position": [-0.007, 7.835, 5.494],
+      "open_site_direction": "+Z from Dy center"
+    },
+
+    "contig_strategy": "de_novo_with_fixed_ligand",
+    "contig_explanation": "Generate protein de novo around the fixed Dy-TriNOx complex. Position coordinating residues at the open apical site.",
+
+    "configs": [
+      {
+        "name": "r1a_small_direct",
+        "description": "Small protein directly coordinating at open site",
+        "contig": "60-80",
+        "select_fixed_atoms": {
+          "X": "all",
+          "L": "all"
+        },
+        "select_buried": {
+          "X": "all"
+        },
+        "select_RASA": {
+          "target_position": [-0.007, 7.835, 5.494],
+          "target_atoms": ["X1:DY1"],
+          "rasa_range": [0.1, 0.3]
+        },
+        "hotspot": {
+          "position": [-0.007, 7.835, 5.494],
+          "radius": 3.5,
+          "note": "Position protein contacts near open coordination site"
+        },
+        "use_classifier_free_guidance": true,
+        "cfg_scale": 2.0,
+        "n_batches": 20,
+        "step_scale": 1.5,
+        "expected_length": "60-80 residues",
+        "expected_coordination": "1 Glu/Asp carboxylate O or His N"
+      },
+      {
+        "name": "r1b_medium_buried",
+        "description": "Medium protein with better burial of complex",
+        "contig": "90-120",
+        "select_fixed_atoms": {
+          "X": "all",
+          "L": "all"
+        },
+        "select_buried": {
+          "X": "all",
+          "L": "O1,O2,O3"
+        },
+        "select_RASA": {
+          "target_position": [-0.007, 7.835, 5.494],
+          "target_atoms": ["X1:DY1"],
+          "rasa_range": [0.05, 0.2]
+        },
+        "use_classifier_free_guidance": true,
+        "cfg_scale": 2.0,
+        "n_batches": 20,
+        "step_scale": 1.5,
+        "expected_length": "90-120 residues",
+        "expected_coordination": "1-2 coordinating side chains"
+      },
+      {
+        "name": "r1c_large_full_encapsulation",
+        "description": "Large protein fully encapsulating TriNOx complex",
+        "contig": "130-160",
+        "select_fixed_atoms": {
+          "X": "all",
+          "L": "all"
+        },
+        "select_buried": {
+          "X": "all",
+          "L": "all_heavy"
+        },
+        "select_RASA": {
+          "target_atoms": ["X1:DY1"],
+          "rasa_range": [0.0, 0.1]
+        },
+        "use_classifier_free_guidance": true,
+        "cfg_scale": 2.5,
+        "n_batches": 20,
+        "step_scale": 1.5,
+        "expected_length": "130-160 residues",
+        "expected_coordination": "2 coordinating residues for high affinity"
+      }
+    ],
+
+    "diversity_strategies": {
+      "description": "Since TriNOx is rigid, we generate diversity through protein backbone sampling",
+      "approaches": [
+        {
+          "name": "seed_variation",
+          "method": "Run each config with 5 different random seeds",
+          "seeds": [42, 123, 456, 789, 1024]
+        },
+        {
+          "name": "contig_length_sweep",
+          "method": "Vary protein length systematically",
+          "lengths": ["50-70", "70-90", "90-110", "110-130"]
+        },
+        {
+          "name": "hotspot_variation",
+          "method": "Try different approach angles to open site",
+          "note": "Rotate hotspot position around Z-axis by 30° increments"
+        }
+      ]
+    },
+
+    "ligandmpnn_strategy": {
+      "description": "LigandMPNN will design sequences, sampling side chain rotamers",
+      "fixed_residues": "None (let MPNN design all)",
+      "bias_residues": {
+        "near_metal": {
+          "residues": "positions within 5Å of Dy",
+          "bias": {"E": 2.0, "D": 1.5, "H": 1.5, "N": 1.0},
+          "rationale": "Favor coordinating residues near metal"
+        }
+      },
+      "temperature": 0.1,
+      "n_sequences": 8
+    },
+
+    "validation_metrics": {
+      "coordination_distance": {
+        "target": "2.2-2.7 Å from Dy to closest protein O/N",
+        "tolerance": "±0.3 Å"
+      },
+      "coordination_geometry": {
+        "check": "Does protein complete ~8-9 coordinate geometry?",
+        "angles": "Check O-Dy-O and N-Dy-N angles"
+      },
+      "burial": {
+        "target": "Dy should be >70% buried",
+        "method": "SASA calculation"
+      },
+      "pLDDT": {
+        "target": ">0.80 for well-folded protein"
+      }
+    },
+
+    "key_parameters": {
+      "cfg_scale": "2.0-2.5 (higher for better burial conditioning)",
+      "step_scale": "1.5 for designability",
+      "n_batches": "20 per config (more than citrate due to larger ligand)",
+      "select_buried": "Critical to position metal in protein interior"
+    },
+
+    "comparison_to_citrate": {
+      "easier": [
+        "Only 1-2 coordination sites needed (vs 3-4)",
+        "Rigid ligand geometry (no conformer sampling)",
+        "Well-defined coordination direction"
+      ],
+      "harder": [
+        "Much larger ligand (86 vs 13 heavy atoms)",
+        "Steric bulk from tert-butyl groups",
+        "Need to design around aromatic rings"
+      ]
+    }
+  }
+}

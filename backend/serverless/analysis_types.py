@@ -49,6 +49,10 @@ def detect_metal_from_pdb(pdb_content: str) -> Optional[DetectedMetal]:
     """
     Scan PDB HETATM records for metal codes.
 
+    Checks residue name (cols 17-20), element symbol (cols 76-78), and
+    atom name (cols 12-16) to handle RF3 outputs where metal may be in
+    a ligand chain with non-standard residue names like "L:0".
+
     Args:
         pdb_content: PDB file content as string
 
@@ -61,13 +65,33 @@ def detect_metal_from_pdb(pdb_content: str) -> Optional[DetectedMetal]:
 
         try:
             # PDB format columns:
-            # 18-20: residue name (right-justified in cols 18-20)
+            # 12-16: atom name
+            # 17-20: residue name (right-justified in cols 17-20)
             # 21: chain ID
-            # 23-26: residue sequence number
-            # 31-38, 39-46, 47-54: x, y, z coordinates
+            # 22-26: residue sequence number
+            # 30-38, 38-46, 46-54: x, y, z coordinates
+            # 76-78: element symbol
             residue_name = line[17:20].strip().upper()
 
+            # Check residue name first
+            metal_type = None
             if residue_name in METAL_CODES:
+                metal_type = residue_name
+            else:
+                # Check element symbol (cols 76-78) for RF3 outputs
+                if len(line) > 76:
+                    element = line[76:78].strip().upper()
+                    if element in METAL_CODES:
+                        metal_type = element
+                # Check atom name (cols 12-16) as fallback
+                if metal_type is None:
+                    atom_name = line[12:16].strip().upper()
+                    # Remove trailing numbers (e.g., TB0 -> TB)
+                    atom_base = atom_name.rstrip("0123456789")
+                    if atom_base in METAL_CODES:
+                        metal_type = atom_base
+
+            if metal_type:
                 chain = line[21].strip() or "A"
                 resnum = int(line[22:26].strip())
                 x = float(line[30:38].strip())
@@ -75,7 +99,7 @@ def detect_metal_from_pdb(pdb_content: str) -> Optional[DetectedMetal]:
                 z = float(line[46:54].strip())
 
                 return DetectedMetal(
-                    metal_type=residue_name,
+                    metal_type=metal_type,
                     chain=chain,
                     resnum=resnum,
                     x=x,
@@ -140,8 +164,13 @@ class AnalysisStatus(Enum):
     SKIPPED = "skipped"
 
 
-class DesignType(Enum):
-    """Types of protein designs."""
+class StructureType(Enum):
+    """Structural composition of a protein design (monomer/dimer, metal/ligand).
+
+    NOTE: This is different from design_types.DesignType which classifies
+    the design INTENT (e.g., METAL_BINDING, ENZYME_ACTIVE_SITE).
+    StructureType classifies the structure COMPOSITION after generation.
+    """
     # Monomer designs (single chain)
     MONOMER = "monomer"
     METAL_MONOMER = "metal_monomer"
@@ -256,7 +285,7 @@ def detect_design_type(
     has_ligand: bool,
     has_metal: bool,
     chain_count: int,
-) -> DesignType:
+) -> StructureType:
     """
     Detect design type from structural properties.
 
@@ -272,19 +301,19 @@ def detect_design_type(
 
     # Dimer types (2+ protein chains)
     if has_ligand and has_metal and is_dimer:
-        return DesignType.METAL_LIGAND_INTERFACE_DIMER
+        return StructureType.METAL_LIGAND_INTERFACE_DIMER
     elif has_ligand and is_dimer:
-        return DesignType.LIGAND_INTERFACE_DIMER
+        return StructureType.LIGAND_INTERFACE_DIMER
     elif has_metal and is_dimer:
-        return DesignType.METAL_INTERFACE_DIMER
+        return StructureType.METAL_INTERFACE_DIMER
     elif is_dimer:
-        return DesignType.PROTEIN_DIMER
+        return StructureType.PROTEIN_DIMER
     # Monomer types (single protein chain)
     elif has_ligand and has_metal:
-        return DesignType.METAL_LIGAND_MONOMER
+        return StructureType.METAL_LIGAND_MONOMER
     elif has_ligand:
-        return DesignType.LIGAND_MONOMER
+        return StructureType.LIGAND_MONOMER
     elif has_metal:
-        return DesignType.METAL_MONOMER
+        return StructureType.METAL_MONOMER
     else:
-        return DesignType.MONOMER
+        return StructureType.MONOMER

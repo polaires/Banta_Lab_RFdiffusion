@@ -1,0 +1,40 @@
+{
+  "name": "v9_ligand_hbonds",
+  "description": "Maximize protein-TriNOx H-bonding by targeting accessible N atoms",
+  "notes": {
+    "v6_v7_v8_analysis": [
+      "All versions: 0 H-bonds to ligand despite close contacts",
+      "Problem: Protein contacts hydrophobic parts (aromatics, tert-butyls)",
+      "TriNOx polar atoms (N1-N4) are BELOW the Dy metal",
+      "v8 pushed protein ABOVE (+8A Z-offset) - wrong direction!"
+    ],
+    "trinox_accessible_atoms": {
+      "N2_cap": "Z=-2.8A below Dy, most accessible",
+      "N1_N3_N4_ring": "Z=-0.7A below Dy, on phenolate rings",
+      "O1_O2_O3": "BLOCKED - coordinating Dy"
+    },
+    "v9_strategy": [
+      "Negative Z ori_token to position protein BELOW complex",
+      "Hotspots on N atoms to direct approach toward H-bond sites",
+      "select_hbond_donor on L1 N atoms - protein provides H-bond",
+      "Keep buried constraint for good packing"
+    ]
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.5,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {"X1": "all", "L1": "all"},
+    "select_hotspots": {"L1": "N1,N2,N3,N4,C4,C5,C15,C16,C26,C27"},
+    "select_buried": {"L1": "all"},
+    "select_hbond_donor": {"L1": "N1,N2,N3,N4"},
+    "ori_token": [0.0, 8.0, -5.0]
+  },
+  "test_config": {
+    "name": "v9_hbond_test",
+    "contig": "X1,L1,/0,120-140",
+    "num_designs": 10,
+    "description": "Target ligand N atoms for H-bonding, protein below complex"
+  }
+}

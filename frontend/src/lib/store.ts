@@ -71,6 +71,41 @@ export interface ConservationData {
   error?: string;
 }
 
+// Ligand coordination feature for 3D visualization
+export interface LigandCoordinationFeature {
+  atom_idx: number;
+  atom_name: string;     // e.g., "O1", "N2"
+  element: string;
+  type: string;          // "donor", "acceptor"
+  is_coordination_donor: boolean;
+  coords: [number, number, number] | null;
+  hsab: string | null;   // "hard", "soft", "borderline"
+  enabled: boolean;
+  ligand_name?: string;  // e.g., "CIT", "PQQ" - for specific atom selection
+  distance?: number;     // Distance from metal (from scaffold data)
+}
+
+// Protein donor residue from scaffold search or MCSA
+export interface ProteinDonor {
+  chain: string;
+  residue: number;
+  name: string;           // "HIS", "ASP"
+  atomName: string;       // "NE2", "OD1"
+  distance?: number;
+  enabled: boolean;
+  source: 'scaffold' | 'mcsa' | 'local';
+}
+
+// Combined coordination sphere data (protein + ligand donors)
+export interface CoordinationSphereData {
+  metal: string;
+  ligandName: string;
+  coordinationNumber: number;
+  scaffoldPdbId?: string;
+  ligandDonors: LigandCoordinationFeature[];
+  proteinDonors: ProteinDonor[];
+}
+
 // Hotspot residue from binding site detection
 export interface HotspotResidue {
   residue: string;      // e.g., "A25"
@@ -303,6 +338,19 @@ interface AppState {
   setPharmacophoreFeatures: (features: PharmacophoreFeature[] | null) => void;
   showPharmacophores3D: boolean;
   setShowPharmacophores3D: (show: boolean) => void;
+
+  // Ligand coordination feature visualization state
+  ligandCoordinationFeatures: LigandCoordinationFeature[] | null;
+  setLigandCoordinationFeatures: (features: LigandCoordinationFeature[] | null) => void;
+  showLigandFeatures3D: boolean;
+  setShowLigandFeatures3D: (show: boolean) => void;
+
+  // Combined coordination sphere data (protein + ligand donors)
+  coordinationSphereData: CoordinationSphereData | null;
+  setCoordinationSphereData: (data: CoordinationSphereData | null) => void;
+  // Flag to trigger auto-focus on coordination sphere after visualization
+  shouldFocusCoordinationSphere: boolean;
+  setShouldFocusCoordinationSphere: (focus: boolean) => void;
 
   // Hotspot detection visualization state
   hotspotsData: HotspotData | null;
@@ -648,6 +696,19 @@ export const useStore = create<AppState>()(
   setPharmacophoreFeatures: (features) => set({ pharmacophoreFeatures: features }),
   showPharmacophores3D: false,
   setShowPharmacophores3D: (show) => set({ showPharmacophores3D: show }),
+
+  // Ligand coordination feature visualization state
+  ligandCoordinationFeatures: null,
+  setLigandCoordinationFeatures: (features) => set({ ligandCoordinationFeatures: features }),
+  showLigandFeatures3D: false,
+  setShowLigandFeatures3D: (show) => set({ showLigandFeatures3D: show }),
+
+  // Combined coordination sphere data (protein + ligand donors)
+  coordinationSphereData: null,
+  setCoordinationSphereData: (data) => set({ coordinationSphereData: data }),
+  // Flag to trigger auto-focus on coordination sphere after visualization
+  shouldFocusCoordinationSphere: false,
+  setShouldFocusCoordinationSphere: (focus) => set({ shouldFocusCoordinationSphere: focus }),
 
   // Hotspot detection visualization state
   hotspotsData: null,

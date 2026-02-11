@@ -1,0 +1,51 @@
+{
+  "name": "v4_round7b_style",
+  "description": "Dy-TriNOx scaffold design using Round 7b lessons: CFG + H-bond conditioning",
+  "notes": {
+    "key_fixes": [
+      "Use ChainIDResNum format for contig (X1,L1,/0,80-100)",
+      "Use ChainIDResNum format for selection keys (X1, L1)",
+      "Use UNL residue name for ligand (not TNX) to avoid CCD conflicts",
+      "CFG with cfg_scale=2.0 for H-bond and RASA conditioning"
+    ]
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.0,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {
+      "X1": "all",
+      "L1": "all"
+    },
+    "select_buried": {
+      "X1": "all"
+    },
+    "select_hbond_acceptor": {
+      "L1": "O1,O2,O3"
+    },
+    "infer_ori_strategy": "com"
+  },
+  "configs": [
+    {
+      "name": "v4_small",
+      "contig": "X1,L1,/0,80-100",
+      "num_designs": 25
+    },
+    {
+      "name": "v4_medium",
+      "contig": "X1,L1,/0,100-120",
+      "num_designs": 25
+    },
+    {
+      "name": "v4_large",
+      "contig": "X1,L1,/0,120-140",
+      "num_designs": 25
+    },
+    {
+      "name": "v4_extended",
+      "contig": "X1,L1,/0,140-160",
+      "num_designs": 25
+    }
+  ]
+}

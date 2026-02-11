@@ -65,10 +65,32 @@ const PHARMACOPHORE_COLORS: Record<string, number> = {
   negative: 0xF97316,   // Orange
 };
 
+// Ligand feature colors - using consistent palette
+// Hard acids (O, F) prefer hard bases - Red
+// Soft acids (S, Se) prefer soft bases - Blue
+// Borderline (N) - Primary color
+const LIGAND_FEATURE_COLORS: Record<string, number> = {
+  donor: 0x2563EB,        // Blue-600 (primary-like)
+  acceptor: 0xDC2626,     // Red-600
+  aromatic: 0x9333EA,     // Purple-600
+  hydrophobic: 0x16A34A,  // Green-600
+};
+
+// HSAB-based coordination donor colors (chemically meaningful)
+const HSAB_COLORS: Record<string, number> = {
+  hard: 0xDC2626,         // Red-600 (O, F - hard donors)
+  soft: 0x2563EB,         // Blue-600 (S, Se - soft donors)
+  borderline: 0x7C3AED,   // Violet-600 (N - borderline)
+};
+
 export interface ProteinViewerHandle {
   resetView: () => void;
   focusOnMetal: (index: number) => Promise<void>;
   focusOnLigand: (index: number) => Promise<void>;
+  focusOnCoordinationSphere: (
+    coordData: import('@/lib/store').CoordinationSphereData,
+    ligandFeatures: import('@/lib/store').LigandCoordinationFeature[]
+  ) => Promise<void>;
 }
 
 // Global state for Molstar plugin - persists across component remounts
@@ -112,8 +134,15 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       ligandIndex: undefined,
     });
 
-    // Get focus settings from store
-    const { focusSettings } = useStore();
+    // Get focus settings and ligand feature visualization state from store
+    const {
+      focusSettings,
+      ligandCoordinationFeatures,
+      showLigandFeatures3D,
+      coordinationSphereData,
+      shouldFocusCoordinationSphere,
+      setShouldFocusCoordinationSphere,
+    } = useStore();
 
     // Use catalytic visualization hook to highlight suggestions in Molstar
     useCatalyticVisualization(pluginInstance);
@@ -479,6 +508,289 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       }
     }, [pdbContent, ligandData, focusSettings, renderInteractionLines]);
 
+    // Focus on coordination sphere (metal + protein donors + ligand donors)
+    const focusOnCoordinationSphere = useCallback(async (
+      coordData: import('@/lib/store').CoordinationSphereData,
+      ligandFeatures: import('@/lib/store').LigandCoordinationFeature[]
+    ) => {
+      if (!globalPlugin || !pdbContent) return;
+
+      // Wait for any in-progress operation to complete
+      if (globalOperationInProgress) {
+        console.log('[ProteinViewer] focusOnCoordinationSphere waiting for previous operation...');
+        try {
+          await globalOperationInProgress;
+        } catch {
+          // Previous operation failed, continue anyway
+        }
+      }
+
+      let resolveOperation: () => void;
+      globalOperationInProgress = new Promise(resolve => { resolveOperation = resolve; });
+
+      const plugin = globalPlugin;
+
+      try {
+        console.log('[ProteinViewer] Focusing on coordination sphere:', coordData);
+
+        // Clear current view
+        await plugin.clear();
+
+        // Reload structure
+        const isCif = pdbContent.trimStart().startsWith('data_');
+        const format = isCif ? 'mmcif' : 'pdb';
+
+        const data = await plugin.builders.data.rawData(
+          { data: pdbContent, label: 'structure.pdb' },
+          { state: { isGhost: true } }
+        );
+
+        const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+        if (!trajectory) {
+          throw new Error('Failed to parse trajectory from PDB data');
+        }
+
+        // Use applyPreset with empty representation for custom focus view
+        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+          representationPreset: 'empty',
+        });
+
+        // Get structure reference from hierarchy
+        const structures = plugin.managers.structure.hierarchy.current.structures;
+        if (!structures?.length) throw new Error('No structure found');
+        const structureRef = structures[0]?.cell?.transform?.ref;
+        if (!structureRef) throw new Error('Structure reference not available');
+        globalStructureRef = structureRef;
+
+        // Build expressions for each component
+        const focusGroups: any[] = [];
+
+        // 1. Protein coordination donors - ball-and-stick (orange)
+        if (coordData.proteinDonors && coordData.proteinDonors.length > 0) {
+          const proteinDonorGroups = coordData.proteinDonors.map((d) =>
+            MS.struct.generator.atomGroups({
+              'chain-test': MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.auth_asym_id(),
+                d.chain,
+              ]),
+              'residue-test': MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.auth_seq_id(),
+                d.residue,
+              ]),
+            })
+          );
+
+          const proteinDonorsExpr = MS.struct.combinator.merge(proteinDonorGroups);
+          focusGroups.push(proteinDonorsExpr);
+
+          const proteinDonorComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structureRef,
+            proteinDonorsExpr,
+            'coord-protein-donors'
+          );
+          if (proteinDonorComp) {
+            await plugin.builders.structure.representation.addRepresentation(proteinDonorComp, {
+              type: 'ball-and-stick',
+              color: 'uniform',
+              colorParams: { value: Color(0xf97316) }, // Orange
+              typeParams: { sizeFactor: 0.35 },
+            });
+            // Add labels
+            await plugin.builders.structure.representation.addRepresentation(proteinDonorComp, {
+              type: 'label',
+              typeParams: { level: 'residue' },
+              color: 'uniform',
+              colorParams: { value: Color(0x333333) },
+            });
+          }
+        }
+
+        // 2. Full ligand molecule - ball-and-stick with element colors (shows bonds)
+        // MUST render this FIRST so bonds are visible
+        if (coordData.ligandName) {
+          // Try both auth_comp_id and label_comp_id for compatibility
+          const ligandExpr = MS.struct.generator.atomGroups({
+            'residue-test': MS.core.logic.or([
+              MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.auth_comp_id(),
+                coordData.ligandName.toUpperCase(),
+              ]),
+              MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.label_comp_id(),
+                coordData.ligandName.toUpperCase(),
+              ]),
+            ]),
+          });
+          focusGroups.push(ligandExpr);
+
+          const fullLigandComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structureRef,
+            ligandExpr,
+            'coord-full-ligand'
+          );
+          if (fullLigandComp) {
+            await plugin.builders.structure.representation.addRepresentation(fullLigandComp, {
+              type: 'ball-and-stick',
+              color: 'element-symbol',
+              typeParams: { sizeFactor: 0.3 },
+            });
+          }
+          console.log('[ProteinViewer] Rendered full ligand:', coordData.ligandName);
+        }
+
+        // 3. Highlight coordination donor atoms - spacefill overlay with HSAB colors
+        if (ligandFeatures && ligandFeatures.length > 0) {
+          const enabledFeatures = ligandFeatures.filter(f => f.enabled);
+          console.log('[ProteinViewer] Rendering coordination donors:', enabledFeatures.length);
+
+          for (const feature of enabledFeatures) {
+            const ligandName = feature.ligand_name || coordData.ligandName;
+            if (!ligandName) continue;
+
+            const atomExpression = MS.struct.generator.atomGroups({
+              'residue-test': MS.core.logic.or([
+                MS.core.rel.eq([
+                  MS.struct.atomProperty.macromolecular.auth_comp_id(),
+                  ligandName.toUpperCase(),
+                ]),
+                MS.core.rel.eq([
+                  MS.struct.atomProperty.macromolecular.label_comp_id(),
+                  ligandName.toUpperCase(),
+                ]),
+              ]),
+              'atom-test': MS.core.logic.or([
+                MS.core.rel.eq([
+                  MS.struct.atomProperty.macromolecular.auth_atom_id(),
+                  feature.atom_name,
+                ]),
+                MS.core.rel.eq([
+                  MS.struct.atomProperty.macromolecular.label_atom_id(),
+                  feature.atom_name,
+                ]),
+              ]),
+            });
+
+            // HSAB colors for coordination chemistry
+            const hsabColors: Record<string, number> = {
+              hard: 0xDC2626,      // Red - hard donors (O, F)
+              soft: 0x2563EB,      // Blue - soft donors (S)
+              borderline: 0x7C3AED, // Violet - borderline (N)
+            };
+            const color = feature.hsab && hsabColors[feature.hsab]
+              ? hsabColors[feature.hsab]
+              : 0x7C3AED;
+
+            const featureComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+              structureRef,
+              atomExpression,
+              `coord-donor-${feature.atom_name}`
+            );
+            if (featureComp) {
+              // Use spacefill to highlight over the ball-and-stick ligand
+              await plugin.builders.structure.representation.addRepresentation(featureComp, {
+                type: 'spacefill',
+                color: 'uniform',
+                colorParams: { value: Color(color) },
+                typeParams: { sizeFactor: 0.5 },
+              });
+            }
+          }
+        }
+
+        // 4. Metal center (if present) - large spacefill
+        // Metal ions in PDB have residue name = element symbol (e.g., "TB", "CA", "ZN")
+        if (coordData.metal) {
+          // Try multiple selection strategies for metal
+          const metalExpr = MS.struct.generator.atomGroups({
+            'residue-test': MS.core.logic.or([
+              MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.label_comp_id(),
+                coordData.metal.toUpperCase(),
+              ]),
+              MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.auth_comp_id(),
+                coordData.metal.toUpperCase(),
+              ]),
+            ]),
+          });
+          focusGroups.push(metalExpr);
+
+          const metalComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structureRef,
+            metalExpr,
+            'coord-metal-center'
+          );
+          if (metalComp) {
+            await plugin.builders.structure.representation.addRepresentation(metalComp, {
+              type: 'spacefill',
+              color: 'uniform',
+              colorParams: { value: Color(0x9333EA) }, // Purple for visibility
+              typeParams: { sizeFactor: 1.2 },
+            });
+            console.log('[ProteinViewer] Rendered metal:', coordData.metal);
+          } else {
+            console.warn('[ProteinViewer] Could not find metal:', coordData.metal);
+          }
+        }
+
+        // 5. Surrounding residues (within 8A) - cartoon
+        if (focusGroups.length > 0) {
+          const combinedFocus = MS.struct.combinator.merge(focusGroups);
+          const surroundingsExpr = surroundingsExpression(combinedFocus, 8.0, true);
+          const backgroundExpr = exceptExpression(POLYMER_EXPRESSION, surroundingsExpr);
+
+          // Surroundings - cartoon (normal opacity)
+          const surroundingsComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structureRef,
+            intersectExpression(surroundingsExpr, POLYMER_EXPRESSION),
+            'coord-surroundings'
+          );
+          if (surroundingsComp) {
+            await plugin.builders.structure.representation.addRepresentation(surroundingsComp, {
+              type: 'cartoon',
+              color: 'chain-id',
+              typeParams: { alpha: 0.8 },
+            });
+          }
+
+          // Background - transparent cartoon
+          const bgComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            structureRef,
+            backgroundExpr,
+            'coord-background'
+          );
+          if (bgComp) {
+            await plugin.builders.structure.representation.addRepresentation(bgComp, {
+              type: 'cartoon',
+              color: 'chain-id',
+              typeParams: { alpha: 0.2 },
+            });
+          }
+
+          // 6. Focus camera on the coordination sphere
+          const state = plugin.state.data;
+          const cell = state.cells.get(structureRef);
+          if (cell?.obj?.data) {
+            const focusStructure = cell.obj.data;
+            const focusSelection = Script.getStructureSelection(combinedFocus, focusStructure);
+            if (!StructureSelection.isEmpty(focusSelection)) {
+              const loci = StructureSelection.toLociWithSourceUnits(focusSelection);
+              plugin.managers.camera.focusLoci(loci, { durationMs: 400 });
+            }
+          }
+        }
+
+        setFocusMode('metal'); // Reuse metal focus mode indicator
+        console.log('[ProteinViewer] Focused on coordination sphere');
+
+      } catch (err) {
+        console.error('[ProteinViewer] Failed to focus on coordination sphere:', err);
+      } finally {
+        resolveOperation!();
+        globalOperationInProgress = null;
+      }
+    }, [pdbContent]);
+
     // Clear all pharmacophore representations
     const clearPharmacophores = useCallback(async () => {
       if (!globalPlugin || !globalStructureRef) return;
@@ -505,6 +817,35 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         }
       } catch (err) {
         console.error('[ProteinViewer] Failed to clear pharmacophores:', err);
+      }
+    }, []);
+
+    // Clear all ligand feature representations
+    const clearLigandFeatures = useCallback(async () => {
+      if (!globalPlugin || !globalStructureRef) return;
+
+      try {
+        const state = globalPlugin.state.data;
+        // Find and remove all ligand feature components
+        const toRemove: string[] = [];
+        state.cells.forEach((cell: any, ref: string) => {
+          if (cell.obj?.label?.startsWith('ligand-feature-')) {
+            toRemove.push(ref);
+          }
+        });
+
+        for (const ref of toRemove) {
+          const cell = state.cells.get(ref);
+          if (cell) {
+            await globalPlugin.build().delete(ref).commit();
+          }
+        }
+
+        if (toRemove.length > 0) {
+          console.log(`[ProteinViewer] Cleared ${toRemove.length} ligand feature components`);
+        }
+      } catch (err) {
+        console.error('[ProteinViewer] Failed to clear ligand features:', err);
       }
     }, []);
 
@@ -571,6 +912,106 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       }
     }, [clearPharmacophores]);
 
+    // Render ligand coordination features as colored spheres (HSAB-based)
+    const renderLigandFeatures = useCallback(async (features: import('@/lib/store').LigandCoordinationFeature[]) => {
+      if (!globalPlugin || !globalStructureRef) {
+        console.log('[ProteinViewer] Cannot render ligand features: plugin or structure not ready');
+        return;
+      }
+
+      const plugin = globalPlugin;
+
+      try {
+        // Clear existing ligand features first
+        await clearLigandFeatures();
+
+        const enabledFeatures = features.filter(f => f.enabled);
+        console.log(`[ProteinViewer] Rendering ${enabledFeatures.length} ligand features`);
+
+        for (const feature of enabledFeatures) {
+          // Create Mol* selection expression for this atom
+          // Use both ligand name (comp_id) and atom name for specific selection
+          // Note: PDB files use auth_* fields, mmCIF uses label_* fields
+          // We try auth_comp_id and auth_atom_id for PDB compatibility
+          let atomExpression;
+          if (feature.ligand_name) {
+            // More specific: match ligand residue AND atom name
+            // Use auth_comp_id for PDB files (e.g., "CIT" for citrate)
+            atomExpression = MS.struct.generator.atomGroups({
+              'residue-test': MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.auth_comp_id(),
+                feature.ligand_name.toUpperCase()
+              ]),
+              'atom-test': MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.auth_atom_id(),
+                feature.atom_name
+              ]),
+            });
+          } else {
+            // Fallback: just atom name (for backwards compatibility)
+            atomExpression = MS.struct.generator.atomGroups({
+              'atom-test': MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.auth_atom_id(),
+                feature.atom_name
+              ]),
+            });
+          }
+
+          // Get color based on HSAB classification, fallback to feature type
+          const color = feature.hsab && HSAB_COLORS[feature.hsab]
+            ? HSAB_COLORS[feature.hsab]
+            : LIGAND_FEATURE_COLORS[feature.type] || 0x7C3AED; // Violet-600 default
+
+          // Create component and add spacefill representation
+          const componentLabel = `ligand-feature-${feature.ligand_name || 'unk'}-${feature.atom_name}`;
+          console.log(`[ProteinViewer] Creating ligand feature: ${componentLabel}, searching for ligand=${feature.ligand_name}, atom=${feature.atom_name}`);
+
+          let featureComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+            globalStructureRef,
+            atomExpression,
+            componentLabel
+          );
+
+          // If not found with auth_*, try with label_* (for mmCIF files)
+          if (!featureComp && feature.ligand_name) {
+            console.log(`[ProteinViewer] Trying label_* fields for ${componentLabel}`);
+            const labelExpression = MS.struct.generator.atomGroups({
+              'residue-test': MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.label_comp_id(),
+                feature.ligand_name.toUpperCase()
+              ]),
+              'atom-test': MS.core.rel.eq([
+                MS.struct.atomProperty.macromolecular.label_atom_id(),
+                feature.atom_name
+              ]),
+            });
+            featureComp = await plugin.builders.structure.tryCreateComponentFromExpression(
+              globalStructureRef,
+              labelExpression,
+              componentLabel + '-label'
+            );
+          }
+
+          if (featureComp) {
+            console.log(`[ProteinViewer] Found atom for ${componentLabel}, adding ball-and-stick representation`);
+            // Use ball-and-stick instead of spacefill for clearer visualization
+            await plugin.builders.structure.representation.addRepresentation(featureComp, {
+              type: 'ball-and-stick',
+              color: 'uniform',
+              colorParams: { value: Color(color) },
+              typeParams: { sizeFactor: 0.4, sizeAspectRatio: 0.8 },
+            });
+          } else {
+            console.warn(`[ProteinViewer] Atom not found for ${componentLabel} (ligand=${feature.ligand_name}, atom=${feature.atom_name}). Check if atom name in PDB matches.`);
+          }
+        }
+
+        console.log('[ProteinViewer] Ligand features rendered');
+      } catch (err) {
+        console.error('[ProteinViewer] Failed to render ligand features:', err);
+      }
+    }, [clearLigandFeatures]);
+
     // Reset view to default
     const resetView = useCallback(async () => {
       if (!globalPlugin || !pdbContent) return;
@@ -618,7 +1059,8 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       resetView,
       focusOnMetal,
       focusOnLigand,
-    }), [resetView, focusOnMetal, focusOnLigand]);
+      focusOnCoordinationSphere,
+    }), [resetView, focusOnMetal, focusOnLigand, focusOnCoordinationSphere]);
 
     // Handle container resize - notify Molstar to update canvas
     useEffect(() => {
@@ -872,6 +1314,9 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           console.log('[ProteinViewer] Clearing existing structures...');
           await plugin.clear();
 
+          // Clear ligand features visualization state when loading new structure
+          useStore.getState().setShowLigandFeatures3D(false);
+
           const isCif = pdbContent.trimStart().startsWith('data_');
           const format = isCif ? 'mmcif' : 'pdb';
           const extension = isCif ? 'cif' : 'pdb';
@@ -988,6 +1433,34 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
         clearPharmacophores();
       }
     }, [showPharmacophores, pharmacophoreFeatures, renderPharmacophores, clearPharmacophores]);
+
+    // Render ligand coordination features when enabled, clear when disabled
+    // Also re-apply when structure changes (isReady toggles when new PDB loads)
+    useEffect(() => {
+      if (!isReady) return; // Wait for structure to be ready
+
+      if (showLigandFeatures3D && ligandCoordinationFeatures && ligandCoordinationFeatures.length > 0) {
+        // Small delay to ensure structure is fully processed
+        const timer = setTimeout(() => {
+          console.log('[ProteinViewer] Re-applying ligand features after structure change');
+          renderLigandFeatures(ligandCoordinationFeatures);
+        }, 100);
+        return () => clearTimeout(timer);
+      } else if (!showLigandFeatures3D) {
+        clearLigandFeatures();
+      }
+    }, [isReady, showLigandFeatures3D, ligandCoordinationFeatures, renderLigandFeatures, clearLigandFeatures]);
+
+    // Focus on coordination sphere when flag is set (from "View Coordination Sphere" button)
+    useEffect(() => {
+      if (!isReady || !shouldFocusCoordinationSphere || !coordinationSphereData) return;
+
+      console.log('[ProteinViewer] Triggering coordination sphere focus');
+      focusOnCoordinationSphere(coordinationSphereData, ligandCoordinationFeatures || []);
+
+      // Reset the flag
+      setShouldFocusCoordinationSphere(false);
+    }, [isReady, shouldFocusCoordinationSphere, coordinationSphereData, ligandCoordinationFeatures, focusOnCoordinationSphere, setShouldFocusCoordinationSphere]);
 
     // Subscribe to right-click events for context menu (catalytic residue selection)
     useEffect(() => {

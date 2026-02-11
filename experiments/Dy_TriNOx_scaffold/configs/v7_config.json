@@ -1,0 +1,50 @@
+{
+  "name": "v7_inner_hotspots",
+  "description": "Dy-TriNOx scaffold with hotspots on inner ligand atoms (near metal)",
+  "notes": {
+    "v6_results": [
+      "SUCCESS: All 10 designs contact ligand (2.4-3.1A min dist)",
+      "Problem: Protein contacts outer ligand (aromatics/tert-butyls)",
+      "Metal still 5-6A away - need closer approach",
+      "Need to target inner atoms near metal coordination sphere"
+    ],
+    "v7_strategy": [
+      "Hotspots on phenoxide oxygens (O1,O2,O3) - directly coordinate Dy",
+      "Add hotspot on metal (X1) to force close approach",
+      "Keep some peripheral hotspots for contact",
+      "Protein should approach through open coordination site above N2"
+    ]
+  },
+  "atom_analysis": {
+    "inner_atoms_near_metal": {
+      "phenoxide_O": ["O1", "O2", "O3"],
+      "cap_nitrogen": "N2",
+      "distance_from_Dy": "~2.1-2.3A"
+    },
+    "outer_atoms": {
+      "aromatic_C": ["C4", "C5", "C15", "C16", "C26", "C27"],
+      "tert_butyl_C": ["C10", "C21", "C32"],
+      "distance_from_Dy": "~5-7A"
+    }
+  },
+  "base_config": {
+    "use_classifier_free_guidance": true,
+    "cfg_scale": 2.5,
+    "step_scale": 1.5,
+    "num_timesteps": 200,
+    "select_fixed_atoms": {"X1": "all", "L1": "all"},
+    "select_hotspots": {
+      "X1": "1",
+      "L1": "O1,O2,O3,N2"
+    },
+    "select_buried": {"L1": "all"},
+    "select_hbond_acceptor": {"L1": "O1,O2,O3"},
+    "ori_token": [0.0, 10.0, 5.0]
+  },
+  "test_config": {
+    "name": "v7_large_test",
+    "contig": "X1,L1,/0,120-140",
+    "num_designs": 10,
+    "description": "Test with inner hotspots (phenoxide O + metal)"
+  }
+}

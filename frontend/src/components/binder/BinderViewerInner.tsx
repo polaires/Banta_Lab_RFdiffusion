@@ -161,26 +161,27 @@ export function BinderViewerInner({
         }
       }
 
-      await globalPlugin.clear();
       await loadMolstarModules();
 
       const isCif = pdbContent.trimStart().startsWith('data_');
       const format = isCif ? 'mmcif' : 'pdb';
 
-      const data = await globalPlugin.builders.data.rawData(
-        { data: pdbContent, label: 'binder-complex.pdb' },
-        { state: { isGhost: true } }
-      );
-
-      const trajectory = await globalPlugin.builders.structure.parseTrajectory(data, format);
-      if (!trajectory) {
-        throw new Error('Failed to parse trajectory - PDB data may be malformed');
-      }
-
-      // Use applyPreset with empty representation - this is bundler-safe
-      // Then we'll add our custom representations
-      await globalPlugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-        representationPreset: 'empty',
+      // Wrap in dataTransaction to prevent Molstar hierarchy builder from crashing
+      // on partially-formed state cells in production mode (cell.transform.ref access
+      // without optional chaining in hierarchy-state.js:196)
+      await globalPlugin.dataTransaction(async () => {
+        await globalPlugin!.clear();
+        const data = await globalPlugin!.builders.data.rawData(
+          { data: pdbContent, label: 'binder-complex.pdb' },
+          { state: { isGhost: true } }
+        );
+        const trajectory = await globalPlugin!.builders.structure.parseTrajectory(data, format);
+        if (!trajectory) {
+          throw new Error('Failed to parse trajectory - PDB data may be malformed');
+        }
+        await globalPlugin!.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+          representationPreset: 'empty',
+        });
       });
 
       // Get the structure reference from the hierarchy

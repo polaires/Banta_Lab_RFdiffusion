@@ -319,3 +319,52 @@ def handle_scout_filter(job_input: Dict[str, Any]) -> Dict[str, Any]:
             "pre_filter_failed": pre_filter_failed_count,
         },
     }
+
+
+def handle_cluster_backbones(job_input: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Cluster backbones by structural similarity (CA RMSD) to remove duplicates
+    before expensive MPNN+RF3 sequence design.
+
+    The RFD3 paper (bioRxiv 2025.09.18.676967v2) uses TM-score threshold 0.6
+    for diversity clustering. CA RMSD < 2.0 Å is a simpler proxy that roughly
+    corresponds to TM-score > 0.6 for proteins of 100-130 residues.
+
+    Input:
+        pdb_contents: List[str] - PDB content strings for each backbone
+        rmsd_threshold: float - Maximum CA RMSD to merge (default: 2.0 Å)
+        labels: Optional[List[str]] - Labels for each backbone
+
+    Returns:
+        Clustering results with representative indices and cluster sizes.
+    """
+    try:
+        from backbone_pre_filter import cluster_backbones_by_ca_rmsd
+
+        pdb_contents = job_input.get("pdb_contents", [])
+        if not pdb_contents:
+            return {"status": "failed", "error": "pdb_contents list is required"}
+
+        rmsd_threshold = float(job_input.get("rmsd_threshold", 2.0))
+        labels = job_input.get("labels")
+
+        result = cluster_backbones_by_ca_rmsd(
+            pdb_contents,
+            rmsd_threshold=rmsd_threshold,
+            labels=labels,
+        )
+
+        # Extract representative PDBs for downstream use
+        representative_pdbs = [pdb_contents[i] for i in result["representatives"]]
+
+        return {
+            "status": "completed",
+            "result": {
+                **result,
+                "representative_pdbs": representative_pdbs,
+                "rmsd_threshold": rmsd_threshold,
+            },
+        }
+    except Exception as e:
+        traceback.print_exc()
+        return {"status": "failed", "error": f"Backbone clustering failed: {str(e)}"}

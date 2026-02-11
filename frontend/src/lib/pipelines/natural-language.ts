@@ -884,9 +884,15 @@ export const naturalLanguagePipeline: PipelineDefinition = {
               const min = intentResult.data.chain_length_min as number;
               const max = intentResult.data.chain_length_max as number;
               configData.contig = `${min}-${max}`;
+            } else if (designType === 'metal' && ligandName && coordData?.recommended_contig_min) {
+              // Cofactor-aware contig from backend (scales with ligand heavy atom count)
+              const cMin = coordData.recommended_contig_min as number;
+              const cMax = coordData.recommended_contig_max as number;
+              configData.contig = `${cMin}-${cMax}`;
+              console.log(`[configure] Cofactor-aware contig: ${cMin}-${cMax} (from ligand analysis)`);
             } else if (designType === 'metal' && ligandName) {
-              // Metal + ligand binding pocket: ~80 residues, enough for a 4-helix bundle with binding site
-              configData.contig = '70-100';
+              // Fallback for metal+ligand when no coordination analysis ran
+              configData.contig = '90-120';
             } else if (designType === 'metal') {
               // Metal-only binding: compact fold
               configData.contig = '50-80';
@@ -1129,6 +1135,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             step_scale: params.step_scale as number ?? mergedConfig.step_scale as number ?? 1.5,
             gamma_0: params.gamma_0 as number ?? mergedConfig.gamma_0 as number ?? undefined,
             bury_ligand: buryLigand,
+            design_goal: mergedConfig.design_goal as string || 'binding',
             seed: 42,
           });
 
@@ -1287,6 +1294,11 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         const validated = allPdbs.filter(p => p.id.startsWith('rf3-') || p.id.startsWith('validated-'));
         const toAnalyze = validated.length > 0 ? validated : allPdbs.slice(-8);
 
+        // Find a backbone PDB with HETATM records (for metal/ligand coordination analysis).
+        // RF3 outputs protein-only PDB, so we need the original backbone PDB to detect metal sites.
+        const backbonePdbs = allPdbs.filter(p => p.id.startsWith('rfd3-') || p.id.startsWith('backbone-'));
+        const backbonePdb = backbonePdbs.find(p => p.pdbContent?.includes('HETATM'))?.pdbContent;
+
         // Gather context from previous steps
         const configResult = Object.values(previousResults).find(r => r.data?.design_type);
 
@@ -1311,13 +1323,21 @@ export const naturalLanguagePipeline: PipelineDefinition = {
           const metrics = { ...pdb.metrics };
 
           try {
+            // Forward RF3 ligand-interface confidence metrics for AF3 paper filtering
+            // (bioRxiv 2025.09.18.676967v2: iPTM > 0.8, min chain-pair PAE < 1.5)
+            const iptm = pdb.metrics?.iPTM as number | undefined;
+            const minChainPairPae = pdb.metrics?.min_chain_pair_pae as number | undefined;
+
             const result = await api.analyzeDesign({
               pdb_content: pdb.pdbContent,
+              backbone_pdb: backbonePdb,
               metal_type: targetMetal,
               ligand_name: ligandName,
               design_type: designType,
               filter_tier: filterTier,
               design_params: {},
+              iptm: iptm,
+              min_chain_pair_pae: minChainPairPae,
             });
 
             // Enrich metrics with analyzer output
@@ -1329,6 +1349,9 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             if (result.metrics.total_residues !== undefined) metrics.residues = result.metrics.total_residues;
             if (result.metrics.ligand_contacts !== undefined) metrics.ligand_contacts = result.metrics.ligand_contacts;
             if (result.metrics.protein_coordination !== undefined) metrics.protein_coord = result.metrics.protein_coordination;
+            // AF3 paper ligand-interface metrics (shown in analysis results)
+            if (result.metrics.iptm !== undefined) metrics.iPTM_filter = result.metrics.iptm;
+            if (result.metrics.min_chain_pair_pae !== undefined) metrics.chain_pair_PAE = result.metrics.min_chain_pair_pae;
 
             metrics.filter_passed = result.filter_passed ? 'Yes' : 'No';
             metrics.filter_preset = result.filter_preset;

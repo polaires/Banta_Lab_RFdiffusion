@@ -1270,11 +1270,16 @@ class FoundryAPI {
    */
   async analyzeDesign(request: {
     pdb_content: string;
+    backbone_pdb?: string;
     metal_type?: string;
     ligand_name?: string;
     design_type?: string;
     filter_tier?: string;
     design_params?: Record<string, unknown>;
+    // RF3/AF3 ligand-interface confidence (bioRxiv 2025.09.18.676967v2)
+    rf3_confidences?: Record<string, unknown>;
+    iptm?: number;
+    min_chain_pair_pae?: number;
   }): Promise<{
     design_type: string;
     metrics: Record<string, number>;
@@ -2080,6 +2085,7 @@ class FoundryAPI {
     step_scale?: number;
     gamma_0?: number;
     bury_ligand?: boolean;
+    design_goal?: string;
     seed?: number;
   }): Promise<{
     status: string;

@@ -20,6 +20,7 @@ from handlers.orchestration import (
     handle_ai_parse,
     handle_scaffold_search,
     handle_scout_filter,
+    handle_cluster_backbones,
 )
 from handlers.design_analysis import handle_analyze_design
 
@@ -48,6 +49,7 @@ __all__ = [
     "handle_ai_parse",
     "handle_scaffold_search",
     "handle_scout_filter",
+    "handle_cluster_backbones",
     # Design analysis
     "handle_analyze_design",
 ]

@@ -314,6 +314,7 @@ from handlers import (
     handle_ai_parse,
     handle_scaffold_search,
     handle_scout_filter,
+    handle_cluster_backbones,
     handle_analyze_design,
 )
 
@@ -552,6 +553,9 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
         # Scout filter (validate 1 seq per backbone, filter bad backbones)
         elif task == "scout_filter":
             return handle_scout_filter(job_input)
+        # Backbone clustering (structural deduplication before MPNN)
+        elif task == "cluster_backbones":
+            return handle_cluster_backbones(job_input)
         # Save design history (persist pipeline run results)
         elif task == "save_design_history":
             return handle_save_design_history(job_input)
@@ -10161,32 +10165,34 @@ def _run_metal_binding_sweep(job_input: Dict[str, Any]) -> Dict[str, Any]:
 
                 backbone_pdb = rfd3_result["result"]["designs"][0]["content"]
 
-                # Run LigandMPNN for sequence design
+                # Run LigandMPNN at multiple temperatures for sequence diversity
+                # RFD3 paper: 8 seqs/backbone, split across T=0.1 and T=0.2
                 hsab_bias = get_hsab_bias(metal)
-                mpnn_params = build_mpnn_params(
+                mpnn_param_list = build_mpnn_params(
                     pdb_content=backbone_pdb,
                     metal=metal,
                     ligand=ligand,
-                    num_seqs=4,
+                    num_seqs=8,
                     hsab_bias=hsab_bias,
                 )
 
-                # Pass ALL params from build_mpnn_params (includes pack_side_chains,
-                # use_side_chain_context, omit_AA for hard metals, bias_AA for soft/borderline)
-                mpnn_result = run_mpnn_inference(**mpnn_params)
+                # Run MPNN at each temperature and merge sequences
+                all_sequences = []
+                mpnn_failed = False
+                for mpnn_params in mpnn_param_list:
+                    mpnn_result = run_mpnn_inference(**mpnn_params)
+                    if mpnn_result.get("status") == "completed":
+                        seqs = mpnn_result["result"].get("sequences", [])
+                        all_sequences.extend(seqs)
+                    else:
+                        err_msg = str(mpnn_result.get('error', 'Unknown error'))
+                        print(f"[MetalBindingSweep] MPNN failed at T={mpnn_params.get('temperature')}: {err_msg}")
 
-                if mpnn_result.get("status") != "completed":
-                    err_msg = str(mpnn_result.get('error', 'Unknown error'))
-                    print(f"[MetalBindingSweep] MPNN failed: {err_msg}")
-                    config_errors.setdefault(config.name, []).append(f"MPNN: {err_msg}")
+                if not all_sequences:
+                    config_errors.setdefault(config.name, []).append("MPNN: No sequences generated at any temperature")
                     continue
 
-                # Get best sequence
-                sequences = mpnn_result["result"].get("sequences", [])
-                if not sequences:
-                    config_errors.setdefault(config.name, []).append("MPNN: No sequences generated")
-                    continue
-
+                sequences = all_sequences
                 best_seq_data = sequences[0]
                 sequence = best_seq_data.get("content", "").replace(">", "").split("\n")[-1]
 
@@ -10385,6 +10391,7 @@ def _run_metal_binding_single(job_input: Dict[str, Any]) -> Dict[str, Any]:
     gamma_0 = job_input.get("gamma_0")
     bury_ligand = job_input.get("bury_ligand", True)
     ligand_fix_atoms = job_input.get("ligand_fix_atoms")  # e.g. "O2,O5,O7" for partial fixing
+    design_goal = job_input.get("design_goal", "binding")
     seed_base = job_input.get("seed", 42)
 
     config = MetalBindingConfig(
@@ -10398,11 +10405,12 @@ def _run_metal_binding_single(job_input: Dict[str, Any]) -> Dict[str, Any]:
         step_scale=step_scale,
         gamma_0=gamma_0,
         ligand_fix_atoms=ligand_fix_atoms,
+        design_goal=design_goal,
     )
 
     print(f"[MetalBindingSingle] contig={contig}, cfg_scale={cfg_scale}, "
           f"num_designs={num_designs}, timesteps={num_timesteps}, step_scale={step_scale}, "
-          f"bury_ligand={bury_ligand}")
+          f"bury_ligand={bury_ligand}, design_goal={design_goal}")
 
     # Generate backbone designs
     designs = []
@@ -10434,6 +10442,7 @@ def _run_metal_binding_single(job_input: Dict[str, Any]) -> Dict[str, Any]:
                 select_fixed_atoms=rfd3_params.get("select_fixed_atoms"),
                 unindex=rfd3_params.get("unindex"),
                 select_buried=rfd3_params.get("select_buried"),
+                select_exposed=rfd3_params.get("select_exposed"),
                 select_hbond_acceptor=rfd3_params.get("select_hbond_acceptor"),
                 infer_ori_strategy=rfd3_params.get("infer_ori_strategy"),
                 use_classifier_free_guidance=rfd3_params.get("use_classifier_free_guidance", True),

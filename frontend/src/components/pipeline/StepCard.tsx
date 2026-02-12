@@ -17,6 +17,12 @@ import type { PipelineStepDefinition, StepRuntimeState } from '@/lib/pipeline-ty
 import { StepResultPreview } from './StepResultPreview';
 import { StepParameterEditor } from './StepParameterEditor';
 import { DesignSelector } from './DesignSelector';
+import { getStepPersonality, getEncouragingMessage } from '@/lib/step-personality';
+
+const ERROR_CARD_STYLE = {
+  background: 'linear-gradient(135deg, hsl(4 60% 98%), hsl(4 50% 96%))',
+  borderColor: 'hsl(4 40% 85%)',
+} as const;
 
 interface StepCardProps {
   step: PipelineStepDefinition;
@@ -45,7 +51,7 @@ function getStatusBadge(status: StepRuntimeState['status']) {
     case 'running':
       return <Badge variant="default" className="text-[10px] h-5"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Running</Badge>;
     case 'paused':
-      return <Badge variant="outline" className="text-[10px] h-5 border-primary text-primary"><Pause className="h-3 w-3 mr-1" />Review</Badge>;
+      return <Badge variant="outline" className="text-[10px] h-5 border-primary text-primary"><Pause className="h-3 w-3 mr-1" />Your Turn</Badge>;
     case 'failed':
       return <Badge variant="destructive" className="text-[10px] h-5"><X className="h-3 w-3 mr-1" />Failed</Badge>;
     case 'skipped':
@@ -114,6 +120,9 @@ export function StepCard({
   const isFailed = state.status === 'failed';
   const isRunning = state.status === 'running';
   const isDone = state.status === 'completed' || state.status === 'skipped';
+  const personality = getStepPersonality(step.id);
+  // Memoize encouraging message so it doesn't change on re-render
+  const [encouragingMsg] = useState(() => getEncouragingMessage(step.id));
 
   // FIX #18: Allow toggling completed steps to review results
   const [manualOpen, setManualOpen] = useState<boolean | null>(null);
@@ -154,7 +163,7 @@ export function StepCard({
         <CollapsibleTrigger asChild>
           <div
             className={cn(
-              'flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-accent/50 transition-colors rounded-t-lg',
+              'flex items-center gap-3.5 px-4 py-3 cursor-pointer hover:bg-accent/50 transition-colors rounded-t-lg',
               isDone && !isExpanded && 'rounded-b-lg',
             )}
             onClick={handleToggle}
@@ -202,9 +211,14 @@ export function StepCard({
         <CollapsibleContent>
           <Separator />
           <CardContent className="p-3 space-y-3 max-h-[70vh] overflow-y-auto min-w-0 overflow-x-hidden">
-            {/* Running: progress bar */}
+            {/* Running: verb phrase + shimmer progress bar */}
             {isRunning && (
-              <div className="space-y-1.5">
+              <div className="space-y-2 animate-step-enter">
+                {personality && (
+                  <p className="text-xs italic text-muted-foreground/80">
+                    {personality.verbPhrase}
+                  </p>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">
                     {state.progressMessage ?? step.description}
@@ -213,25 +227,35 @@ export function StepCard({
                     {state.progress}%
                   </span>
                 </div>
-                <Progress value={state.progress} className="h-1.5" />
+                <Progress value={state.progress} className="h-2 progress-shimmer" />
               </div>
             )}
 
-            {/* FIX #30: Failed: actionable error message */}
+            {/* Failed: warm, helpful error message */}
             {isFailed && state.error && (() => {
               const { message, suggestion } = getActionableError(state.error);
               return (
-                <div className="text-xs bg-destructive/5 rounded-md p-2.5 border border-destructive/20 space-y-1.5">
+                <div className="text-xs rounded-lg p-3 border space-y-2 animate-step-enter"
+                  style={ERROR_CARD_STYLE}
+                >
+                  <p className="text-muted-foreground font-medium">This step hit a snag.</p>
                   <p className="text-destructive">{message}</p>
                   {suggestion && (
-                    <p className="text-muted-foreground flex items-start gap-1">
-                      <Info className="h-3 w-3 shrink-0 mt-0.5" />
+                    <p className="text-muted-foreground flex items-start gap-1.5">
+                      <Info className="h-3 w-3 shrink-0 mt-0.5 text-info" />
                       {suggestion}
                     </p>
                   )}
                 </div>
               );
             })()}
+
+            {/* Encouraging message when paused */}
+            {isPaused && encouragingMsg && (
+              <p className="text-xs italic text-muted-foreground/70 animate-step-enter">
+                {encouragingMsg}
+              </p>
+            )}
 
             {/* Paused or completed with results: result preview */}
             {(isPaused || (isDone && isExpanded)) && state.result && (

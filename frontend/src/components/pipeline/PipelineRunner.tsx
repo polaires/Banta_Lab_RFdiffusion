@@ -6,13 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 // ScrollArea removed — parent panel handles scrolling
-import { XCircle, AlertTriangle, Zap } from 'lucide-react';
+import { XCircle, AlertTriangle, Zap, PartyPopper, Trophy, TrendingUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePipeline, type PipelineCallbacks } from '@/hooks/usePipeline';
 import { useStore } from '@/lib/store';
 import type { PipelineDefinition, StepResult } from '@/lib/pipeline-types';
 import { PipelineStepper } from './PipelineStepper';
 import { StepCard } from './StepCard';
+import { pipelineCompleteMessages, getRandomMessage, trackPipelineRun } from '@/lib/step-personality';
+import { Confetti } from './Confetti';
 
 // ---- Error Boundary (FIX #8) ----
 
@@ -244,25 +246,44 @@ function PipelineRunnerInner({
     setShowCancelConfirm(false);
   }, []);
 
-  const Icon = definition.icon;
   const isTerminal = pipeline.runtime.status === 'completed' || pipeline.runtime.status === 'cancelled' || pipeline.runtime.status === 'failed';
 
+  // Completion stats
+  const completionMessage = useRef<string | null>(null);
+  const milestoneMessage = useRef<string | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  useEffect(() => {
+    if (pipeline.runtime.status === 'completed' && !completionMessage.current) {
+      completionMessage.current = getRandomMessage(pipelineCompleteMessages);
+      milestoneMessage.current = trackPipelineRun();
+      setShowConfetti(true);
+      const timer = setTimeout(() => setShowConfetti(false), 2500);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipeline.runtime.status]);
+
+  // Compute stats for the completion card
+  const completionStats = pipeline.runtime.status === 'completed' ? (() => {
+    const steps = pipeline.runtime.steps;
+    const completedCount = steps.filter(s => s.status === 'completed').length;
+    const skippedCount = steps.filter(s => s.status === 'skipped').length;
+    return { completedCount, skippedCount, totalCount: steps.length };
+  })() : null;
+
   return (
-    <Card className="border-border">
+    <Card className="border-border relative overflow-hidden">
+      {showConfetti && <Confetti />}
       <CardHeader className="px-4 py-3 space-y-3">
+        {/* Controls row — no duplicate name/description */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10">
-              <Icon className="h-4 w-4 text-primary" />
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-foreground">{definition.name}</h3>
-              <p className="text-[10px] text-muted-foreground">{definition.description}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
             {pipeline.runtime.status === 'completed' && (
-              <Badge variant="secondary" className="text-xs">Complete</Badge>
+              <Badge variant="secondary" className="text-xs gap-1">
+                <PartyPopper className="h-3 w-3" />
+                Complete
+              </Badge>
             )}
             {pipeline.runtime.status === 'failed' && (
               <Badge variant="destructive" className="text-xs">Failed</Badge>
@@ -270,6 +291,8 @@ function PipelineRunnerInner({
             {pipeline.runtime.status === 'cancelled' && (
               <Badge variant="secondary" className="text-xs">Cancelled</Badge>
             )}
+          </div>
+          <div className="flex items-center gap-2">
             {!isTerminal && (
               <div className="flex items-center gap-1">
                 <Button
@@ -285,7 +308,7 @@ function PipelineRunnerInner({
                   title={autoRun ? 'Auto-proceeding through all steps' : 'Run all steps without pausing for review'}
                 >
                   <Zap className="h-3.5 w-3.5 mr-1" />
-                  {autoRun ? 'Quick Run On' : 'Quick Run'}
+                  {autoRun ? 'Auto-Proceed On' : 'Auto-Proceed'}
                 </Button>
                 <Button
                   variant="ghost"
@@ -317,6 +340,35 @@ function PipelineRunnerInner({
       <Separator />
 
       <CardContent className="p-3">
+          {/* Completion celebration card */}
+          {pipeline.runtime.status === 'completed' && completionStats && (
+            <div className="mb-3 rounded-lg bg-success/5 border border-success/20 p-4 animate-step-enter">
+              <div className="flex items-center gap-2 mb-2">
+                <Trophy className="h-4 w-4 text-amber-500" />
+                <span className="text-sm font-medium text-foreground">Design Complete</span>
+              </div>
+              <div className="flex items-center gap-4 text-xs text-muted-foreground mb-2">
+                <span className="flex items-center gap-1">
+                  <TrendingUp className="h-3 w-3 text-success" />
+                  {completionStats.completedCount} steps completed
+                </span>
+                {completionStats.skippedCount > 0 && (
+                  <span>{completionStats.skippedCount} skipped</span>
+                )}
+              </div>
+              {completionMessage.current && (
+                <p className="text-xs italic text-muted-foreground/80">
+                  {completionMessage.current}
+                </p>
+              )}
+              {milestoneMessage.current && (
+                <p className="text-xs font-medium text-amber-600 mt-1.5">
+                  {milestoneMessage.current}
+                </p>
+              )}
+            </div>
+          )}
+
           {selectedStepIndex !== null && (() => {
             const step = definition.steps[selectedStepIndex];
             const state = pipeline.runtime.steps[selectedStepIndex];

@@ -270,13 +270,13 @@ function keywordFallbackParse(prompt: string, pdbId?: string): Record<string, un
 
 export const naturalLanguagePipeline: PipelineDefinition = {
   id: 'natural-language',
-  name: 'Natural Language Design',
-  description: 'Design proteins from natural language descriptions',
+  name: 'Protein Design Studio',
+  description: 'Describe what you want to build and we\'ll design it',
   icon: MessageSquare,
   requiresBackend: true,
 
   initialParams: [
-    { id: 'user_prompt', label: 'Design Request', type: 'text', required: true, helpText: 'Natural language description of the desired protein design' },
+    { id: 'user_prompt', label: 'Design Request', type: 'text', required: true, helpText: 'What protein would you like to design?' },
     { id: 'pdb_content', label: 'PDB Content', type: 'hidden', required: false },
     { id: 'pdb_id', label: 'PDB ID', type: 'hidden', required: false },
     // Resolved parameters (populated by earlier steps)
@@ -290,8 +290,8 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     // Step 1: Parse user intent
     {
       id: 'parse_intent',
-      name: 'Parse Intent',
-      description: 'Analyze the natural language request to determine design parameters',
+      name: 'Understanding Your Design',
+      description: 'Reading your request and figuring out what to build',
       icon: MessageSquare,
       requiresReview: true,
       supportsSelection: false,
@@ -382,8 +382,8 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     // Step 2: Resolve structure
     {
       id: 'resolve_structure',
-      name: 'Resolve Structure',
-      description: 'Fetch or validate the target structure',
+      name: 'Finding Starting Point',
+      description: 'Looking up or loading your starting structure',
       icon: Search,
       requiresReview: true,
       supportsSelection: false,
@@ -463,14 +463,15 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     // MOVED UP: Now runs before coordination analysis so scaffold data is available
     createScaffoldSearchStep({
       id: 'scaffold_search_nl',
-      description: 'Search RCSB PDB for structures with the target metal-ligand complex (auto-skipped if not applicable)',
+      name: 'Searching Nature\'s Library',
+      description: 'Looking for existing structures in the Protein Data Bank that match your design',
     }),
 
     // Step 4: Coordination Analysis — combined protein + ligand donor identification
     {
       id: 'coordination_analysis_nl',
-      name: 'Coordination Analysis',
-      description: 'Analyze coordination sphere: ligand donors + protein catalytic residues',
+      name: 'Analyzing Binding Sites',
+      description: 'Identifying how your metal and ligand interact at the molecular level',
       icon: Atom,
       requiresReview: true,
       supportsSelection: false,
@@ -723,16 +724,16 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     // Step 5: Configure design parameters
     {
       id: 'configure',
-      name: 'Configure Parameters',
-      description: 'Set up design parameters based on parsed intent',
+      name: 'Tuning the Recipe',
+      description: 'Setting up the design parameters based on your requirements',
       icon: Settings,
       requiresReview: true,
       supportsSelection: false,
       optional: false,
       defaultParams: {},
       parameterSchema: [
-        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'For production runs use 50-200' },
-        { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
+        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'More designs = better coverage but longer runtime' },
+        { id: 'num_timesteps', label: 'Design Quality', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 }, helpText: 'More steps = finer-grained structures (default is good for most designs)' },
         {
           id: 'design_goal', label: 'Design Goal', type: 'select' as const, required: false, defaultValue: 'binding',
           options: [
@@ -741,7 +742,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             { value: 'sensing', label: 'Sensing / detection' },
             { value: 'structural', label: 'Structural role' },
           ],
-          helpText: 'Affects binding site geometry — buried for binding, accessible for catalysis/sensing',
+          helpText: 'Shapes how the binding site is built — enclosed for binding, open for catalysis or sensing',
         },
         {
           id: 'filter_tier', label: 'Quality Bar', type: 'select' as const, required: false, defaultValue: 'standard',
@@ -750,7 +751,7 @@ export const naturalLanguagePipeline: PipelineDefinition = {
             { value: 'standard', label: 'Standard' },
             { value: 'strict', label: 'Strict' },
           ],
-          helpText: 'Passed to analysis step for quality filtering',
+          helpText: 'Controls which designs pass inspection',
         },
       ],
 
@@ -927,8 +928,8 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     // Step 6: Backbone generation — single-run for metal, raw RFD3 for general
     {
       id: 'rfd3_nl',
-      name: 'Backbone Generation',
-      description: 'Generate backbone structures with RFD3 (metal-aware conditioning when applicable)',
+      name: 'Building Structures',
+      description: 'Generating protein backbone structures that match your design',
       icon: Building2,
       requiresReview: true,
       supportsSelection: true,
@@ -939,11 +940,11 @@ export const naturalLanguagePipeline: PipelineDefinition = {
         num_timesteps: 200,
       },
       parameterSchema: [
-        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'For production runs use 50-200 (per config if sweep enabled)' },
-        { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
-        { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3, step: 0.1 }, helpText: 'Higher = more designable, less diverse' },
-        { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1, step: 0.05 }, helpText: 'Lower = more designable' },
-        { id: 'use_sweep', label: 'Parameter Sweep', type: 'boolean', required: false, defaultValue: false, helpText: 'Run multi-config sweep (trial-and-error) instead of educated single-run' },
+        { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 200, step: 1 }, helpText: 'More designs = better coverage but longer runtime (per config if sweep enabled)' },
+        { id: 'num_timesteps', label: 'Design Quality', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 }, helpText: 'More steps = finer-grained structures (default is good for most designs)' },
+        { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3, step: 0.1 }, helpText: 'Higher = more realistic folds, lower = more variety' },
+        { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1, step: 0.05 }, helpText: 'Lower values favor more realistic folds' },
+        { id: 'use_sweep', label: 'Parameter Sweep', type: 'boolean', required: false, defaultValue: false, helpText: 'Try multiple parameter combinations instead of a single educated run' },
       ],
 
       async execute(ctx) {
@@ -1247,19 +1248,31 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     },
 
     // Step 6.5: Scout filter (optional — validates 1 seq per backbone and filters)
-    createScoutFilterStep({ id: 'scout_filter_nl' }),
+    createScoutFilterStep({
+      id: 'scout_filter_nl',
+      name: 'Finding the Strongest',
+      description: 'Quick-testing each backbone to keep only the most promising ones',
+    }),
 
     // Step 7: MPNN sequence design
-    createMpnnStep({ id: 'mpnn_nl' }),
+    createMpnnStep({
+      id: 'mpnn_nl',
+      name: 'Writing Genetic Code',
+      description: 'Designing amino acid sequences that fold into your structures',
+    }),
 
     // Step 8: RF3 validation
-    createRf3Step({ id: 'rf3_nl' }),
+    createRf3Step({
+      id: 'rf3_nl',
+      name: 'Testing Your Designs',
+      description: 'Predicting how each sequence folds to check if the design works',
+    }),
 
     // Step 9: Final analysis — UnifiedDesignAnalyzer + FILTER_PRESETS
     {
       id: 'analysis',
-      name: 'Final Analysis',
-      description: 'Run structural analysis and quality filtering on each design',
+      name: 'Evaluating Results',
+      description: 'Scoring each design and filtering for the best candidates',
       icon: BarChart3,
       requiresReview: true,
       supportsSelection: false,
@@ -1270,16 +1283,16 @@ export const naturalLanguagePipeline: PipelineDefinition = {
       parameterSchema: [
         {
           id: 'filter_tier',
-          label: 'Filter Strictness',
+          label: 'Quality Standard',
           type: 'select' as const,
           required: false,
           defaultValue: 'standard',
           options: [
-            { value: 'relaxed', label: 'Relaxed (exploratory)' },
+            { value: 'relaxed', label: 'Exploratory (cast a wide net)' },
             { value: 'standard', label: 'Standard' },
-            { value: 'strict', label: 'Strict (production)' },
+            { value: 'strict', label: 'High confidence only' },
           ],
-          helpText: 'How strict quality thresholds should be. Auto-adapts to metal type.',
+          helpText: 'Controls which designs pass inspection. Stricter = fewer but higher-confidence results.',
         },
       ],
 
@@ -1405,9 +1418,17 @@ export const naturalLanguagePipeline: PipelineDefinition = {
     },
 
     // Step 10: Save to design history (automatic, no user interaction)
-    createSaveHistoryStep({ id: 'save_history_nl' }),
+    createSaveHistoryStep({
+      id: 'save_history_nl',
+      name: 'Saving Your Work',
+      description: 'Storing your results so you can come back to them later',
+    }),
 
     // Step 11: Check for lesson triggers (shows results if detected)
-    createCheckLessonsStep({ id: 'check_lessons_nl' }),
+    createCheckLessonsStep({
+      id: 'check_lessons_nl',
+      name: 'Learning What Works',
+      description: 'Looking for patterns across your designs to improve future runs',
+    }),
   ],
 };

@@ -63,6 +63,13 @@ import { PipelineRunner } from '@/components/pipeline';
 import { getPipeline } from '@/lib/pipelines';
 import type { StepResult } from '@/lib/pipeline-types';
 import {
+  getStepCompletionMessage,
+  getStepFailureMessage,
+  getRandomMessage,
+  pipelineStartMessages,
+  pipelineCompleteMessages,
+} from '@/lib/step-personality';
+import {
   BinderResultsPanel,
   PipelineFunnel,
   HotspotSelector,
@@ -505,7 +512,7 @@ export function AIDesignAssistantPanel() {
   const handleNLDesign = async (query: string) => {
     setPdbInput('');
     addAiMessage({ role: 'user', content: query });
-    addAiMessage({ role: 'assistant', content: 'Starting the design pipeline for your request...' });
+    addAiMessage({ role: 'assistant', content: getRandomMessage(pipelineStartMessages) });
 
     // FIX: Clear old pipeline state BEFORE setting new params
     // This prevents race condition where restore() sees old state
@@ -1828,20 +1835,20 @@ export function AIDesignAssistantPanel() {
                 onStepComplete={(stepId, result) => {
                   addAiMessage({
                     role: 'assistant',
-                    content: `Step "${stepId}" completed: ${result.summary}`,
+                    content: getStepCompletionMessage(stepId, result.summary),
                   });
                 }}
                 onPipelineComplete={() => {
                   setAiCaseStudy({ workflowPhase: 'complete', activePipelineId: null });
                   addAiMessage({
                     role: 'assistant',
-                    content: 'Pipeline completed successfully! Review the final results above.',
+                    content: getRandomMessage(pipelineCompleteMessages),
                   });
                 }}
                 onPipelineFailed={(stepId, error) => {
                   addAiMessage({
                     role: 'assistant',
-                    content: `Pipeline failed at step "${stepId}": ${error}`,
+                    content: getStepFailureMessage(stepId, error),
                   });
                 }}
                 onDesignSelected={(pdbContent) => {
@@ -2169,7 +2176,7 @@ export function AIDesignAssistantPanel() {
                     handleStructureInput();
                   }
                 }}
-                placeholder="Describe your protein design (e.g., 'Design a protein to bind citrate with terbium') or enter a PDB code"
+                placeholder="What would you like to design? (e.g., 'a protein that binds citrate and terbium')"
                 className="w-full px-4 py-3 bg-muted rounded-xl border border-border focus:border-primary focus:ring-2 focus:ring-ring/20 focus:outline-none text-foreground text-sm transition-all resize-none min-h-[48px] max-h-[120px]"
                 disabled={aiCaseStudy.isProcessing}
                 rows={1}
@@ -2213,11 +2220,11 @@ export function AIDesignAssistantPanel() {
           </div>
         )}
         <p className="mt-2 text-xs text-muted-foreground text-center">
-          {workflowPhase === 'idle' && "Describe your design in natural language, or enter a PDB code (1BRF, METAL, AZOB, BIND)"}
+          {workflowPhase === 'idle' && "Describe what you'd like to design, or enter a PDB code"}
           {workflowPhase === 'interview' && "Answer the questions above to configure your design"}
           {workflowPhase === 'confirming' && "Review your preferences and run the design"}
           {workflowPhase === 'running' && "Design in progress..."}
-          {workflowPhase === 'pipeline_active' && "Pipeline running — review each step above"}
+          {workflowPhase === 'pipeline_active' && "Your design is taking shape — review each step above"}
           {workflowPhase === 'complete' && "Design complete! You can start a new design or continue exploring."}
         </p>
       </div>

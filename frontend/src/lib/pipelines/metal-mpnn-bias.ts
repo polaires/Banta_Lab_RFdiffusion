@@ -104,3 +104,73 @@ export function getHsabClass(targetMetal: string): HsabClass {
   const key = targetMetal.toUpperCase().trim();
   return HSAB_CLASSIFICATION[key] ?? 'borderline';
 }
+
+/**
+ * Cofactor MPNN bias source: the backend's analyze_ligand_features endpoint
+ * returns mpnn_bias_adjustments from the cofactor registry. The frontend
+ * should pass that data through rather than duplicating it here.
+ *
+ * This is kept ONLY as a last-resort fallback when the backend response
+ * is unavailable (e.g., offline mode or skipped coordination analysis).
+ */
+const COFACTOR_BIAS_FALLBACK: Record<string, string> = {
+  PQQ: 'W:1.5,F:1.0,Y:1.0',
+  HEM: 'H:2.0',
+  FAD: 'W:1.0,Y:1.0',
+  ATP: 'R:1.0,K:0.5',
+};
+
+/**
+ * Merge two bias_AA strings, summing values for duplicate AAs.
+ *
+ * @example mergeBiasStrings('A:-2.0', 'W:1.5,F:1.0') => 'A:-2.0,F:1.0,W:1.5'
+ */
+function mergeBiasStrings(a: string | undefined, b: string): string {
+  const parsed: Record<string, number> = {};
+  for (const s of [a, b]) {
+    if (!s) continue;
+    for (const part of s.split(',')) {
+      const [aa, val] = part.split(':');
+      if (aa && val) {
+        parsed[aa.trim()] = (parsed[aa.trim()] ?? 0) + parseFloat(val);
+      }
+    }
+  }
+  return Object.entries(parsed)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([aa, val]) => `${aa}:${val}`)
+    .join(',');
+}
+
+/**
+ * Return LigandMPNN config that merges HSAB metal bias with cofactor-specific
+ * aromatic/coordination bias.
+ *
+ * @param targetMetal - Metal symbol (e.g., 'CA', 'TB')
+ * @param ligandCode - Optional 3-letter ligand code (e.g., 'PQQ')
+ * @param cofactorBias - Optional bias dict from backend (e.g., { W: 1.5, F: 1.0 }).
+ *                       When provided, this takes priority over any local fallback.
+ *
+ * Falls back to plain HSAB config when no cofactor bias is available.
+ */
+export function getCofactorMpnnConfig(
+  targetMetal: string,
+  ligandCode?: string,
+  cofactorBias?: Record<string, number>,
+): MetalMpnnConfig {
+  const base = getMetalMpnnConfig(targetMetal);
+  if (!ligandCode) return base;
+
+  // Primary: use backend-provided bias from analyze_ligand_features
+  if (cofactorBias && Object.keys(cofactorBias).length > 0) {
+    const biasStr = Object.entries(cofactorBias)
+      .map(([aa, val]) => `${aa}:${val}`)
+      .join(',');
+    return { ...base, bias_AA: mergeBiasStrings(base.bias_AA, biasStr) };
+  }
+
+  // Fallback: local table (only when backend data unavailable)
+  const extra = COFACTOR_BIAS_FALLBACK[ligandCode.toUpperCase()];
+  if (!extra) return base;
+  return { ...base, bias_AA: mergeBiasStrings(base.bias_AA, extra) };
+}

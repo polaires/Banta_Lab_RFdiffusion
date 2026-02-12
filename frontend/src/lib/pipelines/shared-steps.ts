@@ -122,8 +122,8 @@ function parseDesignsToPdbOutputs(result: Record<string, unknown>): PdbOutput[] 
 export function createRfd3Step(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'rfd3_backbone',
-    name: 'RFD3 Backbone Design',
-    description: 'Generate protein backbone structures using RFdiffusion3',
+    name: 'Building Structures',
+    description: 'Generating protein backbone structures for your design',
     icon: Shield,
     requiresReview: true,
     supportsSelection: true,
@@ -135,10 +135,10 @@ export function createRfd3Step(overrides?: Partial<PipelineStepDefinition>): Pip
       gamma_0: 0.6,
     },
     parameterSchema: [
-      { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 } },
-      { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
-      { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3.0, step: 0.1 }, helpText: 'Higher = more designable, less diverse' },
-      { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1.0, step: 0.1 }, helpText: 'Lower = more designable' },
+      { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 }, helpText: 'More designs = better coverage but longer runtime' },
+      { id: 'num_timesteps', label: 'Design Quality', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 }, helpText: 'More steps = finer-grained structures (default is good for most designs)' },
+      { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3.0, step: 0.1 }, helpText: 'Higher = more realistic folds, lower = more variety' },
+      { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1.0, step: 0.1 }, helpText: 'Lower values favor more realistic folds' },
     ],
 
     async execute(ctx: StepExecutionContext): Promise<StepResult> {
@@ -190,8 +190,8 @@ export function createRfd3Step(overrides?: Partial<PipelineStepDefinition>): Pip
 export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'mpnn_sequence',
-    name: 'LigandMPNN Sequence Design',
-    description: 'Design amino acid sequences for backbone structures',
+    name: 'Writing Genetic Code',
+    description: 'Designing amino acid sequences that fold into your structures',
     icon: Dna,
     requiresReview: true,
     supportsSelection: true,
@@ -203,9 +203,9 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
       model_type: 'ligand_mpnn',
     },
     parameterSchema: [
-      { id: 'temperature', label: 'Low Temperature', type: 'slider', required: false, defaultValue: 0.1, range: { min: 0.01, max: 1.0, step: 0.01 }, helpText: 'Conservative sampling (half of sequences)' },
-      { id: 'temperature_high', label: 'High Temperature', type: 'slider', required: false, defaultValue: 0.2, range: { min: 0.01, max: 1.0, step: 0.01 }, helpText: 'Exploratory sampling (half of sequences)' },
-      { id: 'num_sequences', label: 'Sequences per Design (total)', type: 'slider', required: false, defaultValue: 8, range: { min: 2, max: 16, step: 2 }, helpText: 'Split evenly between low and high temperature' },
+      { id: 'temperature', label: 'Low Temperature', type: 'slider', required: false, defaultValue: 0.1, range: { min: 0.01, max: 1.0, step: 0.01 }, helpText: 'Safe, conservative sequences (half go here)' },
+      { id: 'temperature_high', label: 'High Temperature', type: 'slider', required: false, defaultValue: 0.2, range: { min: 0.01, max: 1.0, step: 0.01 }, helpText: 'More adventurous sequences (other half)' },
+      { id: 'num_sequences', label: 'Sequences per Design', type: 'slider', required: false, defaultValue: 8, range: { min: 2, max: 16, step: 2 }, helpText: 'Split evenly between conservative and adventurous temperatures' },
       {
         id: 'model_type', label: 'Model', type: 'select', required: false, defaultValue: 'ligand_mpnn',
         options: [
@@ -400,8 +400,8 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
 export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'rf3_validation',
-    name: 'RF3 Structure Validation',
-    description: 'Predict 3D structures from sequences to validate designability',
+    name: 'Testing Your Designs',
+    description: 'Predicting how each sequence folds to check if the design works',
     icon: Shield,
     requiresReview: true,
     supportsSelection: true,
@@ -568,8 +568,8 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
 export function createEvaluateStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'evaluate',
-    name: 'Design Evaluation',
-    description: 'Evaluate and score the final designs',
+    name: 'Evaluating Results',
+    description: 'Scoring your designs and checking if they meet quality standards',
     icon: BarChart3,
     requiresReview: true,
     supportsSelection: false,
@@ -646,8 +646,8 @@ export function createEvaluateStep(overrides?: Partial<PipelineStepDefinition>):
 export function createAnalyzeStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'analyze',
-    name: 'Structure Analysis',
-    description: 'Analyze the input structure for binding sites and design opportunities',
+    name: 'Analyzing Structure',
+    description: 'Examining your structure for binding sites and design opportunities',
     icon: Search,
     requiresReview: true,
     supportsSelection: false,
@@ -696,8 +696,8 @@ export function createAnalyzeStep(overrides?: Partial<PipelineStepDefinition>): 
 export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'scaffold_search',
-    name: 'Scaffold Search',
-    description: 'Search RCSB PDB for existing structures with the target metal-ligand complex',
+    name: 'Searching Nature\'s Library',
+    description: 'Looking for existing structures in the Protein Data Bank that match your design',
     icon: Database,
     requiresReview: true,
     supportsSelection: true,
@@ -707,8 +707,8 @@ export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinit
       limit: 10,
     },
     parameterSchema: [
-      { id: 'resolution_max', label: 'Max Resolution (\u00C5)', type: 'slider', required: false, defaultValue: 3.0, range: { min: 1.0, max: 5.0, step: 0.5 }, helpText: 'Maximum crystallographic resolution for PDB search' },
-      { id: 'limit', label: 'Max Candidates', type: 'slider', required: false, defaultValue: 10, range: { min: 1, max: 25, step: 1 }, helpText: 'Maximum number of PDB hits to validate' },
+      { id: 'resolution_max', label: 'Max Resolution (\u00C5)', type: 'slider', required: false, defaultValue: 3.0, range: { min: 1.0, max: 5.0, step: 0.5 }, helpText: 'Lower = higher-quality crystal structures only' },
+      { id: 'limit', label: 'Max Candidates', type: 'slider', required: false, defaultValue: 10, range: { min: 1, max: 25, step: 1 }, helpText: 'How many existing structures to check' },
     ],
 
     async execute(ctx: StepExecutionContext): Promise<StepResult> {
@@ -850,8 +850,8 @@ export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinit
 export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'scout_filter',
-    name: 'Scout Filter',
-    description: 'Validate 1 sequence per backbone and filter out weak backbones',
+    name: 'Finding the Strongest',
+    description: 'Quick-testing each backbone to keep only the most promising ones',
     icon: Shield,
     requiresReview: true,
     supportsSelection: false,
@@ -861,8 +861,8 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
       plddt_threshold: 0.65,
     },
     parameterSchema: [
-      { id: 'ptm_threshold', label: 'pTM Threshold', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Minimum pTM to pass scout validation' },
-      { id: 'plddt_threshold', label: 'pLDDT Threshold', type: 'slider', required: false, defaultValue: 0.65, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Minimum pLDDT to pass scout validation' },
+      { id: 'ptm_threshold', label: 'pTM Threshold', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Backbones below this fold-quality score are dropped' },
+      { id: 'plddt_threshold', label: 'pLDDT Threshold', type: 'slider', required: false, defaultValue: 0.65, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Backbones below this confidence score are dropped' },
     ],
 
     ResultPreview: ScoutResultPreview,
@@ -1059,8 +1059,8 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
 export function createSaveHistoryStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'save_history',
-    name: 'Save History',
-    description: 'Save design results to persistent history for pattern tracking',
+    name: 'Saving Your Work',
+    description: 'Storing your results so you can come back to them later',
     icon: History,
     requiresReview: false,
     supportsSelection: false,
@@ -1161,8 +1161,8 @@ export function createSaveHistoryStep(overrides?: Partial<PipelineStepDefinition
 export function createCheckLessonsStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'check_lessons',
-    name: 'Check Lessons',
-    description: 'Detect failure patterns, breakthroughs, or improvements in design history',
+    name: 'Learning What Works',
+    description: 'Looking for patterns across your designs to improve future runs',
     icon: Lightbulb,
     requiresReview: true,
     supportsSelection: false,

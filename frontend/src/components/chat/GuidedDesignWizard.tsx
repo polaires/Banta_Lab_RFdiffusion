@@ -57,21 +57,21 @@ interface GuidedDesignWizardProps {
 const DESIGN_TYPE_STEP: WizardStep = {
   id: 'design_type',
   question: 'What kind of protein would you like to design?',
-  description: 'This determines the pipeline configuration and available parameters.',
+  description: 'This shapes the questions I\'ll ask.',
   icon: Layers,
   options: [
-    { id: 'metal', label: 'Metal-Ligand Binding', description: 'Design a protein that coordinates a metal ion, optionally with an organic ligand' },
-    { id: 'scaffold', label: 'Scaffold Design', description: 'Search for and build on existing metal-binding scaffold structures from PDB' },
+    { id: 'metal', label: 'Metal-Ligand Binding', description: 'Design a protein that holds a metal ion, optionally with an organic ligand' },
+    { id: 'scaffold', label: 'Build on Existing Structures', description: 'Search for and build on existing metal-binding scaffold structures from PDB' },
     { id: 'ligand', label: 'Interface Dimer', description: 'Design two protein chains connected by a small molecule at the interface' },
     { id: 'binder', label: 'Protein Binder', description: 'Design a new protein that binds to an existing target protein' },
-    { id: 'general', label: 'Something else', description: 'Describe your design goal in your own words' },
+    { id: 'general', label: 'Custom Design', description: 'Describe your design goal in your own words' },
   ],
 };
 
 const METAL_STEP: WizardStep = {
   id: 'target_metal',
   question: 'Which metal ion should the protein coordinate?',
-  description: 'The metal determines coordination geometry and residue preferences.',
+  description: 'This affects how the metal bonds to the protein.',
   icon: Gem,
   options: [
     { id: 'TB', label: 'Terbium (Tb)', description: 'Lanthanide, 8-9 coordination, luminescent properties' },
@@ -85,11 +85,11 @@ const METAL_STEP: WizardStep = {
 const LIGAND_STEP: WizardStep = {
   id: 'ligand_name',
   question: 'What ligand coordinates the metal?',
-  description: 'An organic ligand can bridge between the protein and metal, or be the main binding target.',
+  description: 'A helper molecule can bridge the protein and metal, or be the main binding target.',
   icon: FlaskConical,
   options: [
-    { id: 'citrate', label: 'Citrate', description: 'Tricarboxylate chelator, common in biology' },
-    { id: 'PQQ', label: 'PQQ', description: 'Pyrroloquinoline quinone, redox cofactor' },
+    { id: 'citrate', label: 'Citrate', description: 'Natural molecule found in cells, binds metals well' },
+    { id: 'PQQ', label: 'PQQ', description: 'Pyrroloquinoline quinone, important cofactor for enzyme reactions' },
     { id: 'ATP', label: 'ATP', description: 'Adenosine triphosphate, universal energy carrier' },
     { id: 'none', label: 'No ligand', description: 'Direct protein-metal coordination only' },
   ],
@@ -116,8 +116,8 @@ const SCALE_STEP: WizardStep = {
   options: [
     { id: 'quick', label: 'Quick exploration', description: '5 designs, fast results for initial testing' },
     { id: 'standard', label: 'Standard run', description: '10 designs, good coverage for most goals' },
-    { id: 'sweep', label: 'Parameter sweep', description: '50+ designs across multiple configurations' },
-    { id: 'production', label: 'Production', description: '200+ designs, maximum coverage' },
+    { id: 'sweep', label: 'Comprehensive Search', description: '50+ designs trying different strategies' },
+    { id: 'production', label: 'Production', description: '200+ designs to find the very best candidates' },
   ],
 };
 
@@ -141,7 +141,7 @@ const DIMER_LIGAND_STEP: WizardStep = {
   icon: FlaskConical,
   options: [
     { id: 'azobenzene', label: 'Azobenzene', description: 'Light-switchable linker for reversible dimerization' },
-    { id: 'citrate', label: 'Citrate', description: 'Tricarboxylate for stable bridging' },
+    { id: 'citrate', label: 'Citrate', description: 'Natural molecule for stable bridging' },
     { id: 'ATP', label: 'ATP', description: 'Nucleotide-mediated interface' },
   ],
 };
@@ -231,8 +231,8 @@ const METAL_LABELS: Record<string, string> = {
 };
 
 const DESIGN_TYPE_LABELS: Record<string, string> = {
-  metal: 'Metal-Ligand Binding', scaffold: 'Scaffold Design',
-  ligand: 'Interface Dimer', binder: 'Protein Binder', general: 'General Design',
+  metal: 'Metal-Ligand Binding', scaffold: 'Build on Existing Structures',
+  ligand: 'Interface Dimer', binder: 'Protein Binder', general: 'Custom Design',
 };
 
 const GOAL_LABELS: Record<string, string> = {
@@ -242,7 +242,7 @@ const GOAL_LABELS: Record<string, string> = {
 
 const SCALE_LABELS: Record<string, string> = {
   quick: 'Quick (5)', standard: 'Standard (10)',
-  sweep: 'Sweep (50+)', production: 'Production (200+)',
+  sweep: 'Comprehensive (50+)', production: 'Production (200+)',
 };
 
 const TIER_LABELS: Record<string, string> = {
@@ -502,7 +502,7 @@ export function GuidedDesignWizard({ knownParams = {}, onComplete, onCancel }: G
 
       <h3 className="text-xl font-semibold text-foreground mb-2">Ready to start?</h3>
       <p className="text-muted-foreground text-sm mb-6">
-        Review your design parameters below, then hit Start to begin the pipeline.
+        Review your choices below, then start designing.
       </p>
 
       <div className="bg-card rounded-xl border border-border p-4 mb-6 space-y-2">

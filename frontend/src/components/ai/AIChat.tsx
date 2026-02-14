@@ -127,7 +127,7 @@ export function AIChat({
           <h3 className="font-semibold text-foreground">AI Assistant</h3>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Describe your protein design goal in natural language
+          Tell me what protein you'd like to design
         </p>
         {structureInfo?.pdbId && (
           <div className="mt-2 flex items-center gap-2 text-xs text-primary bg-primary/10 rounded-full px-3 py-1 w-fit">

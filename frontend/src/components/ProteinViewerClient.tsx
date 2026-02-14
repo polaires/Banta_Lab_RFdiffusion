@@ -188,26 +188,23 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       try {
         console.log(`[ProteinViewer] Focusing on metal: ${metal.element} at ${metal.chainId}:${metal.resSeq}`);
 
-        // Clear current view
-        await plugin.clear();
-
-        // Reload structure
+        // Reload structure in transaction (prevents hierarchy builder crash in production)
         const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
 
-        const data = await plugin.builders.data.rawData(
-          { data: pdbContent, label: 'structure.pdb' },
-          { state: { isGhost: true } }
-        );
-
-        const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-        if (!trajectory) {
-          throw new Error('Failed to parse trajectory from PDB data');
-        }
-
-        // Use applyPreset with empty representation for custom focus view
-        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-          representationPreset: 'empty',
+        await plugin.dataTransaction(async () => {
+          await plugin.clear();
+          const data = await plugin.builders.data.rawData(
+            { data: pdbContent, label: 'structure.pdb' },
+            { state: { isGhost: true } }
+          );
+          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+          if (!trajectory) {
+            throw new Error('Failed to parse trajectory from PDB data');
+          }
+          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+            representationPreset: 'empty',
+          });
         });
 
         // Get structure reference from hierarchy
@@ -355,26 +352,23 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       try {
         console.log(`[ProteinViewer] Focusing on ligand: ${ligand.name} at ${ligand.chainId}:${ligand.resSeq}`);
 
-        // Clear current view
-        await plugin.clear();
-
-        // Reload structure
+        // Reload structure in transaction (prevents hierarchy builder crash in production)
         const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
 
-        const data = await plugin.builders.data.rawData(
-          { data: pdbContent, label: 'structure.pdb' },
-          { state: { isGhost: true } }
-        );
-
-        const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-        if (!trajectory) {
-          throw new Error('Failed to parse trajectory from PDB data');
-        }
-
-        // Use applyPreset with empty representation for custom focus view
-        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-          representationPreset: 'empty',
+        await plugin.dataTransaction(async () => {
+          await plugin.clear();
+          const data = await plugin.builders.data.rawData(
+            { data: pdbContent, label: 'structure.pdb' },
+            { state: { isGhost: true } }
+          );
+          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+          if (!trajectory) {
+            throw new Error('Failed to parse trajectory from PDB data');
+          }
+          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+            representationPreset: 'empty',
+          });
         });
 
         // Get structure reference from hierarchy
@@ -533,26 +527,23 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       try {
         console.log('[ProteinViewer] Focusing on coordination sphere:', coordData);
 
-        // Clear current view
-        await plugin.clear();
-
-        // Reload structure
+        // Reload structure in transaction (prevents hierarchy builder crash in production)
         const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
 
-        const data = await plugin.builders.data.rawData(
-          { data: pdbContent, label: 'structure.pdb' },
-          { state: { isGhost: true } }
-        );
-
-        const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-        if (!trajectory) {
-          throw new Error('Failed to parse trajectory from PDB data');
-        }
-
-        // Use applyPreset with empty representation for custom focus view
-        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-          representationPreset: 'empty',
+        await plugin.dataTransaction(async () => {
+          await plugin.clear();
+          const data = await plugin.builders.data.rawData(
+            { data: pdbContent, label: 'structure.pdb' },
+            { state: { isGhost: true } }
+          );
+          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+          if (!trajectory) {
+            throw new Error('Failed to parse trajectory from PDB data');
+          }
+          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+            representationPreset: 'empty',
+          });
         });
 
         // Get structure reference from hierarchy
@@ -1030,18 +1021,18 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       globalOperationInProgress = new Promise(resolve => { resolveOperation = resolve; });
 
       try {
-        await globalPlugin.clear();
-
         const isCif = pdbContent.trimStart().startsWith('data_');
         const format = isCif ? 'mmcif' : 'pdb';
 
-        const data = await globalPlugin.builders.data.rawData(
-          { data: pdbContent, label: 'structure.pdb' },
-          { state: { isGhost: true } }
-        );
-
-        const trajectory = await globalPlugin.builders.structure.parseTrajectory(data, format);
-        await globalPlugin.builders.structure.hierarchy.applyPreset(trajectory, 'default');
+        await globalPlugin.dataTransaction(async () => {
+          await globalPlugin!.clear();
+          const data = await globalPlugin!.builders.data.rawData(
+            { data: pdbContent, label: 'structure.pdb' },
+            { state: { isGhost: true } }
+          );
+          const trajectory = await globalPlugin!.builders.structure.parseTrajectory(data, format);
+          await globalPlugin!.builders.structure.hierarchy.applyPreset(trajectory, 'default');
+        });
 
         globalPlugin.canvas3d?.requestCameraReset();
         setFocusMode('none');
@@ -1311,9 +1302,6 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             }
           }
 
-          console.log('[ProteinViewer] Clearing existing structures...');
-          await plugin.clear();
-
           // Clear ligand features visualization state when loading new structure
           useStore.getState().setShowLigandFeatures3D(false);
 
@@ -1333,25 +1321,36 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
             );
           }
 
-          const data = await plugin.builders.data.rawData(
-            { data: contentToLoad, label: `structure.${extension}` },
-            { state: { isGhost: true } }
-          );
+          // Wrap entire load in dataTransaction to prevent Molstar hierarchy builder
+          // from running during intermediate state changes. Without this, the default
+          // preset's sequential commit() calls (createModel, insertModelProperties,
+          // createStructure, etc.) each trigger the hierarchy builder, which can crash
+          // on partially-formed state cells accessing cell.transform.ref without
+          // optional chaining (hierarchy-state.js:196). In production mode
+          // (NODE_ENV=production), Molstar suppresses "bad cell" warnings and silently
+          // returns undefined, causing cascade failures. The transaction batches all
+          // state changes so the hierarchy rebuilds only once with the final state.
+          console.log('[ProteinViewer] Loading structure in transaction...');
+          await plugin.dataTransaction(async () => {
+            await plugin.clear();
 
-          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-          if (!trajectory) {
-            throw new Error('Failed to parse trajectory - PDB data may be malformed');
-          }
-          console.log('[ProteinViewer] Trajectory parsed successfully');
+            const data = await plugin.builders.data.rawData(
+              { data: contentToLoad, label: `structure.${extension}` },
+              { state: { isGhost: true } }
+            );
 
-          // Use applyPreset - this is the recommended bundler-safe approach
-          // It handles model and structure creation internally
-          console.log('[ProteinViewer] Applying structure preset...');
-          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-            representationPreset: 'auto',
+            const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+            if (!trajectory) {
+              throw new Error('Failed to parse trajectory - PDB data may be malformed');
+            }
+            console.log('[ProteinViewer] Trajectory parsed, applying preset...');
+
+            await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+              representationPreset: 'auto',
+            });
           });
 
-          // Get the structure reference from the hierarchy
+          // Hierarchy is now synced after transaction — safe to access structures
           const structures = plugin.managers.structure.hierarchy.current.structures;
           if (!structures || structures.length === 0) {
             throw new Error('No structure found after preset application');
@@ -1363,8 +1362,6 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           globalStructureRef = structureCell.transform.ref;
 
           console.log('[ProteinViewer] Structure loaded with preset');
-
-          console.log('[ProteinViewer] Representation applied');
 
           plugin.canvas3d?.requestCameraReset();
           console.log('[ProteinViewer] Structure loaded successfully');

@@ -2,6 +2,7 @@
   "name": "ln_citrate",
   "description": "Optimized for lanthanide-citrate binder designs (3C9H repurposing)",
   "project": "ln_citrate_scaffold",
+  "_af3_paper_note": "iPTM and min_chain_pair_pae thresholds from RFD3 paper (bioRxiv 2025.09.18.676967v2). AF3 success = iPTM > 0.8 AND min chain-pair PAE < 1.5. Previous filters only checked protein fold quality — designs with disordered Ca-citrate pockets passed incorrectly (confirmed by AF3 server re-validation Feb 2026).",
   "filters": {
     "coordination": {
       "coordination_number": {"min": 7, "ideal": 8, "direction": "higher_better"},
@@ -19,42 +20,57 @@
       "ss_content": {"min": 0.5, "ideal": 0.7, "direction": "higher_better"},
       "no_clashes": {"equals": true}
     },
+    "ligand_interface_confidence": {
+      "_note": "AF3 paper (bioRxiv 2025.09.18.676967v2) — critical for metal-ligand designs",
+      "iptm": {"min": 0.60, "ideal": 0.80, "direction": "higher_better"},
+      "min_chain_pair_pae": {"max": 5.0, "ideal": 1.5, "direction": "lower_better"}
+    },
     "hsab": {
       "compatible": {"equals": true},
       "cys_excluded": {"equals": true}
     }
   },
   "tier_thresholds": {
+    "_note": "iPTM/PAE from AF3 paper. S tier matches paper exactly (iPTM>0.8, PAE<1.5).",
     "S": {
       "coordination_number": 8,
       "geometry_rmsd": 0.8,
       "metal_sasa": 2,
-      "citrate_contacts": 3
+      "citrate_contacts": 3,
+      "iptm": 0.80,
+      "min_chain_pair_pae": 1.5
     },
     "A": {
       "coordination_number": 8,
       "geometry_rmsd": 1.2,
       "metal_sasa": 5,
-      "citrate_contacts": 3
+      "citrate_contacts": 3,
+      "iptm": 0.70,
+      "min_chain_pair_pae": 3.0
     },
     "B": {
       "coordination_number": 7,
       "geometry_rmsd": 1.5,
       "metal_sasa": 10,
-      "citrate_contacts": 2
+      "citrate_contacts": 2,
+      "iptm": 0.60,
+      "min_chain_pair_pae": 5.0
     },
     "C": {
       "coordination_number": 6,
       "geometry_rmsd": 2.0,
       "metal_sasa": 20,
-      "citrate_contacts": 1
+      "citrate_contacts": 1,
+      "iptm": 0.50,
+      "min_chain_pair_pae": 8.0
     }
   },
   "scoring_weights": {
-    "coordination_number": 30,
-    "geometry_quality": 25,
-    "burial": 20,
+    "coordination_number": 25,
+    "geometry_quality": 20,
+    "burial": 15,
     "citrate_interface": 15,
+    "ligand_interface_confidence": 15,
     "secondary_structure": 10
   },
   "proceed_to_mpnn_criteria": {

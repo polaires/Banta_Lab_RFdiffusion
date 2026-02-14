@@ -12,6 +12,13 @@ import { useStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import type { ChatMessage as ChatMessageType, ChatAttachment } from '@/lib/chat-types';
 import type { StepResult } from '@/lib/pipeline-types';
+import {
+  getStepCompletionMessage,
+  getStepFailureMessage,
+  getRandomMessage,
+  pipelineStartMessages,
+  pipelineCompleteMessages,
+} from '@/lib/step-personality';
 import { ChatThread } from './ChatThread';
 import { ChatInput } from './ChatInput';
 import { PipelineCard } from './PipelineCard';
@@ -74,7 +81,18 @@ function OutputsSummary({
         </span>
         {designType && (
           <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded text-[10px] font-medium">
-            {designType.replace(/_/g, ' ')}
+            {({
+              metal_binding: 'Metal Binding',
+              enzyme_active_site: 'Enzyme Design',
+              de_novo: 'De Novo',
+              binder: 'Binder Design',
+              scaffolding: 'Scaffolding',
+              interface_ligand: 'Ligand Interface',
+              interface_metal: 'Metal Interface',
+              interface_metal_ligand: 'Metal + Ligand Interface',
+              cleavable_monomer: 'Cleavable Monomer',
+              nl: 'Custom Design',
+            } as Record<string, string>)[designType] ?? designType.replace(/_/g, ' ')}
           </span>
         )}
         <span className="flex-1" />
@@ -225,7 +243,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
       if (!activePipelineId) {
         addProjectMessage(projId, {
           role: 'assistant',
-          content: 'Starting the design pipeline for your request...',
+          content: getRandomMessage(pipelineStartMessages),
         });
         startPipelineRef.current(projId, 'natural-language', { user_prompt: text });
       }
@@ -295,7 +313,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
   const handleStepComplete = useCallback(
     (stepId: string, result: StepResult) => {
       if (!activeProjectId) return;
-      addMsg('assistant', `Step "${stepId}" completed: ${result.summary}`);
+      addMsg('assistant', getStepCompletionMessage(stepId, result.summary));
       updateProjectContext(activeProjectId, {
         pipelineResults: {
           ...(project?.context.pipelineResults ?? {}),
@@ -311,7 +329,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
       if (!activeProjectId) return;
       setProjectPipeline(activeProjectId, null);
       updateProjectStatus(activeProjectId, 'completed');
-      addMsg('assistant', 'Pipeline completed successfully! Review the final results above.');
+      addMsg('assistant', getRandomMessage(pipelineCompleteMessages));
     },
     [activeProjectId, setProjectPipeline, updateProjectStatus, addMsg]
   );
@@ -320,7 +338,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
     (stepId: string, error: string) => {
       if (!activeProjectId) return;
       updateProjectStatus(activeProjectId, 'failed');
-      addMsg('assistant', `Pipeline failed at step "${stepId}": ${error}`);
+      addMsg('assistant', getStepFailureMessage(stepId, error));
     },
     [activeProjectId, updateProjectStatus, addMsg]
   );
@@ -401,7 +419,7 @@ export function ChatPanel({ className }: ChatPanelProps) {
         <div className="border-t border-border p-4 shrink-0">
           <ChatInput
             onSend={handleSend}
-            placeholder="Or type your design request here to skip the wizard..."
+            placeholder="Or describe your design directly below"
           />
           <p className="mt-2 text-xs text-muted-foreground text-center">
             Complete the guided design above, or type to go directly
@@ -464,13 +482,13 @@ export function ChatPanel({ className }: ChatPanelProps) {
           placeholder={
             activePipelineId
               ? 'Pipeline running — type a follow-up question...'
-              : 'Describe your protein design (e.g., "Design a protein to bind citrate with terbium")...'
+              : 'What would you like to design? (e.g., "a protein that binds citrate and terbium")'
           }
         />
         <p className="mt-2 text-xs text-muted-foreground text-center">
           {activePipelineId
-            ? 'Pipeline running — review each step above'
-            : 'Natural language input or PDB code (e.g. 1BRF)'}
+            ? 'Your design is taking shape — review each step above'
+            : 'What would you like to design? (or enter a PDB code like 4CVB)'}
         </p>
       </div>
     </div>

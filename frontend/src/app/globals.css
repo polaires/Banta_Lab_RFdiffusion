@@ -2,44 +2,44 @@
 
 @layer base {
   :root {
-    /* Backgrounds */
-    --background: 30 6% 98%;
-    --foreground: 24 10% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 24 10% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 24 10% 10%;
+    /* Backgrounds — warm cream inspired by Claude's web UI */
+    --background: 36 20% 97%;
+    --foreground: 24 12% 10%;
+    --card: 38 20% 99%;
+    --card-foreground: 24 12% 10%;
+    --popover: 38 20% 99%;
+    --popover-foreground: 24 12% 10%;
 
-    /* Primary - stone-800 */
-    --primary: 24 10% 15%;
-    --primary-foreground: 30 6% 98%;
+    /* Primary — warm umber */
+    --primary: 26 25% 18%;
+    --primary-foreground: 36 20% 97%;
 
-    /* Secondary - stone-100 */
-    --secondary: 60 5% 96%;
-    --secondary-foreground: 24 10% 10%;
+    /* Secondary — warm stone */
+    --secondary: 36 12% 95%;
+    --secondary-foreground: 24 12% 10%;
 
-    /* Muted - stone-100/500 */
-    --muted: 60 5% 96%;
-    --muted-foreground: 25 6% 45%;
+    /* Muted — warm stone */
+    --muted: 36 12% 95%;
+    --muted-foreground: 25 10% 45%;
 
-    /* Accent - stone-100 */
-    --accent: 60 5% 96%;
-    --accent-foreground: 24 10% 10%;
+    /* Accent — warm stone */
+    --accent: 36 12% 95%;
+    --accent-foreground: 24 12% 10%;
 
-    /* Semantic */
-    --destructive: 0 84% 60%;
+    /* Semantic — softer, warmer tones */
+    --destructive: 4 60% 55%;
     --destructive-foreground: 0 0% 100%;
-    --success: 142 76% 36%;
+    --success: 152 50% 38%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
+    --warning: 38 85% 50%;
     --warning-foreground: 0 0% 100%;
-    --info: 217 91% 60%;
+    --info: 210 50% 55%;
     --info-foreground: 0 0% 100%;
 
-    /* Borders & Rings */
-    --border: 24 6% 90%;
-    --input: 24 6% 90%;
-    --ring: 24 6% 65%;
+    /* Borders & Rings — warmer */
+    --border: 30 12% 89%;
+    --input: 30 12% 89%;
+    --ring: 30 20% 60%;
 
     /* Chart colors */
     --chart-1: 24 10% 15%;
@@ -52,14 +52,14 @@
     --radius: 0.5rem;
 
     /* Sidebar specific */
-    --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 24 10% 10%;
-    --sidebar-primary: 24 10% 15%;
-    --sidebar-primary-foreground: 30 6% 98%;
-    --sidebar-accent: 60 5% 96%;
-    --sidebar-accent-foreground: 24 10% 10%;
-    --sidebar-border: 24 6% 90%;
-    --sidebar-ring: 24 6% 65%;
+    --sidebar-background: 38 20% 99%;
+    --sidebar-foreground: 24 12% 10%;
+    --sidebar-primary: 26 25% 18%;
+    --sidebar-primary-foreground: 36 20% 97%;
+    --sidebar-accent: 36 12% 95%;
+    --sidebar-accent-foreground: 24 12% 10%;
+    --sidebar-border: 30 12% 89%;
+    --sidebar-ring: 30 20% 60%;
 
     /* Legacy Brand colors (kept for backward compatibility) */
     --brand-50: #eff6ff;
@@ -226,4 +226,188 @@ button, a, input, select, textarea {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--neutral-400);
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ===== Pipeline Step Animations ===== */
+
+/* Parse Intent — gentle thinking pulse */
+@keyframes thinking-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+.animate-thinking-pulse { animation: thinking-pulse 1.5s ease-in-out infinite; }
+
+/* Resolve Structure — slow zoom + glow */
+@keyframes zoom-glow {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 2px hsl(30 50% 50% / 0.2)); }
+  50% { transform: scale(1.08); filter: drop-shadow(0 0 6px hsl(30 50% 50% / 0.4)); }
+}
+.animate-zoom-glow { animation: zoom-glow 2s ease-in-out infinite; }
+
+/* Scaffold Search — page flip rotation */
+@keyframes page-flip {
+  0%, 100% { transform: rotateY(0deg); }
+  50% { transform: rotateY(15deg); }
+}
+.animate-page-flip { animation: page-flip 1.2s ease-in-out infinite; perspective: 400px; }
+
+/* Coordination Analysis — orbital spin */
+@keyframes orbital {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+.animate-orbital { animation: orbital 2.5s linear infinite; }
+
+/* Configure — bubbling flask */
+@keyframes bubble {
+  0%, 100% { transform: translateY(0) scale(1); }
+  25% { transform: translateY(-2px) scale(1.05); }
+  75% { transform: translateY(1px) scale(0.98); }
+}
+.animate-bubble { animation: bubble 1.8s ease-in-out infinite; }
+
+/* Backbone Generation — building/hammering */
+@keyframes build {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-8deg); }
+  50% { transform: rotate(0deg); }
+  75% { transform: rotate(8deg); }
+}
+.animate-build { animation: build 1s ease-in-out infinite; }
+
+/* Scout Filter — particles falling through */
+@keyframes filter-fall {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 1; }
+  50% { transform: translateY(2px) scale(0.95); opacity: 0.7; }
+}
+.animate-filter-fall { animation: filter-fall 1.5s ease-in-out infinite; }
+
+/* MPNN Sequence — DNA helix spin */
+@keyframes helix-spin {
+  0% { transform: rotateY(0deg) scale(1); }
+  25% { transform: rotateY(90deg) scale(0.9); }
+  50% { transform: rotateY(180deg) scale(1); }
+  75% { transform: rotateY(270deg) scale(0.9); }
+  100% { transform: rotateY(360deg) scale(1); }
+}
+.animate-helix-spin { animation: helix-spin 2s linear infinite; perspective: 200px; }
+
+/* RF3 Validation — scanning pulse */
+@keyframes scan-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.08); filter: drop-shadow(0 0 4px hsl(210 50% 55% / 0.3)); }
+}
+.animate-scan-pulse { animation: scan-pulse 2.2s ease-in-out infinite; }
+
+/* Analysis — bar chart grow */
+@keyframes bar-grow {
+  0%, 100% { transform: scaleY(1); }
+  30% { transform: scaleY(0.85); }
+  60% { transform: scaleY(1.08); }
+}
+.animate-bar-grow { animation: bar-grow 1.5s ease-in-out infinite; transform-origin: bottom; }
+
+/* Save History — file slide */
+@keyframes file-slide {
+  0% { transform: translateX(-3px); opacity: 0.6; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+.animate-file-slide { animation: file-slide 0.8s ease-out forwards; }
+
+/* Check Lessons — warm glow breathe */
+@keyframes glow-breathe {
+  0%, 100% { filter: drop-shadow(0 0 2px hsl(38 85% 50% / 0.2)); opacity: 0.8; }
+  50% { filter: drop-shadow(0 0 8px hsl(38 85% 50% / 0.5)); opacity: 1; }
+}
+.animate-glow-breathe { animation: glow-breathe 1.8s ease-in-out infinite; }
+
+/* Step completion — checkmark bloom */
+@keyframes check-bloom {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-check-bloom { animation: check-bloom 0.4s ease-out forwards; }
+
+/* Step failure — gentle shake */
+@keyframes gentle-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-2px); }
+  40% { transform: translateX(2px); }
+  60% { transform: translateX(-1px); }
+  80% { transform: translateX(1px); }
+}
+.animate-gentle-shake { animation: gentle-shake 0.4s ease-out; }
+
+/* Active step glow ring */
+@keyframes active-glow {
+  0%, 100% { box-shadow: 0 0 0 3px hsl(35 60% 50% / 0.12); }
+  50% { box-shadow: 0 0 0 5px hsl(35 60% 50% / 0.06); }
+}
+.animate-active-glow { animation: active-glow 2s ease-in-out infinite; }
+
+/* Progress bar shimmer */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.progress-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.progress-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  animation: shimmer 2s infinite;
+}
+
+/* Confetti burst */
+@keyframes confetti-burst {
+  0% { transform: scale(0) translateY(0); opacity: 1; }
+  30% { transform: scale(1) translateY(-20px); }
+  100% { transform: scale(0.5) translateY(80px); opacity: 0; }
+}
+
+/* Step enter animation */
+@keyframes step-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-step-enter { animation: step-enter 0.25s ease-out; }
+
+/* Accessibility: respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-thinking-pulse,
+  .animate-zoom-glow,
+  .animate-page-flip,
+  .animate-orbital,
+  .animate-bubble,
+  .animate-build,
+  .animate-filter-fall,
+  .animate-helix-spin,
+  .animate-scan-pulse,
+  .animate-bar-grow,
+  .animate-file-slide,
+  .animate-glow-breathe,
+  .animate-check-bloom,
+  .animate-gentle-shake,
+  .animate-active-glow,
+  .progress-shimmer::after {
+    animation: none !important;
+  }
 }

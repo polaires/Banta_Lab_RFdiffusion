@@ -27,7 +27,11 @@ class QualityTier(str, Enum):
     F = "F"  # Failed: Below thresholds
 
 
-# Quality thresholds based on BindCraft + ln_citrate.json analysis
+# Quality thresholds based on BindCraft + ln_citrate.json analysis.
+# iPTM and min_chain_pair_pae from RFD3 paper (bioRxiv 2025.09.18.676967v2):
+#   AF3 success = iPTM > 0.8 AND min chain-pair PAE < 1.5 (strict tier).
+#   Without these, designs with well-folded cores but disordered metal-ligand
+#   pockets pass incorrectly (confirmed by AF3 server re-validation).
 QUALITY_THRESHOLDS = {
     "S": {
         "coordination_number": 8,
@@ -36,6 +40,8 @@ QUALITY_THRESHOLDS = {
         "ligand_contacts": 3,      # contacts with ligand
         "plddt": 0.85,             # from BindCraft stringent
         "ptm": 0.80,
+        "iptm": 0.80,             # AF3 paper threshold (ligand-interface confidence)
+        "min_chain_pair_pae": 1.5, # AF3 paper threshold (protein↔ligand uncertainty)
     },
     "A": {
         "coordination_number": 8,
@@ -44,6 +50,8 @@ QUALITY_THRESHOLDS = {
         "ligand_contacts": 3,
         "plddt": 0.80,             # from BindCraft standard
         "ptm": 0.75,
+        "iptm": 0.70,
+        "min_chain_pair_pae": 3.0,
     },
     "B": {
         "coordination_number": 7,
@@ -52,6 +60,8 @@ QUALITY_THRESHOLDS = {
         "ligand_contacts": 2,
         "plddt": 0.75,
         "ptm": 0.70,
+        "iptm": 0.60,
+        "min_chain_pair_pae": 5.0,
     },
     "C": {
         "coordination_number": 6,
@@ -60,6 +70,8 @@ QUALITY_THRESHOLDS = {
         "ligand_contacts": 1,
         "plddt": 0.70,             # minimum viable
         "ptm": 0.65,
+        "iptm": 0.50,
+        "min_chain_pair_pae": 8.0,
     },
 }
 
@@ -95,6 +107,7 @@ class MetalBindingConfig:
     step_scale: Optional[float] = None    # Default 1.5 in build_rfd3_params
     gamma_0: Optional[float] = None       # RFD3 gamma_0 param
     ligand_fix_atoms: Optional[str] = None  # Partial ligand fixing: "O2,O5,O7" or None for "all"
+    design_goal: Optional[str] = None  # "binding", "catalysis", "sensing", "structural"
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -127,6 +140,9 @@ class DesignResult:
     coordination_number: Optional[int] = None
     geometry_rmsd: Optional[float] = None
     metal_sasa: Optional[float] = None
+    # AF3 paper ligand-interface metrics (bioRxiv 2025.09.18.676967v2)
+    iptm: Optional[float] = None              # interface pTM (protein↔ligand)
+    min_chain_pair_pae: Optional[float] = None # min chain-pair PAE (protein↔ligand)
     tier: str = "F"
     status: str = "pending"  # "pass", "review", "fail"
     seed: Optional[int] = None
@@ -139,6 +155,8 @@ class DesignResult:
             "plddt": self.plddt,
             "ptm": self.ptm,
             "pae": self.pae,
+            "iptm": self.iptm,
+            "min_chain_pair_pae": self.min_chain_pair_pae,
             "coordination_number": self.coordination_number,
             "geometry_rmsd": self.geometry_rmsd,
             "metal_sasa": self.metal_sasa,
@@ -249,8 +267,11 @@ def assign_quality_tier(metrics: Dict[str, Any]) -> str:
     ptm = metrics.get("ptm", 0)
     cn = metrics.get("coordination_number")
     rmsd = metrics.get("geometry_rmsd")
+    iptm = metrics.get("iptm")
+    chain_pae = metrics.get("min_chain_pair_pae")
 
     has_metal_metrics = cn is not None and rmsd is not None
+    has_interface_metrics = iptm is not None  # AF3 paper metrics
 
     for tier in ["S", "A", "B", "C"]:
         thresh = QUALITY_THRESHOLDS[tier]
@@ -260,6 +281,13 @@ def assign_quality_tier(metrics: Dict[str, Any]) -> str:
         # Check metal coordination metrics only if available
         if has_metal_metrics:
             if cn < thresh["coordination_number"] or rmsd > thresh["geometry_rmsd"]:
+                continue
+        # Check AF3 paper ligand-interface metrics when available
+        # (iPTM and min chain-pair PAE — bioRxiv 2025.09.18.676967v2)
+        if has_interface_metrics:
+            if iptm < thresh.get("iptm", 0):
+                continue
+            if chain_pae is not None and chain_pae > thresh.get("min_chain_pair_pae", 999):
                 continue
         return tier
     return "F"
@@ -397,11 +425,23 @@ def build_rfd3_params(
             fixed_atoms[config.ligand.upper()] = ligand_fix
 
     # Default buried atoms: bury metal AND ligand for pocket formation
-    # Both must be buried so RFD3 wraps protein around the entire complex
+    # Cofactor registry provides selective burial (e.g. PQQ exposes quinone face)
+    # Unknown ligands fall back to full burial
     if buried_atoms is None:
         buried_atoms = {config.metal.upper(): "all"}
         if config.ligand:
-            buried_atoms[config.ligand.upper()] = "all"
+            try:
+                from cofactor_registry import get_rfd3_conditioning
+                conditioning = get_rfd3_conditioning(
+                    config.ligand, config.metal,
+                    design_goal=config.design_goal or "binding",
+                )
+            except ImportError:
+                conditioning = None
+            if conditioning:
+                buried_atoms.update(conditioning["select_buried"])
+            else:
+                buried_atoms[config.ligand.upper()] = "all"
 
     # Default H-bond acceptors — extracted dynamically from ligand atoms in PDB
     # IMPORTANT: Exclude coordinating atoms (those in ligand_fix_atoms) from H-bond
@@ -434,6 +474,22 @@ def build_rfd3_params(
 
     if hbond_acceptors:
         params["select_hbond_acceptor"] = hbond_acceptors
+
+    # Cofactor exposure conditioning (e.g. PQQ quinone face)
+    if config.ligand:
+        try:
+            from cofactor_registry import get_rfd3_conditioning
+            cond = get_rfd3_conditioning(
+                config.ligand, config.metal,
+                design_goal=config.design_goal or "binding",
+            )
+            if cond and cond.get("select_exposed"):
+                params["select_exposed"] = cond["select_exposed"]
+            # Merge cofactor hbond strategy with dynamic hbond acceptors
+            if cond and cond.get("select_hbond_acceptor") and not hbond_acceptors:
+                params["select_hbond_acceptor"] = cond["select_hbond_acceptor"]
+        except ImportError:
+            pass
 
     # Optional gamma_0 from configure step
     if config.gamma_0 is not None:
@@ -524,15 +580,20 @@ def build_mpnn_params(
     pdb_content: str,
     metal: str,
     ligand: Optional[str] = None,
-    num_seqs: int = 4,
+    num_seqs: int = 8,
+    temperatures: Optional[List[float]] = None,
     temperature: float = 0.1,
     hsab_bias: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """
-    Build LigandMPNN parameters for sequence design.
+    Build LigandMPNN parameters for multi-temperature sequence design.
+
+    RFD3 paper (bioRxiv 2025.09.18.676967v2) uses 8 seqs/backbone for
+    enzyme/small molecule designs. Multi-temperature sampling (0.1 + 0.2)
+    improves sequence diversity while keeping conservative core sequences.
 
     Uses educated defaults from ln_citrate experiments:
-    - temperature=0.1 (conservative, preserves coordination geometry)
+    - temperatures=[0.1, 0.2] (split sequences between conservative and exploratory)
     - No bias for hard Lewis acids (atom context handles it naturally)
     - omit_AA='C' for hard metals (Cys incompatible with hard Lewis acids)
     - pack_side_chains=True (optimizes chi angles around metal)
@@ -542,34 +603,69 @@ def build_mpnn_params(
         pdb_content: Backbone PDB from RFD3
         metal: Metal code for context
         ligand: Optional ligand code
-        num_seqs: Number of sequences to generate
-        temperature: Sampling temperature (0.1 recommended for metal sites)
+        num_seqs: Total number of sequences to generate (split across temperatures)
+        temperatures: List of temperatures to use (default: [0.1, 0.2]).
+            Sequences are split evenly across temperatures.
+        temperature: Single temperature fallback (used if temperatures not provided)
         hsab_bias: HSAB-compliant amino acid bias string (None for hard acids)
 
     Returns:
-        MPNN parameters dict compatible with run_mpnn_inference()
+        List of MPNN parameters dicts (one per temperature), each compatible
+        with run_mpnn_inference(). Callers should run each and merge results.
     """
+    if temperatures is None:
+        temperatures = [0.1, 0.2]
+
+    # If only one temperature, use all sequences for it
+    if len(temperatures) == 1:
+        seqs_per_temp = [num_seqs]
+    else:
+        # Split sequences evenly, give remainder to first (lower) temperature
+        base = num_seqs // len(temperatures)
+        remainder = num_seqs % len(temperatures)
+        seqs_per_temp = [base + (1 if i < remainder else 0) for i in range(len(temperatures))]
+
     hsab_class = classify_hsab(metal)
 
-    params: Dict[str, Any] = {
+    # Build base params (shared across temperatures)
+    base_params: Dict[str, Any] = {
         "pdb_content": pdb_content,
-        "num_sequences": num_seqs,
         "model_type": "ligand_mpnn",
-        "temperature": temperature,
         "pack_side_chains": True,
         "use_side_chain_context": True,
     }
 
     # Omit cysteine for hard Lewis acids (thiolate incompatible)
     if hsab_class == "hard":
-        params["omit_AA"] = "C"
+        base_params["omit_AA"] = "C"
 
     # Only apply AA bias for soft/borderline metals
     # Hard acids: atom context naturally places carboxylates at coordination sites
     if hsab_bias:
-        params["bias_AA"] = hsab_bias
+        base_params["bias_AA"] = hsab_bias
 
-    return params
+    # Merge cofactor-specific bias (e.g. W:1.5 for PQQ pi-stacking)
+    if ligand:
+        try:
+            from cofactor_registry import get_mpnn_cofactor_bias, merge_bias_strings
+            cofactor_bias = get_mpnn_cofactor_bias(ligand)
+            if cofactor_bias:
+                existing = base_params.get("bias_AA", "")
+                base_params["bias_AA"] = merge_bias_strings(existing, cofactor_bias)
+        except ImportError:
+            pass
+
+    # Create one params dict per temperature
+    param_list = []
+    for temp, n_seqs in zip(temperatures, seqs_per_temp):
+        if n_seqs <= 0:
+            continue
+        p = dict(base_params)
+        p["temperature"] = temp
+        p["num_sequences"] = n_seqs
+        param_list.append(p)
+
+    return param_list
 
 
 # Session storage for tracking active pipelines

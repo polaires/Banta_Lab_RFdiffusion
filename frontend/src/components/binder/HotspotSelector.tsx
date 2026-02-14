@@ -216,25 +216,26 @@ export function HotspotSelector({
         }
       }
 
-      await plugin.clear();
       await loadMolstarModules();
 
       const isCif = pdbContent.trimStart().startsWith('data_');
       const format = isCif ? 'mmcif' : 'pdb';
 
-      const data = await plugin.builders.data.rawData(
-        { data: pdbContent, label: 'target.pdb' },
-        { state: { isGhost: true } }
-      );
-
-      const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-      if (!trajectory) {
-        throw new Error('Failed to parse trajectory - PDB data may be malformed');
-      }
-
-      // Use applyPreset with empty representation - this is bundler-safe
-      await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-        representationPreset: 'empty',
+      // Wrap in dataTransaction to prevent Molstar hierarchy builder from crashing
+      // on partially-formed state cells in production mode
+      await plugin.dataTransaction(async () => {
+        await plugin.clear();
+        const data = await plugin.builders.data.rawData(
+          { data: pdbContent, label: 'target.pdb' },
+          { state: { isGhost: true } }
+        );
+        const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+        if (!trajectory) {
+          throw new Error('Failed to parse trajectory - PDB data may be malformed');
+        }
+        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+          representationPreset: 'empty',
+        });
       });
 
       // Get the structure reference from the hierarchy

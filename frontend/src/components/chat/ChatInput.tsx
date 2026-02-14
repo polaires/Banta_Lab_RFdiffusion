@@ -11,7 +11,7 @@ interface ChatInputProps {
   className?: string;
 }
 
-export function ChatInput({ onSend, placeholder = 'Describe your protein design...', className }: ChatInputProps) {
+export function ChatInput({ onSend, placeholder = 'What protein would you like to design?', className }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

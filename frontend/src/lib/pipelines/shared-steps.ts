@@ -7,7 +7,7 @@
 import { Dna, Shield, BarChart3, Search, Database, History, Lightbulb } from 'lucide-react';
 import api from '@/lib/api';
 import { extractPdbContent } from '@/lib/workflowHandlers';
-import { getMetalMpnnConfig } from './metal-mpnn-bias';
+import { getMetalMpnnConfig, getCofactorMpnnConfig } from './metal-mpnn-bias';
 import type { MetalMpnnConfig } from './metal-mpnn-bias';
 import type {
   PipelineStepDefinition,
@@ -122,8 +122,8 @@ function parseDesignsToPdbOutputs(result: Record<string, unknown>): PdbOutput[] 
 export function createRfd3Step(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'rfd3_backbone',
-    name: 'RFD3 Backbone Design',
-    description: 'Generate protein backbone structures using RFdiffusion3',
+    name: 'Building Structures',
+    description: 'Generating protein backbone structures for your design',
     icon: Shield,
     requiresReview: true,
     supportsSelection: true,
@@ -135,10 +135,10 @@ export function createRfd3Step(overrides?: Partial<PipelineStepDefinition>): Pip
       gamma_0: 0.6,
     },
     parameterSchema: [
-      { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 } },
-      { id: 'num_timesteps', label: 'Timesteps', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 } },
-      { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3.0, step: 0.1 }, helpText: 'Higher = more designable, less diverse' },
-      { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1.0, step: 0.1 }, helpText: 'Lower = more designable' },
+      { id: 'num_designs', label: 'Number of Designs', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 10, step: 1 }, helpText: 'More designs = better coverage but longer runtime' },
+      { id: 'num_timesteps', label: 'Design Quality', type: 'slider', required: false, defaultValue: 200, range: { min: 50, max: 500, step: 50 }, helpText: 'More steps = finer-grained structures (default is good for most designs)' },
+      { id: 'step_scale', label: 'Step Scale', type: 'slider', required: false, defaultValue: 1.5, range: { min: 0.5, max: 3.0, step: 0.1 }, helpText: 'Higher = more realistic folds, lower = more variety' },
+      { id: 'gamma_0', label: 'Gamma', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.1, max: 1.0, step: 0.1 }, helpText: 'Lower values favor more realistic folds' },
     ],
 
     async execute(ctx: StepExecutionContext): Promise<StepResult> {
@@ -190,20 +190,22 @@ export function createRfd3Step(overrides?: Partial<PipelineStepDefinition>): Pip
 export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'mpnn_sequence',
-    name: 'LigandMPNN Sequence Design',
-    description: 'Design amino acid sequences for backbone structures',
+    name: 'Writing Genetic Code',
+    description: 'Designing amino acid sequences that fold into your structures',
     icon: Dna,
     requiresReview: true,
     supportsSelection: true,
     optional: false,
     defaultParams: {
       temperature: 0.1,
-      num_sequences: 4,
+      temperature_high: 0.2,
+      num_sequences: 8,
       model_type: 'ligand_mpnn',
     },
     parameterSchema: [
-      { id: 'temperature', label: 'Temperature', type: 'slider', required: false, defaultValue: 0.1, range: { min: 0.01, max: 1.0, step: 0.01 }, helpText: 'Lower = more confident sequences' },
-      { id: 'num_sequences', label: 'Sequences per Design', type: 'slider', required: false, defaultValue: 4, range: { min: 1, max: 16, step: 1 } },
+      { id: 'temperature', label: 'Low Temperature', type: 'slider', required: false, defaultValue: 0.1, range: { min: 0.01, max: 1.0, step: 0.01 }, helpText: 'Safe, conservative sequences (half go here)' },
+      { id: 'temperature_high', label: 'High Temperature', type: 'slider', required: false, defaultValue: 0.2, range: { min: 0.01, max: 1.0, step: 0.01 }, helpText: 'More adventurous sequences (other half)' },
+      { id: 'num_sequences', label: 'Sequences per Design', type: 'slider', required: false, defaultValue: 8, range: { min: 2, max: 16, step: 2 }, helpText: 'Split evenly between conservative and adventurous temperatures' },
       {
         id: 'model_type', label: 'Model', type: 'select', required: false, defaultValue: 'ligand_mpnn',
         options: [
@@ -257,12 +259,26 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
       if (!metalConfig.bias_AA && !metalConfig.omit_AA) {
         // Check initialParams first, then fall back to intent result from previous steps
         let targetMetal = (initialParams.target_metal as string) || (initialParams.targetMetal as string);
+        let ligandName = '';
         if (!targetMetal) {
           const intentResult = Object.values(previousResults).find(r => r.data?.design_type);
           targetMetal = (intentResult?.data?.target_metal as string) || '';
+          ligandName = (intentResult?.data?.ligand_name as string) || '';
+        }
+        if (!ligandName) {
+          ligandName = (initialParams.ligand_name as string) || '';
         }
         if (targetMetal) {
-          metalConfig = getMetalMpnnConfig(targetMetal);
+          // Look for backend-provided cofactor bias from analyze_ligand_features
+          let cofactorBias: Record<string, number> | undefined;
+          for (const result of Object.values(previousResults)) {
+            const biasData = (result.data as Record<string, unknown> | undefined)?.mpnn_bias_adjustments;
+            if (biasData && typeof biasData === 'object') {
+              cofactorBias = biasData as Record<string, number>;
+              break;
+            }
+          }
+          metalConfig = getCofactorMpnnConfig(targetMetal, ligandName.toUpperCase() || undefined, cofactorBias);
         }
       }
 
@@ -288,31 +304,67 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
           }
         }
 
-        const response = await api.submitMPNNDesign({
+        // Multi-temperature MPNN: split sequences between low (0.1) and high (0.2)
+        // temperatures for better sequence diversity. RFD3 paper uses 8 seqs/backbone
+        // for enzyme/small molecule designs (bioRxiv 2025.09.18.676967v2).
+        const totalSeqsPerBackbone = (params.num_sequences as number) ?? 8;
+        const tempLow = (params.temperature as number) ?? 0.1;
+        const tempHigh = (params.temperature_high as number) ?? 0.2;
+        const seqsLow = Math.ceil(totalSeqsPerBackbone / 2);
+        const seqsHigh = totalSeqsPerBackbone - seqsLow;
+        const temperatures = tempLow === tempHigh
+          ? [{ temp: tempLow, count: totalSeqsPerBackbone }]
+          : [{ temp: tempLow, count: seqsLow }, { temp: tempHigh, count: seqsHigh }];
+
+        const baseRequest = {
           pdb_content: pdb.pdbContent,
-          temperature: (params.temperature as number) ?? 0.1,
-          num_sequences: (params.num_sequences as number) ?? 4,
           model_type: (params.model_type as 'ligand_mpnn' | 'protein_mpnn') ?? 'ligand_mpnn',
           ...metalConfig,
-          // Merge per-backbone fixed positions with any from metalConfig
           ...(perBackboneFixed ? {
             fixed_positions: [
               ...(metalConfig.fixed_positions || []),
               ...perBackboneFixed,
             ],
           } : {}),
-        });
+        };
 
-        checkAborted(ctx.abortSignal);
-        ctx.onJobCreated?.(response.job_id, 'mpnn');
+        // Run MPNN at each temperature and merge sequences
+        const tempResults: Array<{ status: string; result?: Record<string, unknown>; error?: string }> = [];
+        for (const { temp, count } of temperatures) {
+          const response = await api.submitMPNNDesign({
+            ...baseRequest,
+            temperature: temp,
+            num_sequences: count,
+          });
 
+          checkAborted(ctx.abortSignal);
+          ctx.onJobCreated?.(response.job_id, 'mpnn');
+
+          let jobResult: { status: string; result?: Record<string, unknown>; error?: string };
+          if (response.status === 'completed') {
+            jobResult = { status: response.status, result: response.result as Record<string, unknown>, error: response.error };
+          } else {
+            const polled = await api.waitForJob(response.job_id, () => { checkAborted(ctx.abortSignal); });
+            jobResult = { status: polled.status, result: polled.result as Record<string, unknown>, error: polled.error };
+          }
+          if (jobResult.status === 'completed' && jobResult.result) {
+            tempResults.push(jobResult);
+          }
+        }
+
+        // Merge results from multiple temperature runs
         let jobResult: { status: string; result?: Record<string, unknown>; error?: string };
-
-        if (response.syncCompleted) {
-          jobResult = { status: response.status, result: response.result as Record<string, unknown>, error: response.error };
+        if (tempResults.length === 0) {
+          continue; // All temperature runs failed
+        } else if (tempResults.length === 1) {
+          jobResult = tempResults[0];
         } else {
-          const polled = await api.waitForJob(response.job_id, () => { checkAborted(ctx.abortSignal); });
-          jobResult = { status: polled.status, result: polled.result as Record<string, unknown>, error: polled.error };
+          // Merge sequences from both temperature runs
+          const mergedResult = { ...tempResults[0].result! };
+          const sequences1 = (mergedResult.sequences || []) as Array<Record<string, unknown>>;
+          const sequences2 = ((tempResults[1].result?.sequences || []) as Array<Record<string, unknown>>);
+          mergedResult.sequences = [...sequences1, ...sequences2];
+          jobResult = { status: 'completed', result: mergedResult };
         }
 
         checkAborted(ctx.abortSignal);
@@ -348,8 +400,8 @@ export function createMpnnStep(overrides?: Partial<PipelineStepDefinition>): Pip
 export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'rf3_validation',
-    name: 'RF3 Structure Validation',
-    description: 'Predict 3D structures from sequences to validate designability',
+    name: 'Testing Your Designs',
+    description: 'Predicting how each sequence folds to check if the design works',
     icon: Shield,
     requiresReview: true,
     supportsSelection: true,
@@ -464,6 +516,9 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
           if (confidences?.overall_plddt) metrics.pLDDT = confidences.overall_plddt;
           if (confidences?.ptm) metrics.pTM = confidences.ptm;
           if (confidences?.overall_pae) metrics.PAE = confidences.overall_pae;
+          // AF3 paper ligand-interface metrics (bioRxiv 2025.09.18.676967v2)
+          if (confidences?.iptm != null) metrics.iPTM = confidences.iptm;
+          if (confidences?.min_chain_pair_pae != null) metrics.min_chain_pair_pae = confidences.min_chain_pair_pae;
 
           pdbOutputs.push({
             id: `rf3-${seq.id}`,
@@ -513,8 +568,8 @@ export function createRf3Step(overrides?: Partial<PipelineStepDefinition>): Pipe
 export function createEvaluateStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'evaluate',
-    name: 'Design Evaluation',
-    description: 'Evaluate and score the final designs',
+    name: 'Evaluating Results',
+    description: 'Scoring your designs and checking if they meet quality standards',
     icon: BarChart3,
     requiresReview: true,
     supportsSelection: false,
@@ -591,8 +646,8 @@ export function createEvaluateStep(overrides?: Partial<PipelineStepDefinition>):
 export function createAnalyzeStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'analyze',
-    name: 'Structure Analysis',
-    description: 'Analyze the input structure for binding sites and design opportunities',
+    name: 'Analyzing Structure',
+    description: 'Examining your structure for binding sites and design opportunities',
     icon: Search,
     requiresReview: true,
     supportsSelection: false,
@@ -641,8 +696,8 @@ export function createAnalyzeStep(overrides?: Partial<PipelineStepDefinition>): 
 export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'scaffold_search',
-    name: 'Scaffold Search',
-    description: 'Search RCSB PDB for existing structures with the target metal-ligand complex',
+    name: 'Searching Nature\'s Library',
+    description: 'Looking for existing structures in the Protein Data Bank that match your design',
     icon: Database,
     requiresReview: true,
     supportsSelection: true,
@@ -652,8 +707,8 @@ export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinit
       limit: 10,
     },
     parameterSchema: [
-      { id: 'resolution_max', label: 'Max Resolution (\u00C5)', type: 'slider', required: false, defaultValue: 3.0, range: { min: 1.0, max: 5.0, step: 0.5 }, helpText: 'Maximum crystallographic resolution for PDB search' },
-      { id: 'limit', label: 'Max Candidates', type: 'slider', required: false, defaultValue: 10, range: { min: 1, max: 25, step: 1 }, helpText: 'Maximum number of PDB hits to validate' },
+      { id: 'resolution_max', label: 'Max Resolution (\u00C5)', type: 'slider', required: false, defaultValue: 3.0, range: { min: 1.0, max: 5.0, step: 0.5 }, helpText: 'Lower = higher-quality crystal structures only' },
+      { id: 'limit', label: 'Max Candidates', type: 'slider', required: false, defaultValue: 10, range: { min: 1, max: 25, step: 1 }, helpText: 'How many existing structures to check' },
     ],
 
     async execute(ctx: StepExecutionContext): Promise<StepResult> {
@@ -795,8 +850,8 @@ export function createScaffoldSearchStep(overrides?: Partial<PipelineStepDefinit
 export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'scout_filter',
-    name: 'Scout Filter',
-    description: 'Validate 1 sequence per backbone and filter out weak backbones',
+    name: 'Finding the Strongest',
+    description: 'Quick-testing each backbone to keep only the most promising ones',
     icon: Shield,
     requiresReview: true,
     supportsSelection: false,
@@ -806,8 +861,8 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
       plddt_threshold: 0.65,
     },
     parameterSchema: [
-      { id: 'ptm_threshold', label: 'pTM Threshold', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Minimum pTM to pass scout validation' },
-      { id: 'plddt_threshold', label: 'pLDDT Threshold', type: 'slider', required: false, defaultValue: 0.65, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Minimum pLDDT to pass scout validation' },
+      { id: 'ptm_threshold', label: 'pTM Threshold', type: 'slider', required: false, defaultValue: 0.6, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Backbones below this fold-quality score are dropped' },
+      { id: 'plddt_threshold', label: 'pLDDT Threshold', type: 'slider', required: false, defaultValue: 0.65, range: { min: 0.3, max: 0.9, step: 0.05 }, helpText: 'Backbones below this confidence score are dropped' },
     ],
 
     ResultPreview: ScoutResultPreview,
@@ -1004,8 +1059,8 @@ export function createScoutFilterStep(overrides?: Partial<PipelineStepDefinition
 export function createSaveHistoryStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'save_history',
-    name: 'Save History',
-    description: 'Save design results to persistent history for pattern tracking',
+    name: 'Saving Your Work',
+    description: 'Storing your results so you can come back to them later',
     icon: History,
     requiresReview: false,
     supportsSelection: false,
@@ -1106,8 +1161,8 @@ export function createSaveHistoryStep(overrides?: Partial<PipelineStepDefinition
 export function createCheckLessonsStep(overrides?: Partial<PipelineStepDefinition>): PipelineStepDefinition {
   return {
     id: 'check_lessons',
-    name: 'Check Lessons',
-    description: 'Detect failure patterns, breakthroughs, or improvements in design history',
+    name: 'Learning What Works',
+    description: 'Looking for patterns across your designs to improve future runs',
     icon: Lightbulb,
     requiresReview: true,
     supportsSelection: false,
@@ -1358,6 +1413,10 @@ function extractConfidences(result: Record<string, unknown>): {
   overall_plddt?: number;
   ptm?: number;
   overall_pae?: number;
+  // AF3 paper ligand-interface metrics (bioRxiv 2025.09.18.676967v2):
+  // iPTM > 0.8 and min chain-pair PAE < 1.5 for ligand binding success.
+  iptm?: number;
+  min_chain_pair_pae?: number;
 } | undefined {
   // Try per-prediction confidences first
   const predictions = result.predictions as Array<Record<string, unknown>> | undefined;
@@ -1381,10 +1440,19 @@ function extractConfidences(result: Record<string, unknown>): {
     }
   }
 
+  // iPTM: interface pTM for protein-ligand/multi-chain complexes
+  const iptm = (src.iptm as number | undefined) ?? (confidences.iptm as number | undefined);
+
+  // min_chain_pair_pae: pre-computed in backend extract_rf3_confidences from full PAE matrix
+  const min_chain_pair_pae = (confidences.min_chain_pair_pae as number | undefined)
+    ?? (src.min_chain_pair_pae as number | undefined);
+
   return {
     overall_plddt: (src.overall_plddt as number | undefined) ?? (src.mean_plddt as number | undefined),
     ptm,
     overall_pae: (src.overall_pae as number | undefined),
+    iptm,
+    min_chain_pair_pae,
   };
 }
 

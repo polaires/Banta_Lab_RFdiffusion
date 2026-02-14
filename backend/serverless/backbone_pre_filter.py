@@ -573,3 +573,130 @@ def _detect_ligand_hetatm(pdb_content: str) -> Optional[Dict[str, Any]]:
     # Return the one with most atoms
     best = max(ligand_atoms.items(), key=lambda x: x[1])
     return {"ligand_name": best[0], "atom_count": best[1]}
+
+
+# ============== Backbone Clustering ==============
+
+
+def cluster_backbones_by_ca_rmsd(
+    pdb_contents: List[str],
+    rmsd_threshold: float = 2.0,
+    labels: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Cluster backbones by pairwise CA RMSD to remove structural duplicates.
+
+    The RFD3 paper (bioRxiv 2025.09.18.676967v2) uses TM-score threshold 0.6
+    for diversity clustering. Since TM-score requires external tools, this uses
+    CA RMSD as a simpler proxy — RMSD < 2.0 Å roughly corresponds to TM-score > 0.6
+    for proteins of 100-130 residues.
+
+    Uses greedy clustering: iterate through backbones, assign each to the first
+    existing cluster with a representative within rmsd_threshold, or start a new cluster.
+
+    Args:
+        pdb_contents: List of PDB content strings.
+        rmsd_threshold: Maximum CA RMSD to merge into same cluster (default: 2.0 Å).
+        labels: Optional labels for each backbone (e.g., backbone IDs).
+
+    Returns:
+        {
+            "n_input": int,
+            "n_clusters": int,
+            "representatives": [int, ...],  # indices of cluster representatives
+            "cluster_assignments": [int, ...],  # cluster ID for each backbone
+            "cluster_sizes": [int, ...],  # number of members per cluster
+        }
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        # Can't cluster without numpy — return all as unique
+        n = len(pdb_contents)
+        return {
+            "n_input": n,
+            "n_clusters": n,
+            "representatives": list(range(n)),
+            "cluster_assignments": list(range(n)),
+            "cluster_sizes": [1] * n,
+        }
+
+    def _extract_ca(pdb_str: str) -> Optional[Any]:
+        """Extract CA coordinates as numpy array."""
+        coords = []
+        for line in pdb_str.split("\n"):
+            if not line.startswith("ATOM"):
+                continue
+            if line[12:16].strip() != "CA":
+                continue
+            try:
+                x = float(line[30:38])
+                y = float(line[38:46])
+                z = float(line[46:54])
+                coords.append([x, y, z])
+            except (ValueError, IndexError):
+                continue
+        return np.array(coords) if coords else None
+
+    def _kabsch_rmsd(coords1: Any, coords2: Any) -> float:
+        """Kabsch-aligned CA RMSD."""
+        n = min(len(coords1), len(coords2))
+        if n < 10:
+            return float("inf")
+        c1, c2 = coords1[:n], coords2[:n]
+        center1 = c1.mean(axis=0)
+        center2 = c2.mean(axis=0)
+        p = c1 - center1
+        q = c2 - center2
+        h = p.T @ q
+        u, s, vt = np.linalg.svd(h)
+        d = np.linalg.det(vt.T @ u.T)
+        sign_m = np.eye(3)
+        sign_m[2, 2] = np.sign(d)
+        rotation = vt.T @ sign_m @ u.T
+        aligned = (rotation @ p.T).T
+        diff = aligned - q
+        return float(np.sqrt(np.mean(np.sum(diff ** 2, axis=1))))
+
+    # Extract CA coordinates for all backbones
+    ca_arrays = [_extract_ca(pdb) for pdb in pdb_contents]
+
+    # Greedy clustering
+    clusters: List[List[int]] = []  # cluster -> [member indices]
+    representatives: List[int] = []  # cluster -> representative index
+    assignments = [-1] * len(pdb_contents)
+
+    for i, ca_i in enumerate(ca_arrays):
+        if ca_i is None:
+            # Can't cluster — assign to own cluster
+            cluster_id = len(clusters)
+            clusters.append([i])
+            representatives.append(i)
+            assignments[i] = cluster_id
+            continue
+
+        assigned = False
+        for c_id, rep_idx in enumerate(representatives):
+            ca_rep = ca_arrays[rep_idx]
+            if ca_rep is None:
+                continue
+            rmsd = _kabsch_rmsd(ca_i, ca_rep)
+            if rmsd < rmsd_threshold:
+                clusters[c_id].append(i)
+                assignments[i] = c_id
+                assigned = True
+                break
+
+        if not assigned:
+            cluster_id = len(clusters)
+            clusters.append([i])
+            representatives.append(i)
+            assignments[i] = cluster_id
+
+    return {
+        "n_input": len(pdb_contents),
+        "n_clusters": len(clusters),
+        "representatives": representatives,
+        "cluster_assignments": assignments,
+        "cluster_sizes": [len(c) for c in clusters],
+    }

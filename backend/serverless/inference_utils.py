@@ -2517,7 +2517,9 @@ def run_rf3_python_api(
 
                 # Extract confidences from first output
                 if idx == 0 and confidences is None:
-                    confidences = extract_rf3_confidences(rf3_output)
+                    confidences = extract_rf3_confidences(
+                        rf3_output, protein_length=len(sequence) if sequence else 0
+                    )
 
         return {
             "status": "completed",
@@ -2753,8 +2755,17 @@ def run_rf3_mock(sequence: str, name: str) -> Dict[str, Any]:
     }
 
 
-def extract_rf3_confidences(rf3_output) -> Optional[Dict[str, Any]]:
-    """Extract confidence metrics from RF3 output"""
+def extract_rf3_confidences(rf3_output, protein_length: int = 0) -> Optional[Dict[str, Any]]:
+    """Extract confidence metrics from RF3 output.
+
+    Args:
+        rf3_output: RF3 inference output object.
+        protein_length: Length of the protein sequence (residues). When > 0,
+            computes min_chain_pair_pae from the inter-chain block of the full
+            PAE matrix (protein↔ligand/metal) before truncation. This is
+            critical for the AF3 paper filter (bioRxiv 2025.09.18.676967v2):
+            min chain-pair PAE < 1.5 for ligand binding success.
+    """
     confidences = {}
 
     if hasattr(rf3_output, 'summary_confidences') and rf3_output.summary_confidences:
@@ -2777,8 +2788,41 @@ def extract_rf3_confidences(rf3_output) -> Optional[Dict[str, Any]]:
 
         if 'pae' in conf:
             pae = conf['pae']
+
+            # Compute min_chain_pair_pae from FULL matrix BEFORE truncation.
+            # For protein-ligand complexes, the PAE matrix is (N_prot + N_lig) × (N_prot + N_lig).
+            # The inter-chain block (protein rows × ligand cols) gives the protein↔ligand PAE.
+            # RFD3 paper (bioRxiv 2025.09.18.676967v2): min chain-pair PAE < 1.5 for success.
+            if protein_length > 0 and len(pae) > protein_length:
+                try:
+                    inter_chain_values = []
+                    n_total = len(pae)
+                    # Protein→Ligand block (rows 0..prot_len, cols prot_len..N)
+                    for i in range(min(protein_length, n_total)):
+                        row = pae[i]
+                        for j in range(protein_length, min(len(row), n_total)):
+                            inter_chain_values.append(float(row[j]))
+                    # Ligand→Protein block (rows prot_len..N, cols 0..prot_len)
+                    for i in range(protein_length, n_total):
+                        row = pae[i]
+                        for j in range(min(protein_length, len(row))):
+                            inter_chain_values.append(float(row[j]))
+                    if inter_chain_values:
+                        mean_inter_pae = sum(inter_chain_values) / len(inter_chain_values)
+                        confidences["min_chain_pair_pae"] = round(mean_inter_pae, 3)
+                        print(f"[RF3] Inter-chain PAE: mean={mean_inter_pae:.3f} "
+                              f"(protein={protein_length}, total={n_total}, "
+                              f"n_values={len(inter_chain_values)})")
+                except Exception as e:
+                    print(f"[RF3] Warning: failed to compute inter-chain PAE: {e}")
+
+            # Truncated PAE matrix for storage (100×100 max)
             pae_list = [[round(float(x), 2) for x in row[:100]] for row in pae[:100]]
             confidences["pae_matrix"] = pae_list
+
+    # Store protein_length for downstream use
+    if protein_length > 0:
+        confidences["protein_length"] = protein_length
 
     return confidences if confidences else None
 

@@ -22,22 +22,37 @@ FILTER_PRESETS = {
         "ptm": {"min": 0.8},
         "ca_rmsd": {"max": 2.5},
     },
+    # AF3 success criteria from RFD3 paper (bioRxiv 2025.09.18.676967v2):
+    #   backbone RMSD < 1.5 Å, ligand RMSD < 5.0 Å,
+    #   min chain-pair PAE < 1.5, iPTM > 0.8
     "small_molecule": {
         "backbone_rmsd": {"max": 1.5},
         "ligand_rmsd": {"max": 5.0},
         "iptm": {"min": 0.8},
+        "min_chain_pair_pae": {"max": 1.5},
     },
+    # Metal binding presets now include AF3 paper ligand-interface metrics.
+    # Previous filters only checked protein fold quality (pLDDT/pTM) and
+    # coordination geometry — designs with well-folded cores but disordered
+    # metal-ligand pockets passed incorrectly.
+    # AF3 paper thresholds: iPTM > 0.8, min chain-pair PAE < 1.5
     "metal_binding": {
         "coordination_number": {"min": 6},
         "geometry_rmsd": {"max": 2.0},
         "plddt": {"min": 0.70},
         "coordination_valid": {"equals": True},
+        "iptm": {"min": 0.60},              # AF3 paper uses 0.8; relaxed for metal sweep triage
+        "min_chain_pair_pae": {"max": 5.0},  # AF3 paper uses 1.5; relaxed for metal sweep triage
+        "ligand_rmsd": {"max": 5.0},        # AF3 paper threshold (bioRxiv 2025.09.18.676967v2)
     },
     "metal_binding_strict": {
         "coordination_number": {"min": 8},
         "geometry_rmsd": {"max": 0.8},
         "plddt": {"min": 0.85},
         "coordination_valid": {"equals": True},
+        "iptm": {"min": 0.80},              # AF3 paper threshold (bioRxiv 2025.09.18.676967v2)
+        "min_chain_pair_pae": {"max": 1.5},  # AF3 paper threshold (bioRxiv 2025.09.18.676967v2)
+        "ligand_rmsd": {"max": 3.0},        # Stricter than AF3 paper's 5.0 Å
     },
     "dna_binder": {
         "dna_aligned_rmsd": {"max": 5.0},
@@ -60,10 +75,11 @@ FILTER_PRESETS = {
 # Tier multipliers for chemistry-aware preset generation.
 # cn_offset: added to the empirical CN base (formal_cn_min - 2)
 # rmsd_base: geometry RMSD threshold for CN 4-6 metals, scaled up for CN 7+ metals
+# iptm/pae: AF3 paper ligand-interface confidence (bioRxiv 2025.09.18.676967v2)
 _TIER_PARAMS = {
-    "relaxed": {"cn_offset": -1, "rmsd_base": 2.5, "rmsd_high_cn": 3.0, "plddt": 0.60, "ptm": 0.50, "lc": 2},
-    "standard": {"cn_offset": 0, "rmsd_base": 1.5, "rmsd_high_cn": 2.0, "plddt": 0.70, "ptm": 0.60, "lc": 3},
-    "strict": {"cn_offset": 1, "rmsd_base": 0.8, "rmsd_high_cn": 1.2, "plddt": 0.80, "ptm": 0.75, "lc": 5},
+    "relaxed": {"cn_offset": -1, "rmsd_base": 2.5, "rmsd_high_cn": 3.0, "plddt": 0.60, "ptm": 0.50, "lc": 2, "iptm": 0.50, "pae": 8.0},
+    "standard": {"cn_offset": 0, "rmsd_base": 1.5, "rmsd_high_cn": 2.0, "plddt": 0.70, "ptm": 0.60, "lc": 3, "iptm": 0.60, "pae": 5.0},
+    "strict": {"cn_offset": 1, "rmsd_base": 0.8, "rmsd_high_cn": 1.2, "plddt": 0.80, "ptm": 0.75, "lc": 5, "iptm": 0.80, "pae": 1.5},
 }
 
 
@@ -143,6 +159,10 @@ def generate_chemistry_aware_preset(
         "coordination_number": {"min": cn_threshold},
         "plddt": {"min": tp["plddt"]},
         "ptm": {"min": tp["ptm"]},
+        # AF3 paper ligand-interface confidence (bioRxiv 2025.09.18.676967v2):
+        # iPTM > 0.8 and min chain-pair PAE < 1.5 for strict; relaxed tiers below
+        "iptm": {"min": tp["iptm"]},
+        "min_chain_pair_pae": {"max": tp["pae"]},
     }
 
     # Only add geometry_rmsd if it's commonly computed
@@ -152,6 +172,21 @@ def generate_chemistry_aware_preset(
     # Add ligand_contacts filter when ligand is specified
     if ligand_name:
         preset["ligand_contacts"] = {"min": tp["lc"]}
+
+        # Cofactor-specific thresholds (H-bonds, pi-stacking, total contacts)
+        try:
+            from cofactor_registry import get_cofactor_filter_thresholds
+            cofactor_thresholds = get_cofactor_filter_thresholds(ligand_name)
+            if cofactor_thresholds:
+                if cofactor_thresholds.get("min_hbonds"):
+                    preset["hydrogen_bonds"] = {"min": cofactor_thresholds["min_hbonds"]}
+                if cofactor_thresholds.get("min_pi_stacking"):
+                    preset["pi_stacking"] = {"min": cofactor_thresholds["min_pi_stacking"]}
+                if cofactor_thresholds.get("min_total_contacts"):
+                    # Override the tier-based ligand_contacts with cofactor-specific value
+                    preset["ligand_contacts"] = {"min": cofactor_thresholds["min_total_contacts"]}
+        except ImportError:
+            pass
 
     # Build descriptive name
     name = f"metal_{metal_upper.lower()}_{tier}"

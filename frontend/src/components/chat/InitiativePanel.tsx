@@ -108,7 +108,7 @@ export function InitiativePanel({ onSuggestionClick, onGuidedDesign, onSend }: I
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Describe your protein design..."
+              placeholder="What would you like to design?"
               className="w-full bg-transparent text-foreground text-sm placeholder:text-muted-foreground focus:outline-none resize-none min-h-[44px] max-h-[150px]"
               rows={1}
             />

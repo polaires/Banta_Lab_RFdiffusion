@@ -166,27 +166,34 @@ export function BinderViewerInner({
       const isCif = pdbContent.trimStart().startsWith('data_');
       const format = isCif ? 'mmcif' : 'pdb';
 
-      // Wrap in dataTransaction to prevent Molstar hierarchy builder from crashing
-      // on partially-formed state cells in production mode (cell.transform.ref access
-      // without optional chaining in hierarchy-state.js:196)
+      // Phase 1: Load data in transaction (prevents hierarchy builder crash)
+      let trajectory: any;
       await globalPlugin.dataTransaction(async () => {
         await globalPlugin!.clear();
         const data = await globalPlugin!.builders.data.rawData(
           { data: pdbContent, label: 'binder-complex.pdb' },
           { state: { isGhost: true } }
         );
-        const trajectory = await globalPlugin!.builders.structure.parseTrajectory(data, format);
-        if (!trajectory) {
-          throw new Error('Failed to parse trajectory - PDB data may be malformed');
-        }
-        await globalPlugin!.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-          representationPreset: 'empty',
-        });
+        trajectory = await globalPlugin!.builders.structure.parseTrajectory(data, format);
+      });
+      if (!trajectory) {
+        throw new Error('Failed to parse trajectory - PDB data may be malformed');
+      }
+
+      // Phase 2: Apply preset OUTSIDE transaction (trajectory now in committed state)
+      await globalPlugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+        representationPreset: 'empty',
       });
 
-      // Get the structure reference from the hierarchy
-      const structures = globalPlugin.managers.structure.hierarchy.current.structures;
-      if (!structures || structures.length === 0) {
+      // Check if preset worked, fallback to manual build
+      let structures = globalPlugin.managers.structure.hierarchy.current.structures;
+      if (!structures?.length) {
+        console.warn('[BinderViewer] Preset failed, trying manual build...');
+        const model = await globalPlugin.builders.structure.createModel(trajectory);
+        if (model) await globalPlugin.builders.structure.createStructure(model);
+        structures = globalPlugin.managers.structure.hierarchy.current.structures;
+      }
+      if (!structures?.length) {
         throw new Error('No structure found after preset application');
       }
       const structureCell = structures[0]?.cell;

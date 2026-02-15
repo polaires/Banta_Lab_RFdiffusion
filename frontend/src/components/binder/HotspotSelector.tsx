@@ -221,26 +221,34 @@ export function HotspotSelector({
       const isCif = pdbContent.trimStart().startsWith('data_');
       const format = isCif ? 'mmcif' : 'pdb';
 
-      // Wrap in dataTransaction to prevent Molstar hierarchy builder from crashing
-      // on partially-formed state cells in production mode
+      // Phase 1: Load data in transaction (prevents hierarchy builder crash)
+      let trajectory: any;
       await plugin.dataTransaction(async () => {
         await plugin.clear();
         const data = await plugin.builders.data.rawData(
           { data: pdbContent, label: 'target.pdb' },
           { state: { isGhost: true } }
         );
-        const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-        if (!trajectory) {
-          throw new Error('Failed to parse trajectory - PDB data may be malformed');
-        }
-        await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-          representationPreset: 'empty',
-        });
+        trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+      });
+      if (!trajectory) {
+        throw new Error('Failed to parse trajectory - PDB data may be malformed');
+      }
+
+      // Phase 2: Apply preset OUTSIDE transaction (trajectory now in committed state)
+      await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
+        representationPreset: 'empty',
       });
 
-      // Get the structure reference from the hierarchy
-      const structures = plugin.managers.structure.hierarchy.current.structures;
-      if (!structures || structures.length === 0) {
+      // Check if preset worked, fallback to manual build
+      let structures = plugin.managers.structure.hierarchy.current.structures;
+      if (!structures?.length) {
+        console.warn('[HotspotSelector] Preset failed, trying manual build...');
+        const model = await plugin.builders.structure.createModel(trajectory);
+        if (model) await plugin.builders.structure.createStructure(model);
+        structures = plugin.managers.structure.hierarchy.current.structures;
+      }
+      if (!structures?.length) {
         throw new Error('No structure found after preset application');
       }
       const structureCell = structures[0]?.cell;

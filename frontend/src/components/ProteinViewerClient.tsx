@@ -104,6 +104,87 @@ let globalUnhandledRejectionHandler: ((event: PromiseRejectionEvent) => void) | 
 // Mutex to prevent concurrent Molstar state operations (load/reset/focus)
 let globalOperationInProgress: Promise<void> | null = null;
 
+/**
+ * Load a PDB/CIF structure into a Molstar plugin instance.
+ *
+ * CRITICAL FIX: The data-loading phase (clear → rawData → parseTrajectory) runs
+ * inside a dataTransaction to prevent Molstar's hierarchy builder from crashing on
+ * partially-formed state cells.  The preset application runs OUTSIDE the transaction
+ * so it can find the trajectory in committed state.  Previous code ran applyPreset
+ * inside the transaction, which works in dev mode but silently fails in production
+ * because Molstar suppresses "bad cell" errors when NODE_ENV=production and returns
+ * undefined, causing the structure to never be created.
+ *
+ * If applyPreset still fails (structures array empty), falls back to manual
+ * model → structure building as a last resort.
+ */
+async function loadStructureIntoPlugin(
+  plugin: PluginUIContext,
+  pdbContent: string,
+  presetOptions?: Record<string, unknown>,
+): Promise<string> {
+  const isCif = pdbContent.trimStart().startsWith('data_');
+  const format = isCif ? 'mmcif' : 'pdb';
+  const extension = isCif ? 'cif' : 'pdb';
+
+  let contentToLoad = pdbContent;
+  if (isCif) {
+    // Sanitize CIF entry ID — RF3/atomworks produces entry IDs with spaces
+    contentToLoad = pdbContent.replace(/^(data_)\S*.*$/m, '$1structure');
+  }
+
+  // Phase 1: Load data in transaction (batches state changes so the hierarchy
+  // builder only fires once with complete state, not on intermediate cells)
+  let trajectory: any;
+  await plugin.dataTransaction(async () => {
+    await plugin.clear();
+    const data = await plugin.builders.data.rawData(
+      { data: contentToLoad, label: `structure.${extension}` },
+      { state: { isGhost: true } },
+    );
+    trajectory = await plugin.builders.structure.parseTrajectory(data, format);
+  });
+
+  if (!trajectory) {
+    throw new Error('Failed to parse trajectory - PDB data may be malformed');
+  }
+
+  // Phase 2: Apply preset OUTSIDE the transaction.  The trajectory is now
+  // committed to the state tree, so the preset can locate it and build
+  // model → structure → representations.
+  console.log('[ProteinViewer] Applying preset outside transaction...');
+  await plugin.builders.structure.hierarchy.applyPreset(
+    trajectory,
+    'default',
+    presetOptions ?? {},
+  );
+
+  // Check if preset succeeded
+  let structures = plugin.managers.structure.hierarchy.current.structures;
+
+  if (!structures?.length) {
+    // Fallback: build model → structure manually (bypasses preset registry
+    // which may be broken by production bundling)
+    console.warn('[ProteinViewer] Preset produced no structures — trying manual build...');
+    const model = await plugin.builders.structure.createModel(trajectory);
+    if (model) {
+      await plugin.builders.structure.createStructure(model);
+    }
+    structures = plugin.managers.structure.hierarchy.current.structures;
+  }
+
+  if (!structures?.length) {
+    throw new Error('No structure found after preset application');
+  }
+
+  const structureRef = structures[0]?.cell?.transform?.ref;
+  if (!structureRef) {
+    throw new Error('Structure reference not available');
+  }
+
+  return structureRef;
+}
+
 export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewerClientProps>(
   function ProteinViewerClient(
     {
@@ -188,31 +269,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       try {
         console.log(`[ProteinViewer] Focusing on metal: ${metal.element} at ${metal.chainId}:${metal.resSeq}`);
 
-        // Reload structure in transaction (prevents hierarchy builder crash in production)
-        const isCif = pdbContent.trimStart().startsWith('data_');
-        const format = isCif ? 'mmcif' : 'pdb';
-
-        await plugin.dataTransaction(async () => {
-          await plugin.clear();
-          const data = await plugin.builders.data.rawData(
-            { data: pdbContent, label: 'structure.pdb' },
-            { state: { isGhost: true } }
-          );
-          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-          if (!trajectory) {
-            throw new Error('Failed to parse trajectory from PDB data');
-          }
-          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-            representationPreset: 'empty',
-          });
+        globalStructureRef = await loadStructureIntoPlugin(plugin, pdbContent, {
+          representationPreset: 'empty',
         });
-
-        // Get structure reference from hierarchy
-        const structures = plugin.managers.structure.hierarchy.current.structures;
-        if (!structures?.length) throw new Error('No structure found');
-        const structureRef = structures[0]?.cell?.transform?.ref;
-        if (!structureRef) throw new Error('Structure reference not available');
-        globalStructureRef = structureRef;
+        const structureRef = globalStructureRef;
 
         // Build metal selection expression using helper
         const metalExpression = residueExpression(metal.resName, metal.chainId, metal.resSeq);
@@ -352,31 +412,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       try {
         console.log(`[ProteinViewer] Focusing on ligand: ${ligand.name} at ${ligand.chainId}:${ligand.resSeq}`);
 
-        // Reload structure in transaction (prevents hierarchy builder crash in production)
-        const isCif = pdbContent.trimStart().startsWith('data_');
-        const format = isCif ? 'mmcif' : 'pdb';
-
-        await plugin.dataTransaction(async () => {
-          await plugin.clear();
-          const data = await plugin.builders.data.rawData(
-            { data: pdbContent, label: 'structure.pdb' },
-            { state: { isGhost: true } }
-          );
-          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-          if (!trajectory) {
-            throw new Error('Failed to parse trajectory from PDB data');
-          }
-          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-            representationPreset: 'empty',
-          });
+        globalStructureRef = await loadStructureIntoPlugin(plugin, pdbContent, {
+          representationPreset: 'empty',
         });
-
-        // Get structure reference from hierarchy
-        const structures = plugin.managers.structure.hierarchy.current.structures;
-        if (!structures?.length) throw new Error('No structure found');
-        const structureRef = structures[0]?.cell?.transform?.ref;
-        if (!structureRef) throw new Error('Structure reference not available');
-        globalStructureRef = structureRef;
+        const structureRef = globalStructureRef;
 
         // Build ligand selection expression using helper
         const ligandExpression = residueExpression(ligand.name, ligand.chainId, ligand.resSeq);
@@ -527,31 +566,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       try {
         console.log('[ProteinViewer] Focusing on coordination sphere:', coordData);
 
-        // Reload structure in transaction (prevents hierarchy builder crash in production)
-        const isCif = pdbContent.trimStart().startsWith('data_');
-        const format = isCif ? 'mmcif' : 'pdb';
-
-        await plugin.dataTransaction(async () => {
-          await plugin.clear();
-          const data = await plugin.builders.data.rawData(
-            { data: pdbContent, label: 'structure.pdb' },
-            { state: { isGhost: true } }
-          );
-          const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-          if (!trajectory) {
-            throw new Error('Failed to parse trajectory from PDB data');
-          }
-          await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-            representationPreset: 'empty',
-          });
+        globalStructureRef = await loadStructureIntoPlugin(plugin, pdbContent, {
+          representationPreset: 'empty',
         });
-
-        // Get structure reference from hierarchy
-        const structures = plugin.managers.structure.hierarchy.current.structures;
-        if (!structures?.length) throw new Error('No structure found');
-        const structureRef = structures[0]?.cell?.transform?.ref;
-        if (!structureRef) throw new Error('Structure reference not available');
-        globalStructureRef = structureRef;
+        const structureRef = globalStructureRef;
 
         // Build expressions for each component
         const focusGroups: any[] = [];
@@ -1021,18 +1039,7 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
       globalOperationInProgress = new Promise(resolve => { resolveOperation = resolve; });
 
       try {
-        const isCif = pdbContent.trimStart().startsWith('data_');
-        const format = isCif ? 'mmcif' : 'pdb';
-
-        await globalPlugin.dataTransaction(async () => {
-          await globalPlugin!.clear();
-          const data = await globalPlugin!.builders.data.rawData(
-            { data: pdbContent, label: 'structure.pdb' },
-            { state: { isGhost: true } }
-          );
-          const trajectory = await globalPlugin!.builders.structure.parseTrajectory(data, format);
-          await globalPlugin!.builders.structure.hierarchy.applyPreset(trajectory, 'default');
-        });
+        globalStructureRef = await loadStructureIntoPlugin(globalPlugin, pdbContent);
 
         globalPlugin.canvas3d?.requestCameraReset();
         setFocusMode('none');
@@ -1305,63 +1312,10 @@ export const ProteinViewerClient = forwardRef<ProteinViewerHandle, ProteinViewer
           // Clear ligand features visualization state when loading new structure
           useStore.getState().setShowLigandFeatures3D(false);
 
-          const isCif = pdbContent.trimStart().startsWith('data_');
-          const format = isCif ? 'mmcif' : 'pdb';
-          const extension = isCif ? 'cif' : 'pdb';
-
-          console.log(`[ProteinViewer] Detected format: ${format}`);
-
-          // Sanitize CIF entry ID — RF3/atomworks produces entry IDs with spaces
-          // and special characters that break Molstar's mmCIF parser.
-          let contentToLoad = pdbContent;
-          if (isCif) {
-            contentToLoad = pdbContent.replace(
-              /^(data_)\S*.*$/m,
-              '$1structure'
-            );
-          }
-
-          // Wrap entire load in dataTransaction to prevent Molstar hierarchy builder
-          // from running during intermediate state changes. Without this, the default
-          // preset's sequential commit() calls (createModel, insertModelProperties,
-          // createStructure, etc.) each trigger the hierarchy builder, which can crash
-          // on partially-formed state cells accessing cell.transform.ref without
-          // optional chaining (hierarchy-state.js:196). In production mode
-          // (NODE_ENV=production), Molstar suppresses "bad cell" warnings and silently
-          // returns undefined, causing cascade failures. The transaction batches all
-          // state changes so the hierarchy rebuilds only once with the final state.
-          console.log('[ProteinViewer] Loading structure in transaction...');
-          await plugin.dataTransaction(async () => {
-            await plugin.clear();
-
-            const data = await plugin.builders.data.rawData(
-              { data: contentToLoad, label: `structure.${extension}` },
-              { state: { isGhost: true } }
-            );
-
-            const trajectory = await plugin.builders.structure.parseTrajectory(data, format);
-            if (!trajectory) {
-              throw new Error('Failed to parse trajectory - PDB data may be malformed');
-            }
-            console.log('[ProteinViewer] Trajectory parsed, applying preset...');
-
-            await plugin.builders.structure.hierarchy.applyPreset(trajectory, 'default', {
-              representationPreset: 'auto',
-            });
+          console.log('[ProteinViewer] Loading structure...');
+          globalStructureRef = await loadStructureIntoPlugin(plugin, pdbContent, {
+            representationPreset: 'auto',
           });
-
-          // Hierarchy is now synced after transaction — safe to access structures
-          const structures = plugin.managers.structure.hierarchy.current.structures;
-          if (!structures || structures.length === 0) {
-            throw new Error('No structure found after preset application');
-          }
-          const structureCell = structures[0]?.cell;
-          if (!structureCell?.transform?.ref) {
-            throw new Error('Structure reference not available');
-          }
-          globalStructureRef = structureCell.transform.ref;
-
-          console.log('[ProteinViewer] Structure loaded with preset');
 
           plugin.canvas3d?.requestCameraReset();
           console.log('[ProteinViewer] Structure loaded successfully');

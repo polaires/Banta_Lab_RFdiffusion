@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
   },
 
   // Webpack config for production builds - handle Molstar's complex module structure
+  // CRITICAL: Next.js 16+ defaults to Turbopack for production, which IGNORES this
+  // webpack config entirely. The build script must use `next build --webpack` to ensure
+  // these anti-tree-shaking protections are applied. Without them, Turbopack aggressively
+  // optimizes Molstar internals, causing applyPreset to silently fail and produce
+  // "No structure found after preset application" errors on production only.
   webpack: (config, { isServer, dev }) => {
     if (!isServer) {
       // Mark molstar as having side effects to prevent incorrect tree-shaking
